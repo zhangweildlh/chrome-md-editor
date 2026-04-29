@@ -14,6 +14,15 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
+import {
+  buildImagesRelativePath,
+  buildPastedImageMarkdown,
+  createPastedImageFilename,
+  dirnameFromRelativePath,
+  mimeTypeToExtension,
+  resolvePreviewImageSource,
+  splitRelativePath,
+} from './image-support.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -76,6 +85,9 @@ let currentViewMode = localStorage.getItem('md-editor-view-mode') || 'split';
 let scrollSyncEnabled = true;
 let isPreviewEditing = false; // 防止预览编辑时循环更新
 let mermaidCounter = 0; // mermaid 图表 ID 计数器
+let currentFileUrl = null; // file:// 打开的 Markdown 原始地址
+let currentDirectoryPath = null; // 相对已打开文件夹根目录的当前 Markdown 目录
+let previewObjectUrls = []; // 用于释放通过 File System Access API 生成的 blob URL
 
 // Theme compartment for dynamic switching
 const themeCompartment = new Compartment();
@@ -275,6 +287,7 @@ async function doUpdatePreview() {
 
   // 渲染 Mermaid 图表
   // markdown-it 会把 ```mermaid 渲染成 <pre><code class="language-mermaid">...</code></pre>
+  cleanupPreviewObjectUrls();
   previewContainer.innerHTML = html;
 
   // 查找所有 mermaid 代码块并渲染
@@ -297,6 +310,97 @@ async function doUpdatePreview() {
       pre.replaceWith(div);
     }
   }
+
+  await resolvePreviewImages(previewContainer);
+}
+
+function cleanupPreviewObjectUrls() {
+  for (const url of previewObjectUrls) {
+    URL.revokeObjectURL(url);
+  }
+  previewObjectUrls = [];
+}
+
+function hasDirectImageUrl(src) {
+  return /^(https?:|data:|blob:|chrome-extension:|file:\/\/)/i.test(src);
+}
+
+function looksLikeLocalImageSource(src) {
+  const normalized = String(src || '').trim();
+  if (!normalized) return false;
+  if (hasDirectImageUrl(normalized)) return true;
+  if (/^[a-zA-Z]:[\\/]/.test(normalized)) return true;
+  if (normalized.startsWith('/')) return true;
+  return !/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(normalized);
+}
+
+async function resolvePreviewImages(previewContainer) {
+  const images = previewContainer.querySelectorAll('img');
+
+  await Promise.all(
+    Array.from(images, async (img) => {
+      const originalSrc = img.getAttribute('src') || '';
+      const resolvedSrc = resolvePreviewImageSource(originalSrc, {
+        currentFileUrl,
+        currentDirectoryPath,
+      });
+
+      if (!resolvedSrc) {
+        if (looksLikeLocalImageSource(originalSrc)) {
+          img.title = '无法解析本地图片路径。请使用“打开文件夹”或拖拽 file:// 文件打开 Markdown。';
+        }
+        return;
+      }
+
+      try {
+        const finalSrc = await materializePreviewImageSource(resolvedSrc);
+        img.setAttribute('data-md-original-src', originalSrc);
+        img.setAttribute('src', finalSrc);
+      } catch (err) {
+        console.warn('本地图片加载失败:', originalSrc, err);
+        img.title = '本地图片加载失败: ' + err.message;
+      }
+    })
+  );
+}
+
+async function materializePreviewImageSource(resolvedSrc) {
+  if (hasDirectImageUrl(resolvedSrc)) {
+    return resolvedSrc;
+  }
+
+  if (!directoryHandle) {
+    return resolvedSrc;
+  }
+
+  const file = await getFileFromDirectoryPath(resolvedSrc);
+  const objectUrl = URL.createObjectURL(file);
+  previewObjectUrls.push(objectUrl);
+  return objectUrl;
+}
+
+async function getFileFromDirectoryPath(relativePath) {
+  const segments = splitRelativePath(relativePath);
+  if (segments.length === 0) {
+    throw new Error('图片路径为空');
+  }
+
+  let handle = directoryHandle;
+  for (const segment of segments.slice(0, -1)) {
+    handle = await handle.getDirectoryHandle(segment);
+  }
+
+  const fileHandle = await handle.getFileHandle(segments[segments.length - 1]);
+  return fileHandle.getFile();
+}
+
+function setCurrentDocumentContext({ fileUrl = null, directoryPath = null } = {}) {
+  currentFileUrl = fileUrl;
+  currentDirectoryPath = directoryPath;
+}
+
+function clearCurrentDocumentContext() {
+  setCurrentDocumentContext({ fileUrl: null, directoryPath: null });
 }
 
 // ==========================================
@@ -427,7 +531,7 @@ function convertNode(node) {
       return `[${childText}](${href})`;
     }
     case 'img': {
-      const src = node.getAttribute('src') || '';
+      const src = node.getAttribute('data-md-original-src') || node.getAttribute('src') || '';
       const alt = node.getAttribute('alt') || '';
       return `![${alt}](${src})`;
     }
@@ -509,6 +613,7 @@ async function handleOpen() {
     const content = await file.text();
 
     currentFileHandle = fileHandle;
+    clearCurrentDocumentContext();
     setEditorContent(content);
     updateFilename(file.name);
     markSaved();
@@ -557,6 +662,7 @@ async function handleSaveAs() {
     await writable.close();
 
     currentFileHandle = fileHandle;
+    clearCurrentDocumentContext();
     updateFilename((await fileHandle.getFile()).name);
     markSaved();
     showToast('文件已保存', 'success');
@@ -574,6 +680,7 @@ function handleNew() {
     }
   }
   currentFileHandle = null;
+  clearCurrentDocumentContext();
   setEditorContent('');
   updateFilename('未打开文件');
   markSaved();
@@ -946,12 +1053,135 @@ function bindEvents() {
         setEditorContent(content);
         updateFilename(file.name);
         currentFileHandle = null; // 拖拽打开无 handle
+        clearCurrentDocumentContext();
         markSaved();
         showToast(`已打开: ${file.name}`, 'success');
       } else {
         showToast('请拖入 .md 或 .markdown 文件', 'error');
       }
     }
+  });
+}
+
+function initPasteImageSupport() {
+  editor.contentDOM.addEventListener('paste', async (event) => {
+    const items = Array.from(event.clipboardData?.items || []);
+    const imageItem = items.find((item) => item.type.startsWith('image/'));
+
+    if (!imageItem) return;
+
+    const file = imageItem.getAsFile();
+    if (!file) return;
+
+    event.preventDefault();
+
+    try {
+      const { imagePath, storageMode } = await persistPastedImage(file);
+      const markdown = buildPastedImageMarkdown({
+        alt: 'pasted-image',
+        imagePath,
+      });
+
+      insertMarkdownSnippet(markdown);
+
+      if (storageMode === 'file') {
+        showToast(`图片已保存并插入: ${imagePath}`, 'success');
+      } else {
+        showToast('图片已以内嵌 data URL 插入 Markdown', 'success');
+      }
+    } catch (err) {
+      showToast('粘贴图片失败: ' + err.message, 'error');
+    }
+  });
+}
+
+function insertMarkdownSnippet(snippet) {
+  const sel = editor.state.selection.main;
+  const beforeChar = sel.from > 0 ? editor.state.sliceDoc(sel.from - 1, sel.from) : '';
+  const afterChar = sel.to < editor.state.doc.length ? editor.state.sliceDoc(sel.to, sel.to + 1) : '';
+
+  let insert = snippet;
+  if (beforeChar && beforeChar !== '\n') {
+    insert = '\n' + insert;
+  }
+  if (afterChar && afterChar !== '\n') {
+    insert = insert + '\n';
+  }
+
+  const anchor = sel.from + insert.length;
+  editor.dispatch({
+    changes: { from: sel.from, to: sel.to, insert },
+    selection: { anchor, head: anchor },
+  });
+  editor.focus();
+}
+
+async function persistPastedImage(file) {
+  if (directoryHandle && currentDirectoryPath !== null) {
+    try {
+      const imagePath = await savePastedImageToDirectory(file);
+      return { imagePath, storageMode: 'file' };
+    } catch (err) {
+      console.warn('写入 images/ 目录失败，回退到 data URL:', err);
+    }
+  }
+
+  const imagePath = await blobToDataUrl(file);
+  return { imagePath, storageMode: 'data-url' };
+}
+
+async function savePastedImageToDirectory(file) {
+  const hasPermission = await ensureDirectoryPermission(directoryHandle, 'readwrite');
+  if (!hasPermission) {
+    throw new Error('没有写入当前文件夹的权限');
+  }
+
+  const currentDirHandle = await getCurrentMarkdownDirectoryHandle();
+  const imagesHandle = await currentDirHandle.getDirectoryHandle('images', { create: true });
+  const filename = createPastedImageFilename({
+    timestamp: new Date(),
+    extension: mimeTypeToExtension(file.type),
+  });
+  const imageFileHandle = await imagesHandle.getFileHandle(filename, { create: true });
+  const writable = await imageFileHandle.createWritable();
+  await writable.write(file);
+  await writable.close();
+
+  return buildImagesRelativePath(filename);
+}
+
+async function getCurrentMarkdownDirectoryHandle() {
+  if (!directoryHandle || currentDirectoryPath === null) {
+    throw new Error('当前文件没有可写目录上下文');
+  }
+
+  let handle = directoryHandle;
+  for (const segment of splitRelativePath(currentDirectoryPath)) {
+    handle = await handle.getDirectoryHandle(segment);
+  }
+
+  return handle;
+}
+
+async function ensureDirectoryPermission(handle, mode = 'read') {
+  if (!handle?.queryPermission || !handle?.requestPermission) {
+    return true;
+  }
+
+  const options = { mode };
+  if ((await handle.queryPermission(options)) === 'granted') {
+    return true;
+  }
+
+  return (await handle.requestPermission(options)) === 'granted';
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('读取剪贴板图片失败'));
+    reader.readAsDataURL(blob);
   });
 }
 
@@ -963,7 +1193,7 @@ let isSidebarCollapsed = localStorage.getItem('md-sidebar-collapsed') === 'true'
 
 async function handleOpenFolder() {
   try {
-    directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+    directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     await renderFileTree();
     showToast(`已打开文件夹: ${directoryHandle.name}`, 'success');
   } catch (err) {
@@ -973,17 +1203,19 @@ async function handleOpenFolder() {
   }
 }
 
-async function readDirectoryRecursive(dirHandle, depth = 0) {
+async function readDirectoryRecursive(dirHandle, depth = 0, parentPath = '') {
   const entries = [];
   for await (const entry of dirHandle.values()) {
     // 跳过隐藏文件和 node_modules / dist 等
     if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
 
+    const entryPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+
     if (entry.kind === 'directory') {
-      const children = depth < 5 ? await readDirectoryRecursive(entry, depth + 1) : [];
-      entries.push({ name: entry.name, kind: 'directory', handle: entry, children });
+      const children = depth < 5 ? await readDirectoryRecursive(entry, depth + 1, entryPath) : [];
+      entries.push({ name: entry.name, kind: 'directory', handle: entry, path: entryPath, children });
     } else {
-      entries.push({ name: entry.name, kind: 'file', handle: entry });
+      entries.push({ name: entry.name, kind: 'file', handle: entry, path: entryPath });
     }
   }
 
@@ -1083,7 +1315,7 @@ function renderFileNode(parent, entry, depth) {
   if (isMarkdown) {
     itemDiv.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await openFileFromTree(entry.handle, entry.name);
+      await openFileFromTree(entry.handle, entry.name, entry.path);
       // 高亮当前文件
       document.querySelectorAll('.tree-item.active').forEach(el => el.classList.remove('active'));
       itemDiv.classList.add('active');
@@ -1096,7 +1328,7 @@ function renderFileNode(parent, entry, depth) {
   parent.appendChild(itemDiv);
 }
 
-async function openFileFromTree(fileHandle, filename) {
+async function openFileFromTree(fileHandle, filename, relativePath) {
   try {
     if (isModified) {
       if (!confirm('当前文件有未保存的更改，确定要打开新文件吗？')) return;
@@ -1106,6 +1338,10 @@ async function openFileFromTree(fileHandle, filename) {
     const content = await file.text();
 
     currentFileHandle = fileHandle;
+    setCurrentDocumentContext({
+      fileUrl: null,
+      directoryPath: dirnameFromRelativePath(relativePath),
+    });
     setEditorContent(content);
     updateFilename(filename);
     markSaved();
@@ -1195,6 +1431,9 @@ function init() {
   // 初始化预览区可编辑
   initPreviewEditing();
 
+  // 初始化编辑区图片粘贴
+  initPasteImageSupport();
+
   // 初始化文件浏览器侧边栏
   initFileSidebar();
 
@@ -1228,6 +1467,10 @@ async function loadPendingFile() {
       return;
     }
 
+    setCurrentDocumentContext({
+      fileUrl: pendingFile.sourceUrl || null,
+      directoryPath: null,
+    });
     // 加载文件内容到编辑器
     setEditorContent(pendingFile.content);
     updateFilename(pendingFile.filename);

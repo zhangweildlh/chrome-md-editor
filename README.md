@@ -1,7 +1,5 @@
 # Markdown Editor (Chrome Extension)
 
-![Markdown Editor Hero](./hero.png)
-
 🌟 **Welcome friends from Xiaohongshu (小红书) and sspai (少数派)!** If you find this extension helpful, please consider giving it a Star ⭐️
 
 A clean, efficient, and locally-hosted Markdown editor extension for Google Chrome. / 这是一个简洁、高效的且支持本地部署的 Markdown 编辑器 Chrome 扩展。
@@ -16,6 +14,8 @@ A clean, efficient, and locally-hosted Markdown editor extension for Google Chro
 
 - **Direct File Editing:** Drag and drop any `.md` file into Chrome to automatically open and edit it.
 - **Project File Browser:** Built-in sidebar to browse your local project structures and quickly switch between Markdown files.
+- **Local Image Preview:** Renders relative local image paths when a Markdown file is opened from a folder or a `file://` drag-open flow.
+- **Paste Images:** Paste screenshots or clipboard images directly into Markdown; the editor saves them into `images/` when folder write access is available, otherwise it falls back to embedded data URLs.
 - **Mermaid Diagram Support:** Automatically renders ` ```mermaid ` code blocks into beautiful SVG diagrams.
 - **WYSIWYG Preview:** Click and edit directly within the rendered preview pane – changes automatically sync back to the source code.
 - **Real-time Preview:** Split-pane layout with independent scrolling and synchronized viewing for GitHub Flavored Markdown (GFM).
@@ -48,6 +48,8 @@ A clean, efficient, and locally-hosted Markdown editor extension for Google Chro
 
 - **拖拽直开：** 直接将本地 `.md` 文件拖入 Chrome 浏览器，扩展将自动接管并在编辑器中无缝打开。
 - **项目文件浏览器：** 内置侧边栏，轻松浏览本地文件夹结构，在多个 Markdown 文件间快速切换。
+- **本地图片预览：** 从文件夹或 `file://` 拖拽打开 Markdown 时，可解析并预览相对路径图片。
+- **粘贴图片插入：** 支持直接粘贴截图或剪贴板图片；有文件夹写入权限时保存到同级 `images/` 目录，否则自动以内嵌 data URL 插入。
 - **Mermaid 图表渲染：** 原生支持识别 ` ```mermaid ` 代码块，并直接在预览区渲染为 SVG 流程图。
 - **预览区直接编辑 (WYSIWYG)：** 点击右侧渲染好的预览区即可直接修改文本，改动会自动同步回左侧的 Markdown 源码。
 - **实时预览：** 左右分屏布局，支持 GitHub 风格 Markdown (GFM)，支持滚动条同步联动。
