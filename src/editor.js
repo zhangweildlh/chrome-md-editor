@@ -422,12 +422,12 @@ function initPreviewEditing() {
     previewContainer.classList.add('editing');
   });
 
-  // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器
+  // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器并重新渲染预览
   previewContainer.addEventListener('blur', () => {
     if (!isPreviewEditing) return;
     isPreviewEditing = false;
     previewContainer.classList.remove('editing');
-    syncPreviewToEditor();
+    syncPreviewToEditor(true);
   });
 
   // 实时同步：每次输入后短延迟同步
@@ -472,7 +472,7 @@ async function openPreviewLink(targetUrl) {
   }
 }
 
-function syncPreviewToEditor() {
+function syncPreviewToEditor(rerender = false) {
   const previewContainer = document.getElementById('previewContainer');
   const html = previewContainer.innerHTML;
   const markdownContent = htmlToMarkdown(html);
@@ -485,17 +485,45 @@ function syncPreviewToEditor() {
     markModified();
     updateStatus();
     // 短延迟后解除标记
-    setTimeout(() => { isPreviewEditing = false; }, 100);
+    setTimeout(() => { isPreviewEditing = false; }, 120);
+  }
+
+  // 失焦时：用规范化后的 Markdown 重新渲染预览，保证预览与编辑器一致，
+  // 避免下一次编辑基于「被篡改的 contenteditable DOM」继续累加空行与漂移
+  if (rerender) {
+    doUpdatePreview();
   }
 }
 
 // ==========================================
 // HTML → Markdown 转换器（内置轻量实现）
 // ==========================================
+function normalizeMarkdown(md) {
+  // 折叠多余空行与行尾空白，避免预览回写到源码时反复累加空行/格式重排
+  return md
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function htmlToMarkdown(html) {
   // 创建临时 DOM 来遍历
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  return convertNode(doc.body).trim() + '\n';
+  return normalizeMarkdown(convertNode(doc.body)) + '\n';
+}
+
+// 按原始属性重建行内 HTML 标签。
+// 预览区可编辑后回写源码时，<center>/<font>/<span>/<mark> 这类「原始 HTML 片段」
+// 若走 default 分支会被直接丢弃（仅保留子文本），导致居中/高亮/字号等格式在
+// 往返转换中丢失。这里按属性原样重建片段，保证样式标签可无损回写。
+function reconstructRawTag(node) {
+  const tag = node.tagName.toLowerCase();
+  const attrs = Array.from(node.attributes || [])
+    .map((a) => ` ${a.name}="${a.value}"`)
+    .join('');
+  const childText = Array.from(node.childNodes).map(convertNode).join('');
+  return `<${tag}${attrs}>${childText}</${tag}>`;
 }
 
 function convertNode(node) {
@@ -592,6 +620,12 @@ function convertNode(node) {
       }
       return childText;
     }
+    // 原始 HTML 样式标签：按属性重建，避免往返丢失格式
+    case 'mark':
+    case 'center':
+    case 'font':
+    case 'span':
+      return reconstructRawTag(node);
     default:
       return childText;
   }
@@ -783,6 +817,60 @@ function wrapSelection(before, after) {
   }
   editor.focus();
   return true;
+}
+
+// 用「原始 HTML 片段」包裹选区（用于居中/高亮/字号等带 HTML 标签的样式）
+// 若有选区 → 包裹选区；若无选区 → 插入占位文本便于继续输入
+function wrapWithRaw(before, after, placeholder) {
+  const sel = editor.state.selection.main;
+  const selectedText = editor.state.sliceDoc(sel.from, sel.to);
+
+  if (selectedText) {
+    editor.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: before + selectedText + after },
+      selection: { anchor: sel.from + before.length, head: sel.to + before.length },
+    });
+  } else {
+    const insert = before + placeholder + after;
+    editor.dispatch({
+      changes: { from: sel.from, insert },
+      selection: {
+        anchor: sel.from + before.length,
+        head: sel.from + before.length + placeholder.length,
+      },
+    });
+  }
+  editor.focus();
+  return true;
+}
+
+// 字号下拉：从 data 属性读取 before/after/placeholder，复用 wrapWithRaw
+function initFontSizeDropdown() {
+  const dropdown = document.getElementById('fontSizeDropdown');
+  const toggle = document.getElementById('btnFontSize');
+  const menu = document.getElementById('fontSizeMenu');
+  if (!dropdown || !toggle || !menu) return;
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('open');
+  });
+
+  menu.querySelectorAll('.dropdown-item').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const before = item.getAttribute('data-before') || '';
+      const after = item.getAttribute('data-after') || '';
+      const placeholder = item.getAttribute('data-placeholder') || '文本';
+      wrapWithRaw(before, after, placeholder);
+      dropdown.classList.remove('open');
+    });
+  });
+
+  // 点击其它区域关闭下拉
+  document.addEventListener('click', () => {
+    dropdown.classList.remove('open');
+  });
 }
 
 function insertAtLineStart(prefix) {
@@ -1001,6 +1089,21 @@ function bindEvents() {
   document.getElementById('btnItalic').addEventListener('click', () => wrapSelection('*', '*'));
   document.getElementById('btnStrike').addEventListener('click', () => wrapSelection('~~', '~~'));
   document.getElementById('btnCode').addEventListener('click', () => wrapSelection('`', '`'));
+
+  // 居中 / 高亮 样式按钮（插入原始 HTML 片段，markdown-it 已开启 html:true）
+  document.getElementById('btnCenterBold').addEventListener('click', () =>
+    wrapWithRaw('<center><b>', '</b></center>', '居中+加粗'));
+  document.getElementById('btnCenterBoldRed').addEventListener('click', () =>
+    wrapWithRaw('<center><b><font color="red">', '</font></b></center>', '居中+加粗+红色'));
+  document.getElementById('btnCenterBoldBlue').addEventListener('click', () =>
+    wrapWithRaw('<center><strong><span style="color: blue;">', '</span></strong></center>', '居中+加粗+蓝色'));
+  document.getElementById('btnHighlight').addEventListener('click', () =>
+    wrapWithRaw('<mark>', '</mark>', '文本高亮'));
+  document.getElementById('btnHighlightBold').addEventListener('click', () =>
+    wrapWithRaw('<mark>**', '** </mark>', '文本高亮+加粗'));
+
+  // 修改字号下拉
+  initFontSizeDropdown();
 
   // 标题
   document.getElementById('btnH1').addEventListener('click', () => insertAtLineStart('# '));
@@ -1509,15 +1612,21 @@ async function loadPendingFile() {
   // 在非扩展环境（dev server）中跳过
   if (typeof chrome === 'undefined' || !chrome.storage) return;
 
+  // 每个编辑器实例通过 URL 上的 ?i=<instanceId> 标识自己，
+  // 以此读取「专属」的 pendingFile_<instanceId>，避免多个实例争用同一个键。
+  const params = new URLSearchParams(window.location.search);
+  const instanceId = params.get('i');
+  const storageKey = instanceId ? 'pendingFile_' + instanceId : 'pendingFile';
+
   try {
-    const result = await chrome.storage.local.get('pendingFile');
-    const pendingFile = result.pendingFile;
+    const result = await chrome.storage.local.get(storageKey);
+    const pendingFile = result[storageKey];
 
     if (!pendingFile) return;
 
     // 检查时间戳，超过 30 秒的视为过期
     if (Date.now() - pendingFile.timestamp > 30000) {
-      await chrome.storage.local.remove('pendingFile');
+      await chrome.storage.local.remove(storageKey);
       return;
     }
 
@@ -1534,7 +1643,7 @@ async function loadPendingFile() {
     hideOnboarding();
 
     // 清除 pending file
-    await chrome.storage.local.remove('pendingFile');
+    await chrome.storage.local.remove(storageKey);
   } catch (err) {
     console.warn('加载 pending file 失败:', err);
   }

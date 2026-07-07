@@ -33,6 +33,9 @@ A clean, efficient, and locally-hosted Markdown editor extension for Google Chro
 - **Real-time Preview:** Split-pane layout with independent scrolling and synchronized viewing for GitHub Flavored Markdown (GFM).
 - **Themes & Layouts:** Supports Light and Dark modes. Choose between Split, Editor-only, or Preview-only layouts.
 - **No Uploads Required:** Runs entirely locally using Chrome's File System Access API. Your files never leave your computer.
+- **Multiple Instances:** Click the toolbar icon as many times as you like — each click opens a new, independent editor tab (no more single-tab limit). Every opened `.md` file is routed to its own instance via a per-instance storage key.
+- **Style Toolbar Buttons:** One-click insert of *Centered+Bold*, *Centered+Bold+Red*, *Centered+Bold+Blue*, *Text Highlight*, *Highlight+Bold*, plus a **Font Size** dropdown (FangSong / KaiTi in default / red / blue with sizes). Rendered through markdown-it's raw-HTML pass-through.
+- **Cleaner WYSIWYG Sync:** Editing directly in the preview pane no longer introduces extra blank lines or reformats your source — a `normalizeMarkdown` step collapses redundant newlines and re-renders the preview on blur to stay in sync.
 
 ### Installation
 
@@ -85,6 +88,9 @@ A clean, efficient, and locally-hosted Markdown editor extension for Google Chro
 - **实时预览：** 左右分屏布局，支持 GitHub 风格 Markdown (GFM)，支持滚动条同步联动。
 - **多主题与布局：** 内置深色/浅色主题；支持分屏、纯编辑、纯预览三种视图模式。
 - **纯本地极客体验：** 基于 Chrome File System Access API 构建，无需启动后端服务，数据完全保留在本地。
+- **多实例支持：** 点击工具栏图标可反复打开，每次都是独立的新编辑器标签页（不再限制单实例）；每个被拦截的 `.md` 文件通过专属存储键路由到对应实例，互不干扰。
+- **样式工具栏按钮：** 一键插入「居中+加粗 / 居中+加粗+红 / 居中+加粗+蓝 / 文本高亮 / 文本高亮+加粗」以及「修改字号」下拉（仿宋 / 楷体 × 默认 / 红 / 蓝 × 指定字号），借助 markdown-it 的 HTML 透传渲染。
+- **预览编辑更干净：** 在右侧预览区直接编辑后，源码同步且不再产生多余空行、也不做格式重排（`normalizeMarkdown` 折叠冗余空行，失焦时重渲染预览以重新对齐）。
 
 ### 安装步骤
 
@@ -101,3 +107,63 @@ A clean, efficient, and locally-hosted Markdown editor extension for Google Chro
 - 核心技术栈：**CodeMirror 6**, **markdown-it**, **Vite**。
 - 运行 `npm run dev` 可启动本地开发服务器进行 UI 调试（注意：纯网页环境下无法使用 Chrome 扩展专属的文件访问 API）。
 - 详细的开发历程与技术决策请参阅 `DEVLOG.md`。
+
+---
+
+## 构建与本地测试 / Build & Local Test
+
+### 前置要求 / Prerequisites
+
+- 已安装 **Node.js 18+**（建议 20+）。
+- 包管理使用 `npm`（随 Node 一同安装）。
+
+### 步骤 1：安装依赖
+
+```bash
+npm install
+```
+
+首次运行会从 npm 拉取 CodeMirror 6、markdown-it、mermaid、vite 等依赖，生成 `node_modules/`（已被 `.gitignore` 忽略，不会进入版本库）。
+
+### 步骤 2：构建扩展
+
+```bash
+npm run build
+```
+
+Vite 将 `src/editor.html` 作为入口打包，并把 `public/` 下的文件（`manifest.json`、`background.js`、`content-script.js`、`icons/`）原样拷贝进输出目录，最终产物在 `dist/`：
+
+```
+dist/
+├── manifest.json
+├── background.js
+├── content-script.js
+├── icons/icon{16,48,128}.png
+├── src/editor.html        ← 打包后的编辑器页面（内部引用 ../assets/*）
+└── assets/editor.js, editor.css
+```
+
+> `chrome.runtime.getURL('src/editor.html')` 与 `manifest.json` 中的 `web_accessible_resources` 指向的路径一致，因此加载 `dist/` 即可直接用，**无需改动任何路径**。
+
+### 步骤 3：加载到 Chrome 开发者模式
+
+1. 打开 Chrome，访问 `chrome://extensions/`。
+2. 打开右上角的 **「开发者模式」**（Developer mode）开关。
+3. 点击左上角 **「加载已解压的扩展程序」**（Load unpacked），**选择项目里的 `dist/` 文件夹**（注意：选 `dist/`，不是 `src/`，也不是项目根目录）。
+4. 加载成功后，扩展列表出现 **Markdown Editor**（版本 1.3.0）。
+5. **⚠️ 重要**：点击该扩展的「详细信息」（Details），开启 **「允许访问文件网址」**（Allow access to file URLs）——这是「拖拽本地 `.md` 自动打开」的前提。
+
+### 步骤 4：本地验证
+
+- **多实例**：点击工具栏扩展图标，每次都会**新开一个独立编辑器标签页**（不再复用同一页）。
+- **样式按钮**：点击工具栏新增的「居中+加粗 / 高亮 / 字号」等按钮，确认按规格插入 `<center>` / `<font>` / `<mark>` 片段。
+- **预览编辑**：在右侧预览区直接编辑文字后点击外部，源码同步且**不再出现多余空行**。
+- **拖拽打开**：把任意 `.md` 文件拖入 Chrome 窗口，自动重定向到编辑器并加载内容。
+- **热更新**：改完代码执行 `npm run build`，回到 `chrome://extensions/` 点击扩展卡片上的 **「刷新」**（Update）即可生效，无需重新加载整个目录。
+
+### 说明
+
+- `npm run dev` 仅用于纯网页 UI 调试（Vite 开发服务器）。由于缺少 Chrome 扩展上下文（`chrome.*` API、文件系统权限），「打开文件 / 拖拽 `.md` / 多实例」等扩展专属功能在 dev 模式下不可用。**正式验证请走 `npm run build` + 加载 `dist/` 流程。**
+- 构建时可能出现 Vite 大 chunk 警告（来自 mermaid / 语法高亮依赖体积），属已知现象，不阻塞扩展加载。
+- 运行单元测试：`npm test`（验证 `image-support` / `link-support` 纯函数模块）。
+- 开发日志与全部改动记录见 `DEVLOG.md`。

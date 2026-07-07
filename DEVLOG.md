@@ -306,3 +306,75 @@ Chrome 扩展管理页中原图标显示为纯紫色渐变占位块，缺少和 
 
 4. 新增 `tests/link-support.test.js`
    - 覆盖远程链接、基于 `file://` 的相对链接解析，以及不安全链接拒绝
+
+---
+
+## 2026-07-07 第八阶段：预览编辑空行修复 + 多实例支持 + 工具栏样式按钮
+
+本阶段覆盖三类修改：分屏预览编辑的「累加空行 / 格式重排」问题修复、多编辑器实例支持、以及工具栏新增居中 / 高亮 / 字号按钮。
+
+### 需求 A：分屏预览编辑会自动添加多个空行、引发格式重排
+
+**根因**（三层叠加）
+1. `previewContainer` 被设为 `contenteditable` 后，浏览器在输入 / 回车时会重写 DOM（拆 `<div>`、插 `<br>`、合并节点）。
+2. `htmlToMarkdown()` 的 `convertNode()` 是「逐块追加 `\n\n`」的粗粒度序列化器，`<div>` 默认分支只返回文本、`<br>` 返回 `'\n'`，与已是 `\n\n` 的段落叠加 → `文本\n\n\n…`（多个空行），并把单/双换行重新规范化为双换行（格式重排）。
+3. `setEditorContent()` 全量替换编辑器后，预览因 `isPreviewEditing` 守卫**不重渲染**，仍显示被篡改的脏 DOM；下一轮编辑又基于脏 HTML 再转一次，空行与偏移不断累加。
+
+**实现（修复）**
+- 新增 `normalizeMarkdown(md)`：`\n{3,}` → `\n\n`、清除行尾空白、统一 `\r\n`；`htmlToMarkdown()` 末尾调用它，从根上压缩多余空行。
+- `syncPreviewToEditor(rerender = false)` 增加参数；`blur` 处理器改为 `syncPreviewToEditor(true)`——同步后用规范化后的 Markdown 调 `doUpdatePreview()` 重渲染预览，使预览与编辑器重新对齐；`input` 期（用户正在输入）不重渲染以保光标。切断「脏 DOM 反复累加」循环。
+
+### 需求 B：支持同时打开多个编辑器实例
+
+**根因**
+- `background.js` 的 `action.onClicked` 采用「已存在则聚焦」策略，最多只允许一个实例。
+- `.md` 拦截路径（`background.js` 的 `tabs.onUpdated` 与 `content-script.js`）共用单个 `chrome.storage.local.pendingFile` 键，多文件并发后写覆盖先写，各实例 `loadPendingFile()` 争用同一键导致加载错乱。
+
+**实现（多实例）**
+1. `background.js`：新增 `newInstanceId()`（UUID，带 `crypto.randomUUID` 降级）；`action.onClicked` 改为每次点击都 `chrome.tabs.create('…editor.html?i=<uuid>')`，可打开任意多个实例；`tabs.onUpdated` 拦截 `.md` 时写入独立的 `pendingFile_<uuid>` 并 `?i=` 重定向。
+2. `content-script.js`：写入 `pendingFile_<uuid>` 并以 `?i=<uuid>` 重定向。
+3. `editor.js`：`loadPendingFile()` 读取 URL 上的 `?i=` 实例 ID，加载专属 `pendingFile_<uuid>`；无实例 ID 时回退 legacy `pendingFile` 键（兼容）。
+- 副作用（预期行为）：`localStorage` 中的主题 / 视图 / 侧栏偏好同源共享，多实例 UI 风格保持一致。
+
+### 需求 C：预览编辑回写时丢失居中 / 高亮 / 字号样式标签
+
+**根因**：`convertNode()` 对 `<center>/<font>/<span>/<mark>` 走 `default` 分支，只保留内部文本、丢弃标签本身。用户在右侧预览区编辑含这些样式的文本并失焦后，居中 / 高亮 / 字号格式丢失。
+
+**实现**：新增 `reconstructRawTag(node)`，按元素原始属性（`face`/`color`/`size`/`style` 等）重建原始 HTML 片段，使这四类标签在「预览 HTML → Markdown 源码」往返中无损保留。
+
+### 需求 D：工具栏新增居中 / 高亮 / 字号按钮
+
+**实现**
+- `src/editor.html`：在格式化组后新增 `#styleGroup`（5 个按钮 + `#fontSizeDropdown` 字号下拉）。
+- `src/editor.js`：新增通用 `wrapWithRaw(before, after, placeholder)`（有选区包裹 / 无选区插占位文本）与 `initFontSizeDropdown()`；字号下拉 6 项通过 `data-before/data-after/data-placeholder` 复用同一函数。
+- `src/editor.css`：新增 `.toolbar-btn.text-btn` 与 `.dropdown`/`.dropdown-menu`/`.dropdown-item` 样式。
+
+**插入的精确格式（markdown-it 已开启 `html: true`，原始片段透传渲染）**
+
+| 按钮 | 包裹片段（before … after） | 无选区插入结果 |
+|------|---------------------------|--------------|
+| 居中+加粗 | `<center><b>` … `</b></center>` | `<center><b>居中+加粗</b></center>` |
+| 居中+加粗+红色 | `<center><b><font color="red">` … `</font></b></center>` | `<center><b><font color="red">居中+加粗+红色</font></b></center>` |
+| 居中+加粗+蓝色 | `<center><strong><span style="color: blue;">` … `</span></strong></center>` | `<center><strong><span style="color: blue;">居中+加粗+蓝色</span></strong></center>` |
+| 文本高亮 | `<mark>` … `</mark>` | `<mark>文本高亮</mark>` |
+| 文本高亮+加粗 | `<mark>**` … `** </mark>` | `<mark>**文本高亮+加粗** </mark>` |
+| 修改字号（下拉 6 项） | 见 `editor.js` `initFontSizeDropdown` | `<font face="仿宋">这是宋体</font>` 等（仿宋/楷体 × 红/蓝/默认 × size） |
+
+> 注意：`<center>` / `<font>` 为已废弃但 Chrome 仍支持的 HTML 标签，与原始需求规格一致。
+
+### 验证
+- `node --check` 三个 JS 文件均通过。
+- 现有 11 个测试（`node --test`）全部通过。
+
+---
+
+## 2026-07-07 第九阶段：高亮占位符规格调整 + 文档 / 构建同步
+
+### 本轮修改
+1. **高亮按钮占位符去尾空格**：`btnHighlight` 的占位文本由 `'文本高亮 '` 改回 `'文本高亮'`，无选区插入结果由 `<mark>文本高亮 </mark>` 调整为 `<mark>文本高亮</mark>`（与本轮需求一致）；`btnHighlightBold` 仍保留尾部空格（规格 `<mark>**文本高亮+加粗** </mark>`）。
+2. **文档同步**：`README.md` 增加新功能说明与「构建与本地测试」章节；`DEVLOG.md` 重构第八阶段、新增本阶段，补全预览空行修复、多实例、样式标签保留等全部改动记录。
+3. **版本**：`manifest.json` 升至 `1.3.0`，与功能增量保持一致。
+
+### 构建与本地测试（详细步骤见 README「构建与本地测试」）
+- `npm install` → `npm run build` → 在 `chrome://extensions/` 开启开发者模式 → 「加载已解压的扩展程序」选择 `dist/` → 开启「允许访问文件网址」。
+- 验证：点击扩展图标可开多个实例；工具栏居中 / 高亮 / 字号按钮按规格插入；分屏预览编辑不再累加空行。
