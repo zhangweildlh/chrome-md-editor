@@ -29,3 +29,6 @@ dist-ssr
 
 # contributor local tooling
 .workbuddy/
+
+# Local Playwright profile for extension E2E
+.playwright-chrome-md-editor/

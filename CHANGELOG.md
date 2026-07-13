@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.2] - 2026-07-14
+
+### Added
+
+- Reading-time bilingual translation in the preview pane (does not modify Markdown source)
+- Toolbar toggle + settings: pick a service preset, paste API Key only
+- Default preset: MiniMax Token Plan · Anthropic (`sk-cp-` key, `/anthropic/v1/messages`)
+- Dual protocol for MiniMax / StepFun Token Plans (Anthropic Messages + OpenAI-compatible)
+- Built-in presets: OpenAI / DeepSeek / Gemini / Groq / Mistral, Kimi / Qwen / 智谱 / 豆包, MiniMax · StepFun, OpenRouter · 硅基流动 · AiHubMix · 302.AI · API2D · CloseAI · Together · Fireworks · OneAPI, DeepL Free/Pro, custom endpoints
+- Preset base URLs and model IDs verified via Context7 against official docs (2026-07-13)
+- Background service-worker proxy for translation fetch (avoids CORS on `x-api-key` / Anthropic headers)
+- Per-segment translation cache and progress status
+- Visible build stamp (`v1.4.2`) in the toolbar and page title
+
+### Fixed
+
+- Do not call `chrome.permissions.request` on the translate path (false "未授权" after async gaps)
+- MiniMax Anthropic Token Plan calls go through the SW proxy with correct headers
+
+### Notes
+
+- Translation sends document text to the provider you configure; keep that in mind for private docs
+- After upgrade, reload the extension at `chrome://extensions` and close old editor tabs
+
 ## [1.3.1] - 2026-07-13
 
 ### Changed
