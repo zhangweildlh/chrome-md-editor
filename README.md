@@ -4,9 +4,34 @@
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
 **当前版本：[v1.4.2](https://github.com/yishu-ziyu/chrome-md-editor/releases/tag/v1.4.2)**  
-**下载：** [chrome-md-editor-v1.4.2.zip](https://github.com/yishu-ziyu/chrome-md-editor/releases/download/v1.4.2/chrome-md-editor-v1.4.2.zip)
+**下载：** [chrome-md-editor-v1.4.2.zip](https://github.com/yishu-ziyu/chrome-md-editor/releases/download/v1.4.2/chrome-md-editor-v1.4.2.zip)  
+**许可：** [MIT](./LICENSE)
 
 [English](#english)
+
+---
+
+## 预览
+
+分屏编辑 + 实时预览（深色）：
+
+![编辑器主界面](docs/images/screenshot-editor.png)
+
+阅读翻译：预览区中英对照（不改源码）：
+
+![双语阅读](docs/images/screenshot-bilingual.png)
+
+翻译设置（选预设 + 粘贴 API Key）：
+
+![翻译设置](docs/images/screenshot-translate-settings.png)
+
+浅色主题：
+
+![浅色主题](docs/images/screenshot-light.png)
+
+动图（主界面 → 设置 → 双语）：
+
+![演示 GIF](docs/images/demo.gif)
 
 ---
 
@@ -105,6 +130,7 @@ public/          # manifest、background、content-script、icons（构建时拷
 src/             # 编辑器页面与逻辑
 tests/           # node:test 单元测试
 scripts/         # 打包、图标、验收脚本
+docs/images/     # README 截图与演示 GIF
 dist/            # 构建产物（gitignore；Chrome 只加载这里）
 ```
 
@@ -120,7 +146,7 @@ dist/            # 构建产物（gitignore；Chrome 只加载这里）
 
 ## License
 
-未单独声明许可证时，以仓库内 LICENSE 文件为准；若暂无 LICENSE，仅供参考与自用，二次分发前请先补全许可。
+[MIT](./LICENSE) © 2026 [yishu-ziyu](https://github.com/yishu-ziyu)
 
 ---
 
@@ -129,6 +155,8 @@ dist/            # 构建产物（gitignore；Chrome 只加载这里）
 **Chrome Markdown Editor** is a Manifest V3 extension for editing local Markdown files in the browser.
 No backend.
 No upload for normal editing.
+
+![Editor](docs/images/screenshot-editor.png)
 
 ### Install
 
@@ -159,3 +187,7 @@ Load `dist/` as an unpacked extension.
 ### Privacy
 
 Editing stays local unless you enable reading translation, which sends text to the API provider you configure.
+
+### License
+
+[MIT](./LICENSE)
