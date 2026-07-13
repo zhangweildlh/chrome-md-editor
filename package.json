@@ -1,6 +1,6 @@
 {
   "name": "chrome-md-editor",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "vite build",
     "icons": "node scripts/generate-icons.mjs",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node --test",
+    "pack": "npm run build && node scripts/pack-extension.mjs"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.3.1",
