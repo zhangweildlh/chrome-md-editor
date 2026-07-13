@@ -76,10 +76,19 @@ export function showOnboarding() {
       </div>
 
       <div class="onboarding-tips">
-        <span>快捷键：</span>
-        <kbd>Ctrl+O</kbd> 打开 &nbsp;·&nbsp;
-        <kbd>Ctrl+S</kbd> 保存 &nbsp;·&nbsp;
-        <kbd>Ctrl+B</kbd> 加粗
+        <div><span>快捷键：</span>
+        <kbd>Ctrl+O</kbd> 打开 ·
+        <kbd>Ctrl+S</kbd> 保存 ·
+        <kbd>Ctrl+B</kbd> 加粗 ·
+        <kbd>Ctrl+I</kbd> 斜体</div>
+        <div class="onboarding-tips-examples">
+          语法：<code>**粗**</code> · <code>*斜*</code> · <code>**_粗斜_**</code> ·
+          <code>&gt; 引用</code> · <code>&gt;&gt; 嵌套引用</code> ·
+          <code>&lt;mark&gt;高亮&lt;/mark&gt;</code> ·
+          <code>X&lt;sup&gt;2&lt;/sup&gt;</code> ·
+          <code>H&lt;sub&gt;2&lt;/sub&gt;</code>
+        </div>
+        <div class="onboarding-tips-note">再次打开扩展会尽量恢复上次编辑的内容（需重新保存到文件）。</div>
       </div>
     </div>
   `;

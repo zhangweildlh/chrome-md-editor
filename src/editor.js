@@ -26,6 +26,7 @@ import {
 import { resolvePreviewLinkClickTarget } from './link-support.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
+import { rememberLastFile, loadLastFile } from './session-restore.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -625,6 +626,8 @@ function convertNode(node) {
     case 'center':
     case 'font':
     case 'span':
+    case 'sup':
+    case 'sub':
       return reconstructRawTag(node);
     default:
       return childText;
@@ -666,6 +669,44 @@ function updateCursorStatus() {
 }
 
 // ==========================================
+// 会话恢复：记住当前文档内容（无法持久化 FileHandle）
+// ==========================================
+async function rememberCurrentDocument(extra = {}) {
+  if (!editor) return;
+  const filenameEl = document.getElementById('filename');
+  const filename =
+    extra.filename ||
+    (filenameEl && filenameEl.textContent && filenameEl.textContent !== '未打开文件'
+      ? filenameEl.textContent
+      : 'untitled.md');
+  await rememberLastFile({
+    content: editor.state.doc.toString(),
+    filename,
+    sourceUrl: extra.sourceUrl ?? currentFileUrl ?? null,
+  });
+}
+
+async function tryRestoreLastDocument() {
+  const last = await loadLastFile();
+  if (!last) return false;
+  // 仅在仍是空白会话时恢复，避免覆盖刚打开的 pending 文件
+  const content = editor?.state?.doc?.toString?.() ?? '';
+  if (content.trim().length > 0) return false;
+
+  clearCurrentDocumentContext();
+  if (last.sourceUrl) {
+    setCurrentDocumentContext({ fileUrl: last.sourceUrl, directoryPath: null });
+  }
+  setEditorContent(last.content);
+  updateFilename(last.filename);
+  currentFileHandle = null;
+  markSaved();
+  hideOnboarding();
+  showToast(`已恢复: ${last.filename}（保存时可能需另选位置）`, 'success');
+  return true;
+}
+
+// ==========================================
 // 文件操作
 // ==========================================
 async function handleOpen() {
@@ -686,7 +727,9 @@ async function handleOpen() {
     setEditorContent(content);
     updateFilename(file.name);
     markSaved();
+    await rememberCurrentDocument({ filename: file.name });
     showToast(`已打开: ${file.name}`, 'success');
+    hideOnboarding();
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件失败: ' + err.message, 'error');
@@ -703,6 +746,7 @@ async function handleSave() {
       await writable.write(editor.state.doc.toString());
       await writable.close();
       markSaved();
+      await rememberCurrentDocument();
       showToast('文件已保存', 'success');
     } else {
       // 另存为
@@ -732,8 +776,10 @@ async function handleSaveAs() {
 
     currentFileHandle = fileHandle;
     clearCurrentDocumentContext();
-    updateFilename((await fileHandle.getFile()).name);
+    const savedName = (await fileHandle.getFile()).name;
+    updateFilename(savedName);
     markSaved();
+    await rememberCurrentDocument({ filename: savedName });
     showToast('文件已保存', 'success');
   } catch (err) {
     if (err.name !== 'AbortError') {
@@ -1101,6 +1147,10 @@ function bindEvents() {
     wrapWithRaw('<mark>', '</mark>', '文本高亮'));
   document.getElementById('btnHighlightBold').addEventListener('click', () =>
     wrapWithRaw('<mark>**', '** </mark>', '文本高亮+加粗'));
+  document.getElementById('btnSuperscript').addEventListener('click', () =>
+    wrapWithRaw('<sup>', '</sup>', '2'));
+  document.getElementById('btnSubscript').addEventListener('click', () =>
+    wrapWithRaw('<sub>', '</sub>', '2'));
 
   // 修改字号下拉
   initFontSizeDropdown();
@@ -1193,6 +1243,8 @@ function bindEvents() {
         currentFileHandle = null; // 拖拽打开无 handle
         clearCurrentDocumentContext();
         markSaved();
+        await rememberCurrentDocument({ filename: file.name });
+        hideOnboarding();
         showToast(`已打开: ${file.name}`, 'success');
       } else {
         showToast('请拖入 .md 或 .markdown 文件', 'error');
@@ -1483,6 +1535,7 @@ async function openFileFromTree(fileHandle, filename, relativePath) {
     setEditorContent(content);
     updateFilename(filename);
     markSaved();
+    await rememberCurrentDocument({ filename });
     showToast(`已打开: ${filename}`, 'success');
     hideOnboarding();
   } catch (err) {
@@ -1609,7 +1662,7 @@ function init() {
 // （用户拖拽 .md 文件到 Chrome 时触发）
 // ==========================================
 async function loadPendingFile() {
-  // 在非扩展环境（dev server）中跳过
+  // 在非扩展环境（dev server）中跳过 storage 读取，但仍尝试本地恢复不可用
   if (typeof chrome === 'undefined' || !chrome.storage) return;
 
   // 每个编辑器实例通过 URL 上的 ?i=<instanceId> 标识自己，
@@ -1622,11 +1675,16 @@ async function loadPendingFile() {
     const result = await chrome.storage.local.get(storageKey);
     const pendingFile = result[storageKey];
 
-    if (!pendingFile) return;
+    if (!pendingFile) {
+      // 没有刚拖入的文件时，恢复上次编辑内容（Issue #2）
+      await tryRestoreLastDocument();
+      return;
+    }
 
     // 检查时间戳，超过 30 秒的视为过期
     if (Date.now() - pendingFile.timestamp > 30000) {
       await chrome.storage.local.remove(storageKey);
+      await tryRestoreLastDocument();
       return;
     }
 
@@ -1639,6 +1697,10 @@ async function loadPendingFile() {
     updateFilename(pendingFile.filename);
     currentFileHandle = null; // file:// 打开无法获得 FileHandle
     markSaved();
+    await rememberCurrentDocument({
+      filename: pendingFile.filename,
+      sourceUrl: pendingFile.sourceUrl || null,
+    });
     showToast(`已打开: ${pendingFile.filename}`, 'success');
     hideOnboarding();
 
@@ -1646,6 +1708,7 @@ async function loadPendingFile() {
     await chrome.storage.local.remove(storageKey);
   } catch (err) {
     console.warn('加载 pending file 失败:', err);
+    await tryRestoreLastDocument();
   }
 }
 
