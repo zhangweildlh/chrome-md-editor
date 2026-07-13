@@ -30,6 +30,14 @@ export function convertNode(node) {
   }
   if (node.nodeType !== ELEMENT_NODE) return '';
 
+  // Skip bilingual reading translations injected into the preview
+  if (
+    node.classList?.contains('md-translation') ||
+    node.getAttribute?.('data-md-translation') === '1'
+  ) {
+    return '';
+  }
+
   const tag = node.tagName.toLowerCase();
   const children = () => Array.from(node.childNodes).map(convertNode).join('');
   const childText = children();

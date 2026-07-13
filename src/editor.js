@@ -33,6 +33,22 @@ import {
   selectionInsideRoot,
   toggleMarkOnRange,
 } from './preview-format.js';
+import {
+  applyPreviewTranslation,
+  clearPreviewTranslations,
+  ensureTranslateHostPermission,
+  loadTranslateSettings,
+  normalizeTranslateSettings,
+  saveTranslateSettings,
+} from './translate.js';
+
+/** Visible build stamp so we can tell if Chrome reloaded the new package. */
+export const APP_VERSION = '1.4.2';
+import {
+  getPresetDefaultModel,
+  getTranslatePreset,
+  groupTranslatePresets,
+} from './translate-presets.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -98,6 +114,10 @@ let mermaidCounter = 0; // mermaid 图表 ID 计数器
 let currentFileUrl = null; // file:// 打开的 Markdown 原始地址
 let currentDirectoryPath = null; // 相对已打开文件夹根目录的当前 Markdown 目录
 let previewObjectUrls = []; // 用于释放通过 File System Access API 生成的 blob URL
+let translateEnabled = false; // 预览区阅读翻译（双语对照，不改源码）
+let translateBusy = false;
+let translateRunId = 0;
+let translateSettingsCache = null;
 
 // Theme compartment for dynamic switching
 const themeCompartment = new Compartment();
@@ -283,11 +303,12 @@ let previewUpdateTimer = null;
 function updatePreview() {
   if (isPreviewEditing) return; // 避免预览编辑时循环
 
-  // 防抖：快速输入时减少渲染次数
+  // 防抖：快速输入时减少渲染次数；开启翻译时略加长，降低 API 调用频率
   clearTimeout(previewUpdateTimer);
+  const delay = translateEnabled ? 450 : 80;
   previewUpdateTimer = setTimeout(() => {
     doUpdatePreview();
-  }, 80);
+  }, delay);
 }
 
 async function doUpdatePreview() {
@@ -322,6 +343,372 @@ async function doUpdatePreview() {
   }
 
   await resolvePreviewImages(previewContainer);
+
+  if (translateEnabled) {
+    await runPreviewTranslation(previewContainer);
+  } else {
+    setTranslateUiState({ active: false });
+  }
+}
+
+async function getTranslateSettings() {
+  if (translateSettingsCache) return translateSettingsCache;
+  translateSettingsCache = await loadTranslateSettings();
+  return translateSettingsCache;
+}
+
+function setTranslateUiState({ active, busy, error, message } = {}) {
+  const btn = document.getElementById('btnTranslate');
+  const title = document.getElementById('previewPanelTitle');
+  const status = document.getElementById('translateStatus');
+  const previewContainer = document.getElementById('previewContainer');
+
+  if (btn) {
+    btn.classList.toggle('active-translate', !!active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    btn.title = active
+      ? '关闭阅读翻译'
+      : '阅读翻译：预览双语对照（右键打开设置）';
+  }
+
+  if (title) {
+    title.textContent = active ? '预览 · 双语' : '预览';
+  }
+
+  if (previewContainer) {
+    previewContainer.classList.toggle('translate-active', !!active);
+    // Avoid WYSIWYG round-trip while translation nodes are present
+    previewContainer.setAttribute('contenteditable', active ? 'false' : 'true');
+  }
+
+  if (!status) return;
+
+  if (busy) {
+    status.hidden = false;
+    status.className = 'panel-header-meta is-busy';
+    status.textContent = message || '翻译中…';
+    return;
+  }
+
+  if (error) {
+    status.hidden = false;
+    status.className = 'panel-header-meta is-error';
+    status.textContent = message || '翻译失败';
+    return;
+  }
+
+  if (active && message) {
+    status.hidden = false;
+    status.className = 'panel-header-meta';
+    status.textContent = message;
+    return;
+  }
+
+  status.hidden = true;
+  status.textContent = '';
+  status.className = 'panel-header-meta';
+}
+
+async function runPreviewTranslation(previewContainer) {
+  const runId = ++translateRunId;
+  const settings = await getTranslateSettings();
+
+  if (!settings.apiKey) {
+    setTranslateUiState({ active: true, error: true, message: '未配置 API Key' });
+    showToast('请先配置翻译 API Key', 'error');
+    openTranslateSettingsModal();
+    return;
+  }
+
+  translateBusy = true;
+  setTranslateUiState({ active: true, busy: true, message: '翻译中…' });
+
+  try {
+    // Validate origin only. Do NOT chrome.permissions.request here — after
+    // awaits it loses the user gesture and throws misleading errors.
+    await ensureTranslateHostPermission(settings);
+
+    const result = await applyPreviewTranslation(previewContainer, settings, {
+      onProgress: ({ done, total }) => {
+        if (runId !== translateRunId) return;
+        setTranslateUiState({
+          active: true,
+          busy: true,
+          message: `翻译中 ${done}/${total}`,
+        });
+      },
+    });
+
+    if (runId !== translateRunId) return;
+
+    setTranslateUiState({
+      active: true,
+      message: result.total ? `已译 ${result.applied}/${result.total}` : '无可译段落',
+    });
+  } catch (err) {
+    if (runId !== translateRunId) return;
+    console.warn('translate failed', err);
+    setTranslateUiState({
+      active: true,
+      error: true,
+      message: '翻译失败',
+    });
+    const msg = String(err?.message || '翻译失败');
+    // Friendlier network / permission failures
+    if (/Failed to fetch|NetworkError|ERR_FAILED|blocked/i.test(msg)) {
+      showToast(
+        '无法连接翻译 API。请确认已重新加载最新扩展，且预设域名正确；自定义域名可在设置保存时授权。',
+        'error'
+      );
+    } else {
+      showToast(msg, 'error');
+    }
+  } finally {
+    if (runId === translateRunId) {
+      translateBusy = false;
+    }
+  }
+}
+
+async function toggleTranslateMode() {
+  if (translateBusy) {
+    showToast('翻译进行中，请稍候…');
+    return;
+  }
+
+  if (translateEnabled) {
+    translateEnabled = false;
+    translateRunId += 1;
+    const previewContainer = document.getElementById('previewContainer');
+    clearPreviewTranslations(previewContainer);
+    setTranslateUiState({ active: false });
+    // Re-render clean preview (also restores contenteditable)
+    doUpdatePreview();
+    showToast('已关闭阅读翻译');
+    return;
+  }
+
+  const settings = await getTranslateSettings();
+  if (!settings.apiKey) {
+    openTranslateSettingsModal();
+    showToast('请先配置翻译 API Key');
+    return;
+  }
+
+  translateEnabled = true;
+  setTranslateUiState({ active: true, busy: true, message: '翻译中…' });
+  await doUpdatePreview();
+}
+
+function openTranslateSettingsModal() {
+  const modal = document.getElementById('translateSettingsModal');
+  if (!modal) return;
+
+  ensureTranslatePresetOptions();
+  getTranslateSettings().then((settings) => {
+    fillTranslateSettingsForm(settings);
+    modal.hidden = false;
+    document.getElementById('translateApiKey')?.focus();
+  });
+}
+
+function closeTranslateSettingsModal() {
+  const modal = document.getElementById('translateSettingsModal');
+  if (modal) modal.hidden = true;
+}
+
+function ensureTranslatePresetOptions() {
+  const select = document.getElementById('translatePreset');
+  if (!select || select.dataset.ready === '1') return;
+
+  select.innerHTML = '';
+  for (const group of groupTranslatePresets()) {
+    const og = document.createElement('optgroup');
+    og.label = group.groupLabel;
+    for (const p of group.items) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.label;
+      og.appendChild(opt);
+    }
+    select.appendChild(og);
+  }
+  select.dataset.ready = '1';
+}
+
+function fillTranslateSettingsForm(settings) {
+  const s = normalizeTranslateSettings(settings);
+  ensureTranslatePresetOptions();
+
+  const presetEl = document.getElementById('translatePreset');
+  const apiKey = document.getElementById('translateApiKey');
+  const baseUrl = document.getElementById('translateBaseUrl');
+  const modelOverride = document.getElementById('translateModel');
+  const targetLang = document.getElementById('translateTargetLang');
+
+  if (presetEl) presetEl.value = s.presetId;
+  if (apiKey) apiKey.value = s.apiKey;
+  if (baseUrl) baseUrl.value = s.baseUrl;
+  if (modelOverride) modelOverride.value = '';
+  if (targetLang) targetLang.value = s.targetLang;
+
+  applyPresetToForm(s.presetId, { model: s.model, baseUrl: s.baseUrl, keepBaseUrl: s.useCustomEndpoint });
+}
+
+function applyPresetToForm(presetId, { model, baseUrl, keepBaseUrl } = {}) {
+  const preset = getTranslatePreset(presetId);
+  const note = document.getElementById('translatePresetNote');
+  const apiKey = document.getElementById('translateApiKey');
+  const modelFields = document.getElementById('translateModelFields');
+  const modelSelect = document.getElementById('translateModelSelect');
+  const modelCustomWrap = document.getElementById('translateModelCustomWrap');
+  const modelCustom = document.getElementById('translateModelCustom');
+  const baseUrlEl = document.getElementById('translateBaseUrl');
+  const advanced = document.getElementById('translateAdvanced');
+
+  if (note) {
+    const bits = [];
+    if (preset.note) bits.push(preset.note);
+    if (preset.docsUrl) bits.push(`申请 Key：${preset.docsUrl}`);
+    note.textContent = bits.join(' · ');
+  }
+
+  if (apiKey && preset.keyHint) {
+    apiKey.placeholder = `例如 ${preset.keyHint}`;
+  }
+
+  const isDeepl = preset.kind === 'deepl';
+  if (modelFields) modelFields.hidden = isDeepl;
+
+  if (!isDeepl && modelSelect) {
+    modelSelect.innerHTML = '';
+    const models = preset.models?.length
+      ? preset.models
+      : [{ id: getPresetDefaultModel(preset), label: getPresetDefaultModel(preset), default: true }];
+
+    let matched = false;
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label || m.id;
+      modelSelect.appendChild(opt);
+      if (model && m.id === model) matched = true;
+    }
+
+    // Freeform model not in list
+    const customOpt = document.createElement('option');
+    customOpt.value = '__custom__';
+    customOpt.textContent = '其他（手动输入模型名）';
+    modelSelect.appendChild(customOpt);
+
+    if (model && matched) {
+      modelSelect.value = model;
+      if (modelCustomWrap) modelCustomWrap.hidden = true;
+    } else if (model && !matched) {
+      modelSelect.value = '__custom__';
+      if (modelCustomWrap) modelCustomWrap.hidden = false;
+      if (modelCustom) modelCustom.value = model;
+    } else {
+      modelSelect.value = getPresetDefaultModel(preset) || models[0]?.id || '';
+      if (modelCustomWrap) modelCustomWrap.hidden = true;
+    }
+  }
+
+  if (baseUrlEl) {
+    if (keepBaseUrl && baseUrl) {
+      baseUrlEl.value = baseUrl;
+    } else {
+      baseUrlEl.value = preset.baseUrl || '';
+    }
+  }
+
+  // Open advanced by default for custom / oneapi
+  if (advanced) {
+    advanced.open = preset.id === 'custom' || preset.id === 'oneapi' || preset.id === 'doubao';
+  }
+}
+
+function readModelFromForm() {
+  const override = document.getElementById('translateModel')?.value?.trim();
+  if (override) return override;
+
+  const modelSelect = document.getElementById('translateModelSelect');
+  if (!modelSelect || modelSelect.closest('#translateModelFields')?.hidden) {
+    return '';
+  }
+  if (modelSelect.value === '__custom__') {
+    return document.getElementById('translateModelCustom')?.value?.trim() || '';
+  }
+  return modelSelect.value || '';
+}
+
+async function saveTranslateSettingsFromForm() {
+  const presetId = document.getElementById('translatePreset')?.value || 'deepseek';
+  const preset = getTranslatePreset(presetId);
+  const baseUrlInput = document.getElementById('translateBaseUrl')?.value?.trim() || '';
+  const presetBase = (preset.baseUrl || '').replace(/\/+$/, '');
+  const useCustomEndpoint =
+    presetId === 'custom' ||
+    presetId === 'oneapi' ||
+    (baseUrlInput && baseUrlInput.replace(/\/+$/, '') !== presetBase);
+
+  const next = normalizeTranslateSettings({
+    presetId,
+    apiKey: document.getElementById('translateApiKey')?.value || '',
+    baseUrl: baseUrlInput || presetBase,
+    model: readModelFromForm(),
+    targetLang: document.getElementById('translateTargetLang')?.value || 'zh-CN',
+    useCustomEndpoint,
+    provider: preset.kind === 'deepl' ? 'deepl' : 'openai',
+    deeplEndpoint: preset.deeplEndpoint || 'free',
+  });
+
+  if (!next.apiKey) {
+    showToast('API Key 不能为空', 'error');
+    return;
+  }
+
+  translateSettingsCache = await saveTranslateSettings(next);
+  closeTranslateSettingsModal();
+  showToast(`已保存 · ${preset.label}`, 'success');
+
+  if (translateEnabled) {
+    await doUpdatePreview();
+  }
+}
+
+function initTranslateSettingsModal() {
+  const modal = document.getElementById('translateSettingsModal');
+  if (!modal) return;
+
+  ensureTranslatePresetOptions();
+
+  document.getElementById('translatePreset')?.addEventListener('change', (e) => {
+    applyPresetToForm(e.target.value, {});
+  });
+
+  document.getElementById('translateModelSelect')?.addEventListener('change', (e) => {
+    const wrap = document.getElementById('translateModelCustomWrap');
+    if (wrap) wrap.hidden = e.target.value !== '__custom__';
+    if (e.target.value === '__custom__') {
+      document.getElementById('translateModelCustom')?.focus();
+    }
+  });
+
+  document.getElementById('translateSettingsCancel')?.addEventListener('click', closeTranslateSettingsModal);
+  document.getElementById('translateSettingsSave')?.addEventListener('click', () => {
+    saveTranslateSettingsFromForm();
+  });
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeTranslateSettingsModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.hidden) {
+      closeTranslateSettingsModal();
+    }
+  });
 }
 
 function cleanupPreviewObjectUrls() {
@@ -1171,6 +1558,22 @@ function bindEvents() {
   // 主题切换
   document.getElementById('btnTheme').addEventListener('click', toggleTheme);
 
+  // 阅读翻译（预览双语对照）
+  const btnTranslate = document.getElementById('btnTranslate');
+  if (btnTranslate) {
+    btnTranslate.addEventListener('click', () => {
+      toggleTranslateMode();
+    });
+    btnTranslate.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openTranslateSettingsModal();
+    });
+  }
+  document.getElementById('btnTranslateSettings')?.addEventListener('click', () => {
+    openTranslateSettingsModal();
+  });
+  initTranslateSettingsModal();
+
   // 拦截浏览器默认 Ctrl+S
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey) {
@@ -1568,6 +1971,13 @@ function initFileSidebar() {
   }
 }
 function init() {
+  // Stamp version so we can confirm Chrome loaded the new package
+  document.documentElement.dataset.appVersion = APP_VERSION;
+  document.title = `Markdown Editor v${APP_VERSION}`;
+  const verEl = document.getElementById('appVersion');
+  if (verEl) verEl.textContent = `v${APP_VERSION}`;
+  console.info(`[MD Editor] build v${APP_VERSION}`);
+
   // 恢复主题
   if (currentTheme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');

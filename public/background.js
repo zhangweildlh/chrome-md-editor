@@ -1,4 +1,4 @@
-// Service Worker - 管理编辑器标签页 + 拦截 .md 文件
+// Service Worker - 管理编辑器标签页 + 拦截 .md 文件 + 翻译 API 代理
 
 // 生成唯一实例 ID，用于区分多个编辑器实例（避免 pendingFile 单键竞态）
 function newInstanceId() {
@@ -7,6 +7,53 @@ function newInstanceId() {
   }
   return 'i-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 }
+
+// ==========================================
+// 翻译 API 代理
+// 扩展页 fetch 会走 CORS；service worker + host_permissions 不走 CORS，
+// 可发送 x-api-key / anthropic-version 等自定义头（MiniMax Anthropic 必需）。
+// ==========================================
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!message || message.type !== 'translate-fetch') return false;
+
+  const { url, method, headers, body } = message.payload || {};
+  if (!url || typeof url !== 'string') {
+    sendResponse({ ok: false, status: 0, error: 'missing url' });
+    return false;
+  }
+
+  (async () => {
+    try {
+      const res = await fetch(url, {
+        method: method || 'POST',
+        headers: headers || {},
+        body: body ?? undefined,
+      });
+      const text = await res.text();
+      sendResponse({
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText,
+        text,
+      });
+    } catch (err) {
+      const raw = err?.message || String(err);
+      // Surface a clearer hint when host permission / network is the real issue
+      const hint =
+        /Failed to fetch|NetworkError|ERR_/i.test(raw)
+          ? `${raw}（请确认已重新加载扩展 v1.4.2+，且目标域名在 host_permissions 中）`
+          : raw;
+      sendResponse({
+        ok: false,
+        status: 0,
+        error: hint,
+      });
+    }
+  })();
+
+  // Keep the message channel open for async sendResponse
+  return true;
+});
 
 // 点击扩展图标时打开编辑器页面
 // 每次点击都新建一个独立实例（支持同时打开多个编辑器）
