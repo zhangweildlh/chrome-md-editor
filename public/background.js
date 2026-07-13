@@ -1,19 +1,19 @@
 // Service Worker - 管理编辑器标签页 + 拦截 .md 文件
 
-// 点击扩展图标时打开编辑器页面
-chrome.action.onClicked.addListener(async () => {
-  const tabs = await chrome.tabs.query({
-    url: chrome.runtime.getURL('src/editor.html'),
-  });
-
-  if (tabs.length > 0) {
-    await chrome.tabs.update(tabs[0].id, { active: true });
-    await chrome.windows.update(tabs[0].windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL('src/editor.html'),
-    });
+// 生成唯一实例 ID，用于区分多个编辑器实例（避免 pendingFile 单键竞态）
+function newInstanceId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
   }
+  return 'i-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+}
+
+// 点击扩展图标时打开编辑器页面
+// 每次点击都新建一个独立实例（支持同时打开多个编辑器）
+chrome.action.onClicked.addListener(async () => {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL('src/editor.html') + '?i=' + newInstanceId(),
+  });
 });
 
 // ==========================================
@@ -44,9 +44,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const decodedUrl = decodeURIComponent(tab.url);
     const filename = decodedUrl.split('/').pop() || 'untitled.md';
 
-    // 存入 storage
+    // 用「每个实例独立」的 storage 键，避免多个 .md 同时打开时相互覆盖
+    const instanceId = newInstanceId();
     await chrome.storage.local.set({
-      pendingFile: {
+      ['pendingFile_' + instanceId]: {
         content: content,
         filename: filename,
         sourceUrl: tab.url,
@@ -54,9 +55,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       },
     });
 
-    // 重定向到编辑器
+    // 重定向到编辑器（携带实例 ID，使该标签页精确加载对应文件）
     await chrome.tabs.update(tabId, {
-      url: chrome.runtime.getURL('src/editor.html'),
+      url: chrome.runtime.getURL('src/editor.html') + '?i=' + instanceId,
     });
   } catch (err) {
     console.warn('[MD Editor] 拦截 .md 文件失败:', err);

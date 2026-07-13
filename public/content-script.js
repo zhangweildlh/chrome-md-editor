@@ -20,10 +20,17 @@
 
   if (!content.trim()) return;
 
+  // 为每个被打开的 .md 生成独立实例 ID，写入独立的 storage 键，
+  // 避免多个 .md 同时打开时共享 pendingFile 互相覆盖。
+  const instanceId =
+    (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+      ? globalThis.crypto.randomUUID()
+      : 'i-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+
   // 将文件内容和来源信息存入 chrome.storage.local
   chrome.storage.local.set(
     {
-      pendingFile: {
+      ['pendingFile_' + instanceId]: {
         content: content,
         filename: filename,
         sourceUrl: url,
@@ -31,8 +38,8 @@
       },
     },
     () => {
-      // 重定向到编辑器页面
-      const editorUrl = chrome.runtime.getURL('src/editor.html');
+      // 重定向到编辑器页面（携带实例 ID）
+      const editorUrl = chrome.runtime.getURL('src/editor.html') + '?i=' + instanceId;
       window.location.href = editorUrl;
     }
   );
