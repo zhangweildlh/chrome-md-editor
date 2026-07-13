@@ -1,5 +1,7 @@
 # Markdown Editor (Chrome Extension)
 
+**Current release: [v1.2.0](https://github.com/yishu-ziyu/chrome-md-editor/releases/tag/v1.2.0)** · Load the extracted `dist/` folder in Chrome (not the repo root).
+
 🌟 **Welcome friends from Xiaohongshu (小红书) and sspai (少数派)!** If you find this extension helpful, please consider giving it a Star ⭐️
 
 > **在浏览器里直接编辑本地 Markdown 文件，无需上传、无需服务器。**
