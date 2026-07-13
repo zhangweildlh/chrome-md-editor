@@ -27,6 +27,8 @@ import { resolvePreviewLinkClickTarget } from './link-support.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
+import { htmlToMarkdown } from './html-to-markdown.js';
+import { newInstanceId, pendingFileStorageKey } from './instance-id.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -496,143 +498,7 @@ function syncPreviewToEditor(rerender = false) {
   }
 }
 
-// ==========================================
-// HTML → Markdown 转换器（内置轻量实现）
-// ==========================================
-function normalizeMarkdown(md) {
-  // 折叠多余空行与行尾空白，避免预览回写到源码时反复累加空行/格式重排
-  return md
-    .replace(/\r\n/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function htmlToMarkdown(html) {
-  // 创建临时 DOM 来遍历
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  return normalizeMarkdown(convertNode(doc.body)) + '\n';
-}
-
-// 按原始属性重建行内 HTML 标签。
-// 预览区可编辑后回写源码时，<center>/<font>/<span>/<mark> 这类「原始 HTML 片段」
-// 若走 default 分支会被直接丢弃（仅保留子文本），导致居中/高亮/字号等格式在
-// 往返转换中丢失。这里按属性原样重建片段，保证样式标签可无损回写。
-function reconstructRawTag(node) {
-  const tag = node.tagName.toLowerCase();
-  const attrs = Array.from(node.attributes || [])
-    .map((a) => ` ${a.name}="${a.value}"`)
-    .join('');
-  const childText = Array.from(node.childNodes).map(convertNode).join('');
-  return `<${tag}${attrs}>${childText}</${tag}>`;
-}
-
-function convertNode(node) {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node.textContent;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return '';
-
-  const tag = node.tagName.toLowerCase();
-  const children = () => Array.from(node.childNodes).map(convertNode).join('');
-  const childText = children();
-
-  switch (tag) {
-    case 'h1': return `# ${childText.trim()}\n\n`;
-    case 'h2': return `## ${childText.trim()}\n\n`;
-    case 'h3': return `### ${childText.trim()}\n\n`;
-    case 'h4': return `#### ${childText.trim()}\n\n`;
-    case 'h5': return `##### ${childText.trim()}\n\n`;
-    case 'h6': return `###### ${childText.trim()}\n\n`;
-    case 'p': return `${childText.trim()}\n\n`;
-    case 'br': return '\n';
-    case 'strong': case 'b': return `**${childText}**`;
-    case 'em': case 'i': return `*${childText}*`;
-    case 'del': case 's': return `~~${childText}~~`;
-    case 'code':
-      if (node.parentElement && node.parentElement.tagName === 'PRE') {
-        return childText;
-      }
-      return `\`${childText}\``;
-    case 'pre': {
-      const codeEl = node.querySelector('code');
-      const lang = codeEl?.className?.match(/language-(\w+)/)?.[1] || '';
-      const code = codeEl ? codeEl.textContent : childText;
-      return `\`\`\`${lang}\n${code.trimEnd()}\n\`\`\`\n\n`;
-    }
-    case 'blockquote':
-      return childText.trim().split('\n').map(l => `> ${l}`).join('\n') + '\n\n';
-    case 'ul': {
-      let result = '';
-      for (const li of node.children) {
-        if (li.tagName === 'LI') {
-          const checkbox = li.querySelector('input[type="checkbox"]');
-          const prefix = checkbox
-            ? (checkbox.checked ? '- [x] ' : '- [ ] ')
-            : '- ';
-          const text = Array.from(li.childNodes)
-            .filter(n => !(n.tagName === 'INPUT'))
-            .map(convertNode).join('').trim();
-          result += `${prefix}${text}\n`;
-        }
-      }
-      return result + '\n';
-    }
-    case 'ol': {
-      let result = '';
-      let i = 1;
-      for (const li of node.children) {
-        if (li.tagName === 'LI') {
-          result += `${i}. ${convertNode(li).trim()}\n`;
-          i++;
-        }
-      }
-      return result + '\n';
-    }
-    case 'li': return childText;
-    case 'a': {
-      const href = node.getAttribute('href') || '';
-      return `[${childText}](${href})`;
-    }
-    case 'img': {
-      const src = node.getAttribute('data-md-original-src') || node.getAttribute('src') || '';
-      const alt = node.getAttribute('alt') || '';
-      return `![${alt}](${src})`;
-    }
-    case 'hr': return '---\n\n';
-    case 'table': {
-      const rows = Array.from(node.querySelectorAll('tr'));
-      if (rows.length === 0) return childText;
-      let result = '';
-      rows.forEach((row, idx) => {
-        const cells = Array.from(row.querySelectorAll('th, td'));
-        result += '| ' + cells.map(c => c.textContent.trim()).join(' | ') + ' |\n';
-        if (idx === 0) {
-          result += '| ' + cells.map(() => '------').join(' | ') + ' |\n';
-        }
-      });
-      return result + '\n';
-    }
-    case 'input': return ''; // skip checkboxes etc
-    case 'div': {
-      // Mermaid 图 → 保持原始代码块（无法反向还原SVG，留空）
-      if (node.classList.contains('mermaid-diagram')) {
-        return ''; // Mermaid 图无法反向还原，忽略
-      }
-      return childText;
-    }
-    // 原始 HTML 样式标签：按属性重建，避免往返丢失格式
-    case 'mark':
-    case 'center':
-    case 'font':
-    case 'span':
-    case 'sup':
-    case 'sub':
-      return reconstructRawTag(node);
-    default:
-      return childText;
-  }
-}
+// HTML→Markdown: see ./html-to-markdown.js (tested for Issue #1 / #3)
 
 // ==========================================
 // 状态栏更新
@@ -1669,7 +1535,7 @@ async function loadPendingFile() {
   // 以此读取「专属」的 pendingFile_<instanceId>，避免多个实例争用同一个键。
   const params = new URLSearchParams(window.location.search);
   const instanceId = params.get('i');
-  const storageKey = instanceId ? 'pendingFile_' + instanceId : 'pendingFile';
+  const storageKey = pendingFileStorageKey(instanceId);
 
   try {
     const result = await chrome.storage.local.get(storageKey);

@@ -9,7 +9,9 @@
     "icons": "node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "test": "node --test",
-    "pack": "npm run build && node scripts/pack-extension.mjs"
+    "pack": "npm run build && node scripts/pack-extension.mjs",
+    "test:issues": "node --test tests/issue-acceptance.test.js",
+    "qa:issues": "node scripts/qa-issue-acceptance.mjs"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.3.1",
@@ -22,6 +24,8 @@
     "mermaid": "^11.12.3"
   },
   "devDependencies": {
+    "linkedom": "^0.18.13",
+    "playwright": "^1.61.1",
     "vite": "^6.1.0"
   }
 }
