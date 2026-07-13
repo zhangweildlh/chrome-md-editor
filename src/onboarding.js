@@ -119,7 +119,7 @@ export function showOnboarding(options = {}) {
           <h3>5. 进阶（可选）</h3>
           <ul>
             <li>Mermaid：用 <code>\`\`\`mermaid</code> 代码块画流程图</li>
-            <li>需要高亮等 HTML 时直接写在 md 里，例如 <code>&lt;mark&gt;重点&lt;/mark&gt;</code>（工具栏不堆样式按钮，界面保持干净）</li>
+            <li>高亮：在<strong>右侧预览</strong>选中文字 → 工具栏荧光笔按钮，或右键「高亮」；再点一次可取消。也会写回左侧 <code>&lt;mark&gt;</code></li>
           </ul>
         </section>
       </div>

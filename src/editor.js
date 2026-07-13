@@ -29,6 +29,10 @@ import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { newInstanceId, pendingFileStorageKey } from './instance-id.js';
+import {
+  selectionInsideRoot,
+  toggleMarkOnRange,
+} from './preview-format.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -412,6 +416,126 @@ function clearCurrentDocumentContext() {
 // ==========================================
 // 预览区可编辑（WYSIWYG）
 // ==========================================
+// 预览区选区缓存：点工具栏时 preview 会失焦，需在 mousedown 前保住 Range
+let savedPreviewRange = null;
+
+function rememberPreviewSelection() {
+  const previewContainer = document.getElementById('previewContainer');
+  const sel = window.getSelection();
+  if (!selectionInsideRoot(sel, previewContainer)) {
+    return null;
+  }
+  try {
+    savedPreviewRange = sel.getRangeAt(0).cloneRange();
+    return savedPreviewRange;
+  } catch {
+    savedPreviewRange = null;
+    return null;
+  }
+}
+
+function restorePreviewSelection(range) {
+  if (!range) return false;
+  const sel = window.getSelection();
+  if (!sel) return false;
+  try {
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 在右侧预览选中文字上切换高亮；成功后同步回左侧 Markdown。
+ * 工具栏 / 右键菜单共用。
+ */
+function applyPreviewHighlight() {
+  const previewContainer = document.getElementById('previewContainer');
+  let range = savedPreviewRange;
+  const sel = window.getSelection();
+
+  if ((!range || range.collapsed) && selectionInsideRoot(sel, previewContainer)) {
+    range = sel.getRangeAt(0).cloneRange();
+  }
+
+  if (!range || range.collapsed) {
+    // 预览没有选区时：若左侧有选区，则在源码侧包 <mark>
+    const edSel = editor.state.selection.main;
+    if (edSel.from !== edSel.to) {
+      wrapSelection('<mark>', '</mark>');
+      showToast('已在源码中高亮选中文字', 'success');
+      return true;
+    }
+    showToast('请先在预览区选中文字，再点高亮', 'error');
+    return false;
+  }
+
+  isPreviewEditing = true;
+  previewContainer.focus();
+  restorePreviewSelection(range);
+
+  const liveSel = window.getSelection();
+  const liveRange =
+    liveSel && liveSel.rangeCount > 0 ? liveSel.getRangeAt(0) : range;
+
+  const result = toggleMarkOnRange(liveRange, previewContainer);
+  if (result === 'noop') {
+    showToast('请先在预览区选中文字，再点高亮', 'error');
+    isPreviewEditing = false;
+    return false;
+  }
+
+  savedPreviewRange = null;
+  syncPreviewToEditor(true);
+  showToast(result === 'wrapped' ? '已高亮' : '已取消高亮', 'success');
+  return true;
+}
+
+function hidePreviewContextMenu() {
+  const menu = document.getElementById('previewContextMenu');
+  if (menu) menu.remove();
+}
+
+function showPreviewContextMenu(clientX, clientY) {
+  hidePreviewContextMenu();
+
+  const menu = document.createElement('div');
+  menu.id = 'previewContextMenu';
+  menu.className = 'preview-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `
+    <button type="button" class="preview-context-item" data-action="highlight" role="menuitem">
+      高亮 / 取消高亮
+    </button>
+  `;
+
+  document.body.appendChild(menu);
+
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + rect.width > window.innerWidth - pad) {
+    left = window.innerWidth - rect.width - pad;
+  }
+  if (top + rect.height > window.innerHeight - pad) {
+    top = window.innerHeight - rect.height - pad;
+  }
+  menu.style.left = `${Math.max(pad, left)}px`;
+  menu.style.top = `${Math.max(pad, top)}px`;
+
+  menu.querySelector('[data-action="highlight"]').addEventListener('mousedown', (e) => {
+    e.preventDefault(); // 保住选区
+  });
+  menu.querySelector('[data-action="highlight"]').addEventListener('click', (e) => {
+    e.preventDefault();
+    hidePreviewContextMenu();
+    applyPreviewHighlight();
+  });
+}
+
 function initPreviewEditing() {
   const previewContainer = document.getElementById('previewContainer');
 
@@ -427,6 +551,8 @@ function initPreviewEditing() {
 
   // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器并重新渲染预览
   previewContainer.addEventListener('blur', () => {
+    // 打开右键菜单 / 点工具栏时不要立刻清掉选区同步（由那些动作自己 sync）
+    if (document.getElementById('previewContextMenu')) return;
     if (!isPreviewEditing) return;
     isPreviewEditing = false;
     previewContainer.classList.remove('editing');
@@ -440,6 +566,35 @@ function initPreviewEditing() {
     syncTimer = setTimeout(() => {
       syncPreviewToEditor();
     }, 500);
+  });
+
+  // 记录预览选区
+  previewContainer.addEventListener('mouseup', () => {
+    rememberPreviewSelection();
+  });
+  previewContainer.addEventListener('keyup', () => {
+    rememberPreviewSelection();
+  });
+
+  // 右键：有选区时出「高亮」菜单
+  previewContainer.addEventListener('contextmenu', (event) => {
+    rememberPreviewSelection();
+    const sel = window.getSelection();
+    if (!selectionInsideRoot(sel, previewContainer) && !savedPreviewRange) {
+      return; // 无选区：保留浏览器默认菜单
+    }
+    event.preventDefault();
+    showPreviewContextMenu(event.clientX, event.clientY);
+  });
+
+  document.addEventListener('mousedown', (event) => {
+    const menu = document.getElementById('previewContextMenu');
+    if (menu && !menu.contains(event.target)) {
+      hidePreviewContextMenu();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hidePreviewContextMenu();
   });
 }
 
@@ -948,6 +1103,18 @@ function bindEvents() {
   document.getElementById('btnStrike').addEventListener('click', () => wrapSelection('~~', '~~'));
   document.getElementById('btnCode').addEventListener('click', () => wrapSelection('`', '`'));
 
+  // 高亮：优先作用在右侧预览选区；无选区时退回源码选区包 <mark>
+  const btnHighlight = document.getElementById('btnHighlight');
+  if (btnHighlight) {
+    btnHighlight.addEventListener('mousedown', (e) => {
+      // 避免按钮抢走焦点导致预览选区丢失
+      e.preventDefault();
+      rememberPreviewSelection();
+    });
+    btnHighlight.addEventListener('click', () => {
+      applyPreviewHighlight();
+    });
+  }
 
   // 使用说明（重新打开引导说明书）
   const btnHelp = document.getElementById('btnHelp');

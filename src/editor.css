@@ -528,6 +528,46 @@ body {
   font-style: italic;
 }
 
+.markdown-body mark {
+  background: color-mix(in srgb, #e3b341 55%, transparent);
+  color: inherit;
+  padding: 0.1em 0.15em;
+  border-radius: 2px;
+}
+
+[data-theme="light"] .markdown-body mark {
+  background: color-mix(in srgb, #f2cc60 70%, transparent);
+}
+
+/* 预览区右键菜单：只保留高亮，干净克制 */
+.preview-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.preview-context-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.preview-context-item:hover {
+  background: var(--bg-hover);
+}
+
 .markdown-body code {
   padding: 0.2em 0.4em;
   margin: 0;
