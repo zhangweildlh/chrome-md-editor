@@ -26,6 +26,7 @@ import {
 import { resolvePreviewLinkClickTarget } from './link-support.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
+import { rememberLastFile, loadLastFile } from './session-restore.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -422,12 +423,12 @@ function initPreviewEditing() {
     previewContainer.classList.add('editing');
   });
 
-  // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器
+  // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器并重新渲染预览
   previewContainer.addEventListener('blur', () => {
     if (!isPreviewEditing) return;
     isPreviewEditing = false;
     previewContainer.classList.remove('editing');
-    syncPreviewToEditor();
+    syncPreviewToEditor(true);
   });
 
   // 实时同步：每次输入后短延迟同步
@@ -472,7 +473,7 @@ async function openPreviewLink(targetUrl) {
   }
 }
 
-function syncPreviewToEditor() {
+function syncPreviewToEditor(rerender = false) {
   const previewContainer = document.getElementById('previewContainer');
   const html = previewContainer.innerHTML;
   const markdownContent = htmlToMarkdown(html);
@@ -485,17 +486,45 @@ function syncPreviewToEditor() {
     markModified();
     updateStatus();
     // 短延迟后解除标记
-    setTimeout(() => { isPreviewEditing = false; }, 100);
+    setTimeout(() => { isPreviewEditing = false; }, 120);
+  }
+
+  // 失焦时：用规范化后的 Markdown 重新渲染预览，保证预览与编辑器一致，
+  // 避免下一次编辑基于「被篡改的 contenteditable DOM」继续累加空行与漂移
+  if (rerender) {
+    doUpdatePreview();
   }
 }
 
 // ==========================================
 // HTML → Markdown 转换器（内置轻量实现）
 // ==========================================
+function normalizeMarkdown(md) {
+  // 折叠多余空行与行尾空白，避免预览回写到源码时反复累加空行/格式重排
+  return md
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function htmlToMarkdown(html) {
   // 创建临时 DOM 来遍历
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  return convertNode(doc.body).trim() + '\n';
+  return normalizeMarkdown(convertNode(doc.body)) + '\n';
+}
+
+// 按原始属性重建行内 HTML 标签。
+// 预览区可编辑后回写源码时，<center>/<font>/<span>/<mark> 这类「原始 HTML 片段」
+// 若走 default 分支会被直接丢弃（仅保留子文本），导致居中/高亮/字号等格式在
+// 往返转换中丢失。这里按属性原样重建片段，保证样式标签可无损回写。
+function reconstructRawTag(node) {
+  const tag = node.tagName.toLowerCase();
+  const attrs = Array.from(node.attributes || [])
+    .map((a) => ` ${a.name}="${a.value}"`)
+    .join('');
+  const childText = Array.from(node.childNodes).map(convertNode).join('');
+  return `<${tag}${attrs}>${childText}</${tag}>`;
 }
 
 function convertNode(node) {
@@ -592,6 +621,14 @@ function convertNode(node) {
       }
       return childText;
     }
+    // 原始 HTML 样式标签：按属性重建，避免往返丢失格式
+    case 'mark':
+    case 'center':
+    case 'font':
+    case 'span':
+    case 'sup':
+    case 'sub':
+      return reconstructRawTag(node);
     default:
       return childText;
   }
@@ -632,6 +669,44 @@ function updateCursorStatus() {
 }
 
 // ==========================================
+// 会话恢复：记住当前文档内容（无法持久化 FileHandle）
+// ==========================================
+async function rememberCurrentDocument(extra = {}) {
+  if (!editor) return;
+  const filenameEl = document.getElementById('filename');
+  const filename =
+    extra.filename ||
+    (filenameEl && filenameEl.textContent && filenameEl.textContent !== '未打开文件'
+      ? filenameEl.textContent
+      : 'untitled.md');
+  await rememberLastFile({
+    content: editor.state.doc.toString(),
+    filename,
+    sourceUrl: extra.sourceUrl ?? currentFileUrl ?? null,
+  });
+}
+
+async function tryRestoreLastDocument() {
+  const last = await loadLastFile();
+  if (!last) return false;
+  // 仅在仍是空白会话时恢复，避免覆盖刚打开的 pending 文件
+  const content = editor?.state?.doc?.toString?.() ?? '';
+  if (content.trim().length > 0) return false;
+
+  clearCurrentDocumentContext();
+  if (last.sourceUrl) {
+    setCurrentDocumentContext({ fileUrl: last.sourceUrl, directoryPath: null });
+  }
+  setEditorContent(last.content);
+  updateFilename(last.filename);
+  currentFileHandle = null;
+  markSaved();
+  hideOnboarding();
+  showToast(`已恢复: ${last.filename}（保存时可能需另选位置）`, 'success');
+  return true;
+}
+
+// ==========================================
 // 文件操作
 // ==========================================
 async function handleOpen() {
@@ -652,7 +727,9 @@ async function handleOpen() {
     setEditorContent(content);
     updateFilename(file.name);
     markSaved();
+    await rememberCurrentDocument({ filename: file.name });
     showToast(`已打开: ${file.name}`, 'success');
+    hideOnboarding();
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件失败: ' + err.message, 'error');
@@ -669,6 +746,7 @@ async function handleSave() {
       await writable.write(editor.state.doc.toString());
       await writable.close();
       markSaved();
+      await rememberCurrentDocument();
       showToast('文件已保存', 'success');
     } else {
       // 另存为
@@ -698,8 +776,10 @@ async function handleSaveAs() {
 
     currentFileHandle = fileHandle;
     clearCurrentDocumentContext();
-    updateFilename((await fileHandle.getFile()).name);
+    const savedName = (await fileHandle.getFile()).name;
+    updateFilename(savedName);
     markSaved();
+    await rememberCurrentDocument({ filename: savedName });
     showToast('文件已保存', 'success');
   } catch (err) {
     if (err.name !== 'AbortError') {
@@ -783,6 +863,60 @@ function wrapSelection(before, after) {
   }
   editor.focus();
   return true;
+}
+
+// 用「原始 HTML 片段」包裹选区（用于居中/高亮/字号等带 HTML 标签的样式）
+// 若有选区 → 包裹选区；若无选区 → 插入占位文本便于继续输入
+function wrapWithRaw(before, after, placeholder) {
+  const sel = editor.state.selection.main;
+  const selectedText = editor.state.sliceDoc(sel.from, sel.to);
+
+  if (selectedText) {
+    editor.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: before + selectedText + after },
+      selection: { anchor: sel.from + before.length, head: sel.to + before.length },
+    });
+  } else {
+    const insert = before + placeholder + after;
+    editor.dispatch({
+      changes: { from: sel.from, insert },
+      selection: {
+        anchor: sel.from + before.length,
+        head: sel.from + before.length + placeholder.length,
+      },
+    });
+  }
+  editor.focus();
+  return true;
+}
+
+// 字号下拉：从 data 属性读取 before/after/placeholder，复用 wrapWithRaw
+function initFontSizeDropdown() {
+  const dropdown = document.getElementById('fontSizeDropdown');
+  const toggle = document.getElementById('btnFontSize');
+  const menu = document.getElementById('fontSizeMenu');
+  if (!dropdown || !toggle || !menu) return;
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('open');
+  });
+
+  menu.querySelectorAll('.dropdown-item').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const before = item.getAttribute('data-before') || '';
+      const after = item.getAttribute('data-after') || '';
+      const placeholder = item.getAttribute('data-placeholder') || '文本';
+      wrapWithRaw(before, after, placeholder);
+      dropdown.classList.remove('open');
+    });
+  });
+
+  // 点击其它区域关闭下拉
+  document.addEventListener('click', () => {
+    dropdown.classList.remove('open');
+  });
 }
 
 function insertAtLineStart(prefix) {
@@ -1002,6 +1136,25 @@ function bindEvents() {
   document.getElementById('btnStrike').addEventListener('click', () => wrapSelection('~~', '~~'));
   document.getElementById('btnCode').addEventListener('click', () => wrapSelection('`', '`'));
 
+  // 居中 / 高亮 样式按钮（插入原始 HTML 片段，markdown-it 已开启 html:true）
+  document.getElementById('btnCenterBold').addEventListener('click', () =>
+    wrapWithRaw('<center><b>', '</b></center>', '居中+加粗'));
+  document.getElementById('btnCenterBoldRed').addEventListener('click', () =>
+    wrapWithRaw('<center><b><font color="red">', '</font></b></center>', '居中+加粗+红色'));
+  document.getElementById('btnCenterBoldBlue').addEventListener('click', () =>
+    wrapWithRaw('<center><strong><span style="color: blue;">', '</span></strong></center>', '居中+加粗+蓝色'));
+  document.getElementById('btnHighlight').addEventListener('click', () =>
+    wrapWithRaw('<mark>', '</mark>', '文本高亮'));
+  document.getElementById('btnHighlightBold').addEventListener('click', () =>
+    wrapWithRaw('<mark>**', '** </mark>', '文本高亮+加粗'));
+  document.getElementById('btnSuperscript').addEventListener('click', () =>
+    wrapWithRaw('<sup>', '</sup>', '2'));
+  document.getElementById('btnSubscript').addEventListener('click', () =>
+    wrapWithRaw('<sub>', '</sub>', '2'));
+
+  // 修改字号下拉
+  initFontSizeDropdown();
+
   // 标题
   document.getElementById('btnH1').addEventListener('click', () => insertAtLineStart('# '));
   document.getElementById('btnH2').addEventListener('click', () => insertAtLineStart('## '));
@@ -1090,6 +1243,8 @@ function bindEvents() {
         currentFileHandle = null; // 拖拽打开无 handle
         clearCurrentDocumentContext();
         markSaved();
+        await rememberCurrentDocument({ filename: file.name });
+        hideOnboarding();
         showToast(`已打开: ${file.name}`, 'success');
       } else {
         showToast('请拖入 .md 或 .markdown 文件', 'error');
@@ -1380,6 +1535,7 @@ async function openFileFromTree(fileHandle, filename, relativePath) {
     setEditorContent(content);
     updateFilename(filename);
     markSaved();
+    await rememberCurrentDocument({ filename });
     showToast(`已打开: ${filename}`, 'success');
     hideOnboarding();
   } catch (err) {
@@ -1506,18 +1662,29 @@ function init() {
 // （用户拖拽 .md 文件到 Chrome 时触发）
 // ==========================================
 async function loadPendingFile() {
-  // 在非扩展环境（dev server）中跳过
+  // 在非扩展环境（dev server）中跳过 storage 读取，但仍尝试本地恢复不可用
   if (typeof chrome === 'undefined' || !chrome.storage) return;
 
-  try {
-    const result = await chrome.storage.local.get('pendingFile');
-    const pendingFile = result.pendingFile;
+  // 每个编辑器实例通过 URL 上的 ?i=<instanceId> 标识自己，
+  // 以此读取「专属」的 pendingFile_<instanceId>，避免多个实例争用同一个键。
+  const params = new URLSearchParams(window.location.search);
+  const instanceId = params.get('i');
+  const storageKey = instanceId ? 'pendingFile_' + instanceId : 'pendingFile';
 
-    if (!pendingFile) return;
+  try {
+    const result = await chrome.storage.local.get(storageKey);
+    const pendingFile = result[storageKey];
+
+    if (!pendingFile) {
+      // 没有刚拖入的文件时，恢复上次编辑内容（Issue #2）
+      await tryRestoreLastDocument();
+      return;
+    }
 
     // 检查时间戳，超过 30 秒的视为过期
     if (Date.now() - pendingFile.timestamp > 30000) {
-      await chrome.storage.local.remove('pendingFile');
+      await chrome.storage.local.remove(storageKey);
+      await tryRestoreLastDocument();
       return;
     }
 
@@ -1530,13 +1697,18 @@ async function loadPendingFile() {
     updateFilename(pendingFile.filename);
     currentFileHandle = null; // file:// 打开无法获得 FileHandle
     markSaved();
+    await rememberCurrentDocument({
+      filename: pendingFile.filename,
+      sourceUrl: pendingFile.sourceUrl || null,
+    });
     showToast(`已打开: ${pendingFile.filename}`, 'success');
     hideOnboarding();
 
     // 清除 pending file
-    await chrome.storage.local.remove('pendingFile');
+    await chrome.storage.local.remove(storageKey);
   } catch (err) {
     console.warn('加载 pending file 失败:', err);
+    await tryRestoreLastDocument();
   }
 }
 

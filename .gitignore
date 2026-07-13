@@ -23,6 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# yishuship local state
+# yishuship local state + release zips
 .ship/
 *.zip
+
+# contributor local tooling
+.workbuddy/

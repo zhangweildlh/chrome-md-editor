@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.3.0] - 2026-07-13
+
+### Added
+
+- Multi-instance editors: each toolbar click / each local `.md` open gets its own tab (`?i=` + per-instance storage keys) — thanks [@zhangweildlh](https://github.com/zhangweildlh) (PR #4 / Issue #3)
+- Style toolbar: center/bold/color, highlight, font face/size presets; superscript and subscript
+- Session restore: reopen the extension restores last edited content and filename (Issue #2; FileSystemHandle cannot persist, so Save may ask for a path again)
+- Richer first-run help tips for common Markdown / HTML snippets
+
+### Fixed
+
+- Preview WYSIWYG round-trip: normalize extra blank lines and preserve `<mark>/<center>/<font>/<span>/<sup>/<sub>` when syncing back to source (helps Issue #1 path/style corruption)
+- Local image preview and original `src` preservation remain in place from 1.2.0 (Issue #1)
+
+### Changed
+
+- Extension and package version aligned to **1.3.0**
+
 ## [1.2.0] - 2026-07-13
 
 ### Added

@@ -252,6 +252,70 @@ body {
   font-size: 13px;
 }
 
+/* 文字型工具栏按钮（居中/高亮/字号）允许自适应宽度 */
+.toolbar-btn.text-btn {
+  width: auto;
+  min-width: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.toolbar-btn.text-btn mark {
+  background: rgba(255, 212, 0, 0.65);
+  color: #1f2328;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* 字号下拉菜单 */
+.dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  display: none;
+  min-width: 188px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+}
+
+.dropdown.open .dropdown-menu {
+  display: block;
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.dropdown-item:hover {
+  background: var(--bg-hover);
+}
+
+.dropdown .caret {
+  margin-left: 2px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
 /* ==========================================
    Main Editor Area
    ========================================== */
@@ -1078,4 +1142,31 @@ body {
   border: 1px solid var(--bg-hover);
   border-radius: 4px;
   color: var(--text-secondary);
+}
+
+.onboarding-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
+}
+.onboarding-tips-examples {
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+.onboarding-tips-examples code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-secondary, rgba(127,127,127,0.15));
+}
+.onboarding-tips-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.9;
 }
