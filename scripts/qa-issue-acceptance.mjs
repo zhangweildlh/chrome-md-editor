@@ -37,8 +37,8 @@ const checks = [
 const bg = readFileSync(resolve(root, 'dist/background.js'), 'utf8');
 const editorHtml = readFileSync(resolve(root, 'dist/src/editor.html'), 'utf8');
 checks.push(['built background multi-instance', bg.includes('pendingFile_') && bg.includes('?i=')]);
-checks.push(['built toolbar highlight', editorHtml.includes('btnHighlight')]);
-checks.push(['built toolbar superscript', editorHtml.includes('btnSuperscript')]);
+checks.push(['built help button', editorHtml.includes('btnHelp')]);
+checks.push(['no styleGroup toolbar', !editorHtml.includes('styleGroup')]);
 
 let failed = false;
 console.log('\n--- dist contracts ---');

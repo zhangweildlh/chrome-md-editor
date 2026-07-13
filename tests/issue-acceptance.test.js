@@ -185,20 +185,19 @@ test('Issue #3: mark / center / font / sup / sub survive html→md round-trip', 
   }
 });
 
-test('Issue #3: toolbar button ids exist in editor.html', () => {
+test('Issue #3 product taste: no jarring style-preset toolbar; help entry exists', () => {
   const html = readFileSync(new URL('../src/editor.html', import.meta.url), 'utf8');
+  // Explicitly removed: 居粗/居红/亮粗/仿宋字号等违和预设
   for (const id of [
     'btnCenterBold',
     'btnCenterBoldRed',
-    'btnCenterBoldBlue',
     'btnHighlight',
-    'btnHighlightBold',
-    'btnSuperscript',
-    'btnSubscript',
     'btnFontSize',
+    'styleGroup',
   ]) {
-    assert.ok(html.includes(`id="${id}"`), `missing toolbar control ${id}`);
+    assert.equal(html.includes(`id="${id}"`), false, `style control should be gone: ${id}`);
   }
+  assert.ok(html.includes('id="btnHelp"'), 'help button required for 说明书');
 });
 
 test('Issue #3: background opens multi-instance URLs (source contract)', () => {
@@ -210,10 +209,11 @@ test('Issue #3: background opens multi-instance URLs (source contract)', () => {
   assert.doesNotMatch(bg, /tabs\.query\(\s*\{\s*url:\s*chrome\.runtime\.getURL\('src\/editor\.html'\)/);
 });
 
-test('Issue #3: onboarding help includes mark / nested quote / super-sub hints', () => {
+test('Issue #3: onboarding is a real user manual, not tip crumbs', () => {
   const ob = readFileSync(new URL('../src/onboarding.js', import.meta.url), 'utf8');
-  assert.match(ob, /mark/i);
-  assert.match(ob, /sup/i);
-  assert.match(ob, /sub/i);
-  assert.match(ob, /嵌套引用|>>/);
+  assert.match(ob, /使用说明/);
+  assert.match(ob, /本地图片/);
+  assert.match(ob, /多标签|多窗口/);
+  assert.match(ob, /允许访问文件网址/);
+  assert.match(ob, /loadExampleFile/);
 });

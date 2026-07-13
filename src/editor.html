@@ -127,46 +127,6 @@
 
         <div class="toolbar-divider"></div>
 
-        <!-- 居中 / 高亮 / 字号 样式 -->
-        <div class="toolbar-group" id="styleGroup">
-          <button class="toolbar-btn text-btn" id="btnCenterBold" title="居中+加粗">
-            居<strong>粗</strong>
-          </button>
-          <button class="toolbar-btn text-btn" id="btnCenterBoldRed" title="居中+加粗+红色">
-            居<span style="color: #f85149">红</span>
-          </button>
-          <button class="toolbar-btn text-btn" id="btnCenterBoldBlue" title="居中+加粗+蓝色">
-            居<span style="color: #58a6ff">蓝</span>
-          </button>
-          <button class="toolbar-btn text-btn" id="btnHighlight" title="文本高亮">
-            <mark>亮 </mark>
-          </button>
-          <button class="toolbar-btn text-btn" id="btnHighlightBold" title="文本高亮+加粗">
-            <mark><strong>亮粗 </strong></mark>
-          </button>
-          <button class="toolbar-btn text-btn" id="btnSuperscript" title="上标">
-            X<sup>2</sup>
-          </button>
-          <button class="toolbar-btn text-btn" id="btnSubscript" title="下标">
-            H<sub>2</sub>
-          </button>
-          <div class="dropdown" id="fontSizeDropdown">
-            <button class="toolbar-btn text-btn" id="btnFontSize" title="修改字号">
-              字号<span class="caret">▾</span>
-            </button>
-            <div class="dropdown-menu" id="fontSizeMenu">
-              <button class="dropdown-item" data-before='<font face="仿宋">' data-after='</font>' data-placeholder='这是宋体'>仿宋 · 宋体</button>
-              <button class="dropdown-item" data-before='<font face="楷体">' data-after='</font>' data-placeholder='这是楷体'>楷体 · 楷体</button>
-              <button class="dropdown-item" data-before='<font face="仿宋" color=red>' data-after='</font>' data-placeholder='这是红色宋体'>仿宋 · 红色</button>
-              <button class="dropdown-item" data-before='<font face="楷体" color="blue">' data-after='</font>' data-placeholder='这是蓝色楷体'>楷体 · 蓝色</button>
-              <button class="dropdown-item" data-before='<font face="仿宋" color=red size=4>' data-after='</font>' data-placeholder='这是红色4号宋体'>仿宋 · 红色4号</button>
-              <button class="dropdown-item" data-before='<font face="楷体" color="blue" size=5>' data-after='</font>' data-placeholder='这是蓝色5号楷体'>楷体 · 蓝色5号</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
         <div class="toolbar-group">
           <button class="toolbar-btn" id="btnH1" title="一级标题">H1</button>
           <button class="toolbar-btn" id="btnH2" title="二级标题">H2</button>
@@ -306,7 +266,15 @@
       </div>
 
       <div class="toolbar-right">
-        <!-- 视图模式 -->
+        
+        <button class="toolbar-btn" id="btnHelp" title="使用说明">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </button>
+<!-- 视图模式 -->
         <div class="toolbar-group view-mode-group">
           <button
             class="toolbar-btn view-btn active"

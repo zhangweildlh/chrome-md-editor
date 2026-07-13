@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.3.1] - 2026-07-13
+
+### Changed
+
+- Removed the jarring HTML style-preset toolbar (居粗 / 居红 / 字号等); keep the editor chrome calm
+- Startup + toolbar **?** open a real short user manual; example file is a full 说明书
+
+### Kept
+
+- Multi-instance tabs, session restore, local images, preview HTML round-trip for people who type tags in Markdown
+
 ## [1.3.0] - 2026-07-13
 
 ### Added

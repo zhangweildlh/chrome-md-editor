@@ -731,60 +731,6 @@ function wrapSelection(before, after) {
   return true;
 }
 
-// 用「原始 HTML 片段」包裹选区（用于居中/高亮/字号等带 HTML 标签的样式）
-// 若有选区 → 包裹选区；若无选区 → 插入占位文本便于继续输入
-function wrapWithRaw(before, after, placeholder) {
-  const sel = editor.state.selection.main;
-  const selectedText = editor.state.sliceDoc(sel.from, sel.to);
-
-  if (selectedText) {
-    editor.dispatch({
-      changes: { from: sel.from, to: sel.to, insert: before + selectedText + after },
-      selection: { anchor: sel.from + before.length, head: sel.to + before.length },
-    });
-  } else {
-    const insert = before + placeholder + after;
-    editor.dispatch({
-      changes: { from: sel.from, insert },
-      selection: {
-        anchor: sel.from + before.length,
-        head: sel.from + before.length + placeholder.length,
-      },
-    });
-  }
-  editor.focus();
-  return true;
-}
-
-// 字号下拉：从 data 属性读取 before/after/placeholder，复用 wrapWithRaw
-function initFontSizeDropdown() {
-  const dropdown = document.getElementById('fontSizeDropdown');
-  const toggle = document.getElementById('btnFontSize');
-  const menu = document.getElementById('fontSizeMenu');
-  if (!dropdown || !toggle || !menu) return;
-
-  toggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    dropdown.classList.toggle('open');
-  });
-
-  menu.querySelectorAll('.dropdown-item').forEach((item) => {
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const before = item.getAttribute('data-before') || '';
-      const after = item.getAttribute('data-after') || '';
-      const placeholder = item.getAttribute('data-placeholder') || '文本';
-      wrapWithRaw(before, after, placeholder);
-      dropdown.classList.remove('open');
-    });
-  });
-
-  // 点击其它区域关闭下拉
-  document.addEventListener('click', () => {
-    dropdown.classList.remove('open');
-  });
-}
-
 function insertAtLineStart(prefix) {
   const sel = editor.state.selection.main;
   const line = editor.state.doc.lineAt(sel.head);
@@ -1002,24 +948,14 @@ function bindEvents() {
   document.getElementById('btnStrike').addEventListener('click', () => wrapSelection('~~', '~~'));
   document.getElementById('btnCode').addEventListener('click', () => wrapSelection('`', '`'));
 
-  // 居中 / 高亮 样式按钮（插入原始 HTML 片段，markdown-it 已开启 html:true）
-  document.getElementById('btnCenterBold').addEventListener('click', () =>
-    wrapWithRaw('<center><b>', '</b></center>', '居中+加粗'));
-  document.getElementById('btnCenterBoldRed').addEventListener('click', () =>
-    wrapWithRaw('<center><b><font color="red">', '</font></b></center>', '居中+加粗+红色'));
-  document.getElementById('btnCenterBoldBlue').addEventListener('click', () =>
-    wrapWithRaw('<center><strong><span style="color: blue;">', '</span></strong></center>', '居中+加粗+蓝色'));
-  document.getElementById('btnHighlight').addEventListener('click', () =>
-    wrapWithRaw('<mark>', '</mark>', '文本高亮'));
-  document.getElementById('btnHighlightBold').addEventListener('click', () =>
-    wrapWithRaw('<mark>**', '** </mark>', '文本高亮+加粗'));
-  document.getElementById('btnSuperscript').addEventListener('click', () =>
-    wrapWithRaw('<sup>', '</sup>', '2'));
-  document.getElementById('btnSubscript').addEventListener('click', () =>
-    wrapWithRaw('<sub>', '</sub>', '2'));
 
-  // 修改字号下拉
-  initFontSizeDropdown();
+  // 使用说明（重新打开引导说明书）
+  const btnHelp = document.getElementById('btnHelp');
+  if (btnHelp) {
+    btnHelp.addEventListener('click', () => {
+      showOnboarding({ force: true, mode: 'guide' });
+    });
+  }
 
   // 标题
   document.getElementById('btnH1').addEventListener('click', () => insertAtLineStart('# '));
