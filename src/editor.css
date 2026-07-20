@@ -1456,3 +1456,144 @@ body {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+
+/* ==========================================
+   Print Styles — 修复「多页只打印光标所在一屏」BUG
+   根因：html/body 与各容器被锁死为「固定一屏高 + 内部滚动」，
+        打印时浏览器只输出可视区那一屏内容。
+   修复：打印时解锁高度与滚动，让 Markdown 内容自然流动，
+        由浏览器按用户在打印对话框里设定的纸张/页边距自动分页
+        （内容需要多少页就实实在在打多少页）。
+   仅作用于打印（@media print），对屏幕显示零影响、零副作用。
+   ========================================== */
+@media print {
+  /* 1) 解锁最外层高度与滚动，允许内容铺满多页 */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body {
+    display: block !important;
+  }
+
+  /* 2) 解锁主编辑区与各面板容器（高度自适应、滚动可见、铺平） */
+  .editor-main,
+  .editor-panel,
+  .preview-panel,
+  .preview-container {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+
+  .preview-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    border: none !important;
+    width: 100% !important;
+  }
+
+  .preview-container {
+    display: block !important;
+  }
+
+  /* 预览面板已在上方全局强制 display:flex !important，
+     编辑器面板已在下方隐藏列表强制 display:none !important，
+     故无需再按视图模式单独覆盖（避免误把源码编辑器也打印出来）。 */
+
+  /* 3) 隐藏所有非内容 UI，只保留预览区正文 */
+  .toolbar,
+  .statusbar,
+  .file-sidebar,
+  .editor-panel,
+  .resizer,
+  .sidebar-toggle,
+  .panel-header,
+  .onboarding-overlay,
+  .modal-overlay,
+  .toast,
+  .preview-context-menu {
+    display: none !important;
+  }
+
+  /* 4) 强制浅色主题（黑字白底），避免深色背景打印到白纸不可读 */
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #ffffff;
+    --bg-toolbar: #ffffff;
+    --bg-statusbar: #ffffff;
+    --bg-panel-header: #ffffff;
+    --bg-hover: #ffffff;
+    --bg-active: #ffffff;
+    --border-primary: #d0d7de;
+    --border-subtle: #e8eaed;
+    --text-primary: #1f2328;
+    --text-secondary: #57606a;
+    --text-muted: #6e7781;
+    --text-accent: #0969da;
+    --accent: #0969da;
+    --accent-glow: rgba(9, 105, 218, 0.1);
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+  }
+
+  .preview-container,
+  .markdown-body {
+    background: #ffffff !important;
+    color: #1f2328 !important;
+  }
+
+  /* 5) 代码块/表格/图片 不被裁剪；超长代码行自动换行 */
+  .markdown-body pre {
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    background: #f6f8fa !important;
+  }
+
+  .markdown-body pre code {
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+  }
+
+  .markdown-body code {
+    background: #f6f8fa !important;
+  }
+
+  /* 6) 避免关键元素在分页处被切断 */
+  .markdown-body pre,
+  .markdown-body table,
+  .markdown-body img,
+  .markdown-body svg,
+  .markdown-body blockquote,
+  .markdown-body tr,
+  .mermaid-diagram {
+    page-break-inside: avoid !important;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    page-break-after: avoid !important;
+  }
+
+  .markdown-body table th,
+  .markdown-body table td {
+    border: 1px solid #d0d7de !important;
+  }
+
+  /* 7) 不锁定纸张尺寸与页边距，完全交还用户在打印对话框里的设定
+        size: auto = 采用对话框所选 A4/Letter；
+        不写 margin = 采用对话框所选页边距（由真实内容与设定决定页数） */
+  @page {
+    size: auto;
+  }
+}
