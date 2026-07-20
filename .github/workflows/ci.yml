@@ -21,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install dependencies (npm ci)
@@ -38,4 +38,14 @@ jobs:
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
+
+      - name: Pack extension (zip via npm run pack)
+        run: npm run pack
+
+      - name: Upload extension zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: chrome-md-editor-v*.zip
           if-no-files-found: error
