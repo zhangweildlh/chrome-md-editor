@@ -1273,6 +1273,74 @@ function wrapSelection(before, after) {
   return true;
 }
 
+// 应用 <font> 行内样式（颜色 / 字号）。
+// 相对朴素 wrapSelection 的改进：
+//  - 已存在同类 <font> 时「替换」属性而非嵌套（修复 v1.4.x 初版颜色重选嵌套的瑕疵）；
+//  - 再次选择同一值时「智能取消」（移除该属性，若已无属性则整体去标签）；
+//  - 保留其它属性（如 color 与 size 可共存）。
+function applyFontStyle(attr, value) {
+  const sel = editor.state.selection.main;
+  const selectedText = editor.state.sliceDoc(sel.from, sel.to);
+
+  // 选区两侧紧邻的 <font ...> 开标签与 </font> 闭标签
+  const beforeText = editor.state.sliceDoc(Math.max(0, sel.from - 64), sel.from);
+  const afterText = editor.state.sliceDoc(sel.to, Math.min(editor.state.doc.length, sel.to + 8));
+  const openMatch = beforeText.match(/<font([^>]*)>$/);
+  const closeMatch = afterText.startsWith('</font>');
+
+  const buildTag = (attrs) => (attrs && attrs.trim()) ? '<font ' + attrs.trim() + '>' : '<font>';
+
+  if (openMatch && closeMatch) {
+    const openLen = openMatch[0].length;
+    let attrs = openMatch[1].trim();
+    const attrRegex = new RegExp('\\s*' + attr + '="[^"]*"');
+    const sameValue = new RegExp(attr + '="' + String(value) + '"').test(attrs);
+
+    if (sameValue) {
+      // 智能取消：移除该属性
+      attrs = attrs.replace(attrRegex, '').trim();
+    } else if (attrRegex.test(attrs)) {
+      // 替换：更新该属性，保留其它
+      attrs = attrs.replace(attrRegex, ' ' + attr + '="' + value + '"').trim();
+    } else {
+      // 新增：追加该属性（与已有属性共存）
+      attrs = (attrs ? attrs + ' ' : '') + attr + '="' + value + '"';
+    }
+
+    if (!attrs) {
+      // 已无任何属性 → 整体移除 <font>/</font>
+      editor.dispatch({
+        changes: [
+          { from: sel.from - openLen, to: sel.from, insert: '' },
+          { from: sel.to, to: sel.to + '</font>'.length, insert: '' },
+        ],
+        selection: { anchor: sel.from - openLen, head: sel.to - openLen },
+      });
+    } else {
+      const newOpen = buildTag(attrs);
+      editor.dispatch({
+        changes: { from: sel.from - openLen, to: sel.from, insert: newOpen },
+        selection: { anchor: sel.from - openLen + newOpen.length, head: sel.to - openLen + newOpen.length },
+      });
+    }
+  } else if (selectedText) {
+    const open = '<font ' + attr + '="' + value + '">';
+    editor.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: open + selectedText + '</font>' },
+      selection: { anchor: sel.from + open.length, head: sel.to + open.length },
+    });
+  } else {
+    const open = '<font ' + attr + '="' + value + '">';
+    const placeholder = '文本';
+    editor.dispatch({
+      changes: { from: sel.from, insert: open + placeholder + '</font>' },
+      selection: { anchor: sel.from + open.length, head: sel.from + open.length + placeholder.length },
+    });
+  }
+  editor.focus();
+  return true;
+}
+
 function insertAtLineStart(prefix) {
   const sel = editor.state.selection.main;
   const line = editor.state.doc.lineAt(sel.head);
@@ -1489,6 +1557,94 @@ function bindEvents() {
   document.getElementById('btnItalic').addEventListener('click', () => wrapSelection('*', '*'));
   document.getElementById('btnStrike').addEventListener('click', () => wrapSelection('~~', '~~'));
   document.getElementById('btnCode').addEventListener('click', () => wrapSelection('`', '`'));
+
+  // ===== 样式工具栏：居中 / 加粗 / 高亮 / 颜色 / 字号 =====
+  // 复用 wrapSelection：包裹后选区被重定位到内层文本，因此连续点击多个按钮会
+  // 自动嵌套，例如 <center><b><font color="red">文本</font></b></center>；
+  // 再次点击同一按钮则取消包裹（toggle）。每个按钮独立生效，也可任意组合。
+  const btnStyleCenter = document.getElementById('btnStyleCenter');
+  if (btnStyleCenter) btnStyleCenter.addEventListener('click', () => wrapSelection('<center>', '</center>'));
+
+  const btnStyleBold = document.getElementById('btnStyleBold');
+  if (btnStyleBold) btnStyleBold.addEventListener('click', () => wrapSelection('<b>', '</b>'));
+
+  const btnStyleHighlight = document.getElementById('btnStyleHighlight');
+  if (btnStyleHighlight) btnStyleHighlight.addEventListener('click', () => wrapSelection('<mark>', '</mark>'));
+
+  // 颜色 / 字号：弹出对应弹窗，点选项即应用 <font color>/<font size>。
+  // 关键改进（相对 v1.4.x 初版与 v1.3.0）：重选同一属性时「替换」而非「嵌套」，
+  // 再次点同一值则「智能取消」；并记忆上次选择，弹窗重新打开时高亮。
+  const colorPopover = document.getElementById('colorPopover');
+  const fontSizePopover = document.getElementById('fontSizePopover');
+  const btnColor = document.getElementById('btnColor');
+  const btnFontSize = document.getElementById('btnFontSize');
+
+  // 记忆上次选择（持久化到 localStorage，跨会话保留）
+  let lastColor = localStorage.getItem('md-editor-last-color') || 'red';
+  let lastSize = localStorage.getItem('md-editor-last-size') || '3';
+
+  function closeStylePopovers() {
+    if (colorPopover) colorPopover.hidden = true;
+    if (fontSizePopover) fontSizePopover.hidden = true;
+  }
+
+  // 弹窗打开时高亮上次选择
+  function markFontChoice() {
+    if (colorPopover) colorPopover.querySelectorAll('.swatch').forEach((sw) =>
+      sw.classList.toggle('selected', sw.dataset.color === lastColor));
+    if (fontSizePopover) fontSizePopover.querySelectorAll('.fs-option').forEach((opt) =>
+      opt.classList.toggle('selected', opt.dataset.size === lastSize));
+  }
+
+  if (btnColor && colorPopover) {
+    btnColor.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willShow = colorPopover.hidden;
+      closeStylePopovers();
+      colorPopover.hidden = !willShow;
+      if (!colorPopover.hidden) markFontChoice();
+    });
+    colorPopover.querySelectorAll('.swatch').forEach((sw) => {
+      sw.addEventListener('mousedown', (e) => e.preventDefault()); // 保住编辑器选区
+      sw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        lastColor = sw.dataset.color;
+        localStorage.setItem('md-editor-last-color', lastColor);
+        applyFontStyle('color', lastColor);
+        markFontChoice();
+        // 不自动关闭，便于在同组色板内快速改色（替换而非嵌套）
+      });
+    });
+  }
+
+  if (btnFontSize && fontSizePopover) {
+    btnFontSize.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willShow = fontSizePopover.hidden;
+      closeStylePopovers();
+      fontSizePopover.hidden = !willShow;
+      if (!fontSizePopover.hidden) markFontChoice();
+    });
+    fontSizePopover.querySelectorAll('.fs-option').forEach((opt) => {
+      opt.addEventListener('mousedown', (e) => e.preventDefault());
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        lastSize = opt.dataset.size;
+        localStorage.setItem('md-editor-last-size', lastSize);
+        applyFontStyle('size', lastSize);
+        markFontChoice();
+      });
+    });
+  }
+
+  // 点击空白 / 按 Esc 关闭弹窗
+  document.addEventListener('click', (e) => {
+    if (colorPopover && !colorPopover.contains(e.target) && e.target !== btnColor) closeStylePopovers();
+    if (fontSizePopover && !fontSizePopover.contains(e.target) && e.target !== btnFontSize) closeStylePopovers();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeStylePopovers();
+  });
 
   // 高亮：优先作用在右侧预览选区；无选区时退回源码选区包 <mark>
   const btnHighlight = document.getElementById('btnHighlight');

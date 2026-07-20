@@ -269,6 +269,73 @@ body {
 
 /* 文字型工具栏按钮（居中/高亮/字号）允许自适应宽度 */
 
+/* 样式工具栏：与既有按钮分隔的包裹容器（弹窗定位锚点） */
+.tb-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* 样式工具栏弹窗（颜色 / 字号），复用主题变量，深浅主题一致 */
+.style-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  min-width: 140px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.style-popover[hidden] {
+  display: none;
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+.swatch:hover {
+  transform: scale(1.12);
+}
+
+.fs-option {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.fs-option:hover {
+  background: var(--bg-hover);
+}
+
+/* 弹窗中「上次选择」高亮，强化记忆上次选择的反馈 */
+.swatch.selected {
+  outline: 2px solid #58a6ff;
+  outline-offset: 1px;
+}
+.fs-option.selected {
+  background: #58a6ff;
+  color: #fff;
+}
 
 /* 字号下拉菜单 */
 
