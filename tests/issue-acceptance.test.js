@@ -185,17 +185,21 @@ test('Issue #3: mark / center / font / sup / sub survive html→md round-trip', 
   }
 });
 
-test('Issue #3 product taste: no jarring style-preset toolbar; clean highlight + help exist', () => {
+test('Issue #3: jarring style-preset banned, but clean style toolbar restored', () => {
   const html = readFileSync(new URL('../src/editor.html', import.meta.url), 'utf8');
   // Explicitly removed: 居粗/居红/仿宋字号等违和预设
   for (const id of [
     'btnCenterBold',
     'btnCenterBoldRed',
-    'btnFontSize',
     'styleGroup',
   ]) {
     assert.equal(html.includes(`id="${id}"`), false, `style control should be gone: ${id}`);
   }
+  // v1.4.4 以规范图标按钮重建样式工具栏（非原始碎片）
+  for (const id of ['btnStyleCenter','btnStyleBold','btnStyleHighlight','btnColor','btnFontSize']) {
+    assert.ok(html.includes('id="' + id + '"'), 'clean style toolbar button: ' + id);
+  }
+  assert.ok(html.includes('style-toolbar-group'), 'style toolbar group container');
   // Clean highlighter lives with B/I format tools (preview selection, not HTML chip wall)
   assert.ok(html.includes('id="btnHighlight"'), 'preview highlight control');
   assert.ok(html.includes('id="btnHelp"'), 'help button required for 说明书');
