@@ -378,3 +378,34 @@ Chrome 扩展管理页中原图标显示为纯紫色渐变占位块，缺少和 
 ### 构建与本地测试（详细步骤见 README「构建与本地测试」）
 - `npm install` → `npm run build` → 在 `chrome://extensions/` 开启开发者模式 → 「加载已解压的扩展程序」选择 `dist/` → 开启「允许访问文件网址」。
 - 验证：点击扩展图标可开多个实例；工具栏居中 / 高亮 / 字号按钮按规格插入；分屏预览编辑不再累加空行。
+
+---
+
+## 2026-07-25 桌面端 EXE 集成（Tauri）—— 独立 Windows 程序，本地零安装
+
+### 目标
+将浏览器扩展改造为可独立运行的 Windows EXE，且保持「扩展 + EXE 同仓同 CI、一次打标签自动双出、本地零安装编译」。
+
+### 架构与落点
+- **编辑器核心**：`src/editor.html/.js/.css`（CodeMirror 6 + markdown-it + mermaid）保持纯 Web，扩展与桌面共用，业务代码零改动。
+- **丢弃的扩展胶水**：`public/background.js`、`content-script.js`、`manifest.json` 仅浏览器集成用，桌面程序不需要。
+- **桌面壳**：新增 `desktop/`（Tauri v2：`Cargo.toml`、`tauri.conf.json`、`capabilities`、`src/main.rs`/`lib.rs`/`build.rs`、图标脚本 `make-ico.mjs`）。
+- **垫片 `src/desktop-shims.js`**（在 Chrome 扩展内自动跳过）：
+  - `chrome` 垫片：恢复「会话恢复 / 翻译设置持久化」（`session-restore.js`/`translate.js` 原用 `chrome.storage`）。
+  - File System Access API polyfill：用 Tauri `dialog`/`fs` 实现 `showOpenFilePicker`/`showSaveFilePicker`/`showDirectoryPicker` + 文件/目录句柄，覆盖打开/保存/另存/打开文件夹/图片内嵌。
+- **入口**：新增 `src/index.html` 重定向供 Tauri 加载 `dist/src/index.html`；`vite.config.js` 增加 index 构建入口；根 `package.json` 增加 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-fs`。
+
+### CI / 自动化（远端编译，本地零安装）
+- 新增 `.github/workflows/desktop-build.yml`：在 GitHub `windows-latest` 用 Rust + Tauri 构建 EXE；`permissions: contents: write` 解决 Release 发布 403。
+- 与现有 `ci.yml`（扩展 zip）同时由 `tags: ["v*"]` 触发 → **一次打 `v*` 标签自动同时产出扩展和 EXE**。
+- 实证：`v1.4.4-desktop` 标签一次出包（setup.exe ~2.5MB + msi ~3MB，依赖系统 WebView2，未打包运行时）。
+
+### 合并与清理
+- 把桌面壳合并进 `main`（合并提交 `34960f0`，基于领先代码 v1.4.4 `c39e3be`；仅 `package.json` 一处冲突已取 v1.4.4 版本解决，未覆盖任何领先代码；受保护标签 `v1.4.4` 未移动）。
+- 合并后核验：`git merge-base --is-ancestor v1.4.4 origin/main` 为 YES（v1.4.4 领先代码已全部进入 main）；`desktop/`(10 文件) + `src/desktop-shims.js` + `src/index.html` 均在 main。
+- 清理无用分支 `feat/tauri-desktop`（已完全合入 main）。
+- 未来演进：在 main 上 bump 版本 → `git tag v1.4.5` → `git push origin v1.4.5`，即自动双出；本地无需安装 Rust/Tauri/WebView2。
+
+### 验证
+- 根 `npm ci` + `vite build` 通过，生成 `dist/src/editor.html` 与 `dist/src/index.html`。
+- `v1.4.4-desktop` 标签触发 `CI`(扩展) + `Desktop Build`(EXE) 双构建均 success；推 main 再触发双构建，佐证演进自动跟随。

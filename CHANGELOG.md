@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.4] - 2026-07-25
+
+### Added
+
+- 样式工具栏 v1.4.4：重选替换 / 智能取消 / 记忆上次选择（领先代码 c39e3be）
+- **桌面端独立 EXE 支持（Tauri）**：
+  - 新增 `desktop/` 桌面壳，用 Rust + Tauri 把同一套 Web 源码（`src/`）打包为独立 Windows EXE（nsis `setup.exe` + `.msi`）
+  - 新增 `src/desktop-shims.js`：桌面端提供 `chrome` 垫片（会话恢复 / 翻译设置持久化）+ File System Access API polyfill（映射原生文件对话框）；在 Chrome 扩展内自动跳过，对扩展零影响
+  - 新增 `src/index.html` 重定向入口供 Tauri 加载
+  - `vite.config.js` 增加 index 构建入口；根 `package.json` 增加依赖 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-fs`
+- 远端编译：`desktop-build.yml` 在 GitHub `windows-latest` 用 Rust + Tauri 构建 EXE
+
+### Changed
+
+- 将桌面壳合并进 `main`，与领先代码 v1.4.4 同仓同 CI
+
+### CI / 自动化
+
+- 打 `v*` 标签（如 `v1.4.5`、`v1.5.0`）会**同时触发** `ci.yml`（扩展 zip）与 `desktop-build.yml`（EXE），一次打标签自动同时产出扩展和 EXE；构建 100% 在 GitHub 云端，**本地零安装**
+- `v1.4.4` 的 EXE 交付物见 Release `v1.4.4-desktop`
+
+### Notes
+
+- EXE 体积约 2.5–3 MB，依赖系统 WebView2 运行时（未打包运行时）
+- 未签名版本首次运行会被 Windows SmartScreen 拦截，需手动允许
+- 已清理无用分支 `feat/tauri-desktop`（已合入 main）
+
+## [1.4.3] - 2026-07
+
+### Fixed
+
+- 修复打印多页只输出可视区一屏的 BUG（commit 2d9e5b9）
+
 ## [1.4.2] - 2026-07-14
 
 ### Added
