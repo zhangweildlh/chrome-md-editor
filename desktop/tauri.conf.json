@@ -27,13 +27,7 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["nsis", "msi"],
-    "icon": ["icons/icon.ico", "icons/icon.png"],
-    "windows": {
-      "nsis": {
-        "displayLanguageSelector": false
-      }
-    }
+    "active": false,
+    "icon": ["icons/icon.ico", "icons/icon.png"]
   }
 }
