@@ -8,6 +8,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         editor: resolve(__dirname, "src/editor.html"),
+        index: resolve(__dirname, "src/index.html"),
       },
       output: {
         entryFileNames: "assets/[name].js",
