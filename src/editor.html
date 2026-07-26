@@ -630,7 +630,9 @@
       </div>
     </footer>
 
-    <script type="module" src="./desktop-shims.js"></script>
     <script type="module" src="./editor.js"></script>
+    <!-- 注意：desktop-shims.js 已在 src/editor.js 顶部通过 ES Module import 引入，
+         避免在此处再用 <script> 标签重复加载（vite 会把 HTML 里的外部脚本标签当
+         未被引用的 asset 静默删除，所以唯一可靠的方式在 editor.js 里 import） -->
   </body>
 </html>

@@ -2,6 +2,13 @@
 // Markdown Editor - 核心逻辑
 // ==========================================
 
+// 桌面端（Tauri）兼容垫片：注入 window.showOpenFilePicker / showSaveFilePicker /
+// showDirectoryPicker / __tauriFileHandle 等，使同一套 Web 源码既能在 Chrome
+// 扩展运行、也能在 Tauri 桌面壳里运行（垫片内部有 isTauri 守卫，扩展环境零影响）。
+// 必须在 src/editor.js 顶部以 ES Module 形式 import，否则 vite 不会把它打包进
+// bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
+import './desktop-shims.js';
+
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';

@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.5] - 2026-07-26
+
+### Fixed
+
+- **根因修复：把 `desktop-shims.js` 真正打进 vite bundle**。上一版修了 `withGlobalTauri` 之后 EXE 仍只显示初始界面、且无任何 toast。定位发现：`src/editor.html` 里 `<script type="module" src="./desktop-shims.js">` 在 vite 构建时被**静默删除**（HTML 中未列入 rollup entry 的外部脚本会被丢弃），导致 `dist/assets/editor.js` 里**完全没有 TFileHandle / showOpenFilePicker 垫片**；`openFileByPath` 内 `window.__tauriFileHandle` 始终为 `undefined`，命中 `if (typeof factory !== 'function') return;` 静默退出 → 双击打开路径整条全静默失败。修复：
+  - `src/editor.js` 顶部 `import './desktop-shims.js';`（vite 会把它视为编辑器依赖打包进 bundle）
+  - `src/editor.html` 同步移除外置 `<script>` 标签，避免重复执行
+  - `src/desktop-shims.js` 自身未改
+
 ## [1.4.4] - 2026-07-25
 
 ### Added
