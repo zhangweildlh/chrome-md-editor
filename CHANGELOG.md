@@ -15,7 +15,7 @@ Project uses Semantic Versioning.
   - 新增 `src/desktop-shims.js`：桌面端提供 `chrome` 垫片（会话恢复 / 翻译设置持久化）+ File System Access API polyfill（映射原生文件对话框）；在 Chrome 扩展内自动跳过，对扩展零影响
   - 新增 `src/index.html` 重定向入口供 Tauri 加载
   - `vite.config.js` 增加 index 构建入口；根 `package.json` 增加依赖 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-fs`
-  - 桌面端支持「双击 .md 文件用 EXE 打开」：把 .md 设为默认程序后，双击文件会以 `EXE "路径.md"` 启动；桌面壳读取该命令行参数，等前端就绪后通过事件转发，由 FS Access 垫片按路径读取并加载进编辑器（保存可直接写回原文件）；并接入单实例插件，已运行时再双击另一 .md 会转发到主窗口而非新开进程
+  - 桌面端支持「双击 .md 文件用 EXE 打开」：把 .md 设为默认程序后，双击文件会以 `EXE "路径.md"` 启动；桌面壳读取该命令行参数，前端初始化时通过 `invoke('get_initial_file')` 取路径并打开，文件读写由 Rust 命令（`read_text_file`/`write_text_file`，`std::fs`，无作用域限制）完成，保存可写回原文件；采用多实例，每次双击启动独立 EXE 实例打开各自文件
 - 远端编译：`desktop-build.yml` 在 GitHub `windows-latest` 用 Rust + Tauri 构建 EXE
 
 ### Changed
@@ -32,6 +32,13 @@ Project uses Semantic Versioning.
 - EXE 体积约 2.5–3 MB，依赖系统 WebView2 运行时（未打包运行时）
 - 未签名版本首次运行会被 Windows SmartScreen 拦截，需手动允许
 - 已清理无用分支 `feat/tauri-desktop`（已合入 main）
+
+### Fixed
+
+- **修复双击 .md 用 EXE 打开无效**：原实现依赖前端→Rust 的 `frontend-ready` 事件握手 + Rust→前端的 `open-file` 事件转发，事件未能稳定触发，导致 EXE 只显示初始界面、不打开文件。
+  - 改为命令式：前端初始化时直接 `invoke('get_initial_file')` 取启动命令行里的 .md 路径，再用 `openFileByPath` 打开；时序更简单稳定。
+  - 文件读写从「Tauri fs 插件（受作用域限制）」改为 **Rust 命令 `read_text_file` / `write_text_file`（`std::fs`，无作用域限制）**，彻底绕开 fs 插件对绝对路径的限制，保存可写回原文件。
+  - **移除单实例插件**，改为多实例：每次双击 .md 启动独立 EXE 实例并打开对应文件，避免“已运行时再双击被转发/被拦”的复杂性。
 
 ## [1.4.3] - 2026-07
 

@@ -1151,7 +1151,8 @@ async function handleOpen() {
   return true;
 }
 
-// 桌面端：按命令行传入的 .md 绝对路径打开（由 Rust 经事件转发到 __tauriFileHandle）
+// 桌面端：按命令行传入的 .md 绝对路径打开（构造 Tauri 文件句柄，
+// 其 getFile/createWritable 走 Rust 命令读写，绕开 fs 作用域限制）
 async function openFileByPath(path) {
   try {
     const factory = window.__tauriFileHandle;
@@ -1162,22 +1163,19 @@ async function openFileByPath(path) {
   }
 }
 
-// 桌面端：注册「双击 .md 启动 EXE」传入路径的打开逻辑
-async function initTauriFileOpen() {
+// 桌面端：读取「双击 .md 启动 EXE」时命令行传入的路径并打开。
+// 直接在初始化时 invoke Rust 命令取路径，不依赖事件握手（更简单、时序更稳）。
+// 多实例：每个 EXE 实例只处理自己启动时的那份路径。
+async function openInitialCliFile() {
   if (!('__TAURI_INTERNALS__' in window)) return;
   try {
-    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
-    const webview = getCurrentWebview();
-    // 前端自定义事件：由 Rust 的 open-file 事件转发而来
-    window.addEventListener('md-open-path', (e) => openFileByPath(e.detail));
-    // 订阅后续实例（单实例插件）转发的打开请求 —— 必须在通知 Rust 就绪之前注册
-    await webview.listen('open-file', (event) => {
-      window.dispatchEvent(new CustomEvent('md-open-path', { detail: event.payload }));
-    });
-    // 通知 Rust 前端已就绪，触发「启动时传入的 .md 路径」打开
-    await webview.emit('frontend-ready');
+    const { invoke } = await import('@tauri-apps/api/core');
+    const path = await invoke('get_initial_file');
+    if (path) {
+      await openFileByPath(path);
+    }
   } catch (err) {
-    // 忽略：非桌面环境或 Tauri API 不可用
+    // 忽略：非桌面环境、无可打开文件或命令调用失败
   }
 }
 
@@ -2227,7 +2225,7 @@ function init() {
   loadPendingFile();
 
   // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
-  initTauriFileOpen();
+  openInitialCliFile();
 }
 
 // ==========================================

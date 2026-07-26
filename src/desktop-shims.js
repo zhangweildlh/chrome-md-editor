@@ -101,11 +101,15 @@
       return exts.length ? [{ name: types[0].description || "All Files", extensions: exts }] : undefined;
     };
 
-    // 延迟加载 Tauri 插件（仅桌面端执行，扩展端永不触发）
+    // 延迟加载 Tauri 插件 / API（仅桌面端执行，扩展端永不触发）
+    // - dialog：选取文件/目录（返回路径字符串），不受 fs scope 限制
+    // - fs：仅用于目录操作（TDirHandle 的 readDir/mkdir/exists）
+    // - invoke：调用 Rust 命令做「按绝对路径的文本读写」，绕开 fs scope 限制
     const setup = (async () => {
       const dialog = await import("@tauri-apps/plugin-dialog");
       const fs = await import("@tauri-apps/plugin-fs");
-      return { dialog, fs };
+      const { invoke } = await import("@tauri-apps/api/core");
+      return { dialog, fs, invoke };
     })();
 
     class TFileHandle {
@@ -114,8 +118,9 @@
         this.name = this.path.split("/").pop() || "untitled";
       }
       async getFile() {
-        const { fs } = await setup;
-        const text = await fs.readTextFile(this.path);
+        // 文本读取改走 Rust 命令，避免 fs 插件 scope 拒绝绝对路径
+        const { invoke } = await setup;
+        const text = await invoke("read_text_file", { path: this.path });
         const enc = new TextEncoder();
         return {
           name: this.name,
@@ -126,20 +131,24 @@
         };
       }
       async createWritable() {
-        const { fs } = await setup;
+        const self = this;
         return {
           write: async (content) => {
+            const { invoke } = await setup;
+            let str;
             if (typeof content === "string") {
-              await fs.writeTextFile(this.path, content);
-              return;
+              str = content;
+            } else {
+              // 统一以文本写入（编辑器内容为文本）
+              let u8;
+              if (content instanceof Uint8Array) u8 = content;
+              else if (content instanceof ArrayBuffer) u8 = new Uint8Array(content);
+              else if (content && typeof content.arrayBuffer === "function")
+                u8 = new Uint8Array(await content.arrayBuffer());
+              else u8 = new Uint8Array(content);
+              str = new TextDecoder().decode(u8);
             }
-            let u8;
-            if (content instanceof Uint8Array) u8 = content;
-            else if (content instanceof ArrayBuffer) u8 = new Uint8Array(content);
-            else if (content && typeof content.arrayBuffer === "function")
-              u8 = new Uint8Array(await content.arrayBuffer());
-            else u8 = new Uint8Array(content);
-            await fs.writeFile(this.path, u8);
+            await invoke("write_text_file", { path: self.path, content: str });
           },
           close: async () => {},
         };

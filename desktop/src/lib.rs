@@ -1,16 +1,22 @@
-// 桌面程序主逻辑：装载 Tauri 运行时 + 对话框/文件系统/单实例插件。
-// 文件打开：Windows 下把 .md 设为默认程序后，双击文件会以
-//   Markdown_Editor.exe "C:\path\to\file.md"
-// 的方式启动。这里在启动时读取该路径，等前端就绪后通过事件发给前端，
-// 由前端的 FS Access 垫片（按路径读）加载进编辑器。单实例插件保证「已运行时
-// 再双击另一个 .md」会转发到已存在的主窗口，而不是再开一个进程。
+// 桌面程序主逻辑：装载 Tauri 运行时 + 对话框/文件系统插件。
+//
+// 文件打开（双击 .md 启动 EXE）：
+//   Windows 把 .md 设为默认程序后，双击文件会以
+//     Markdown_Editor.exe "C:\path\to\file.md"
+//   的方式启动。这里在启动时读取该路径存入状态；前端就绪后通过
+//   Tauri command（invoke get_initial_file）读取路径，再用
+//   read_text_file / write_text_file 命令在 Rust 侧做文件读写。
+//
+// 采用多实例：每次双击 .md 都会启动一个独立 EXE 实例并打开对应文件，
+// 不使用 single-instance 插件，避免“已运行时再双击被转发/被拦”的复杂性。
+//
+// 文件读写放在 Rust 侧（std::fs），彻底绕开 Tauri fs 插件对“未授权绝对路径”
+// 的 scope 限制——否则 fs:allow-read-text-file 权限给了也会被 scope 拒绝。
 
 use tauri::Manager;
-use tauri::Listener;
-use tauri::Emitter;
 use std::sync::Mutex;
 
-// 记录「启动时通过命令行传入的 .md 文件」，等待前端就绪后再打开
+// 记录「启动时通过命令行传入的 .md 文件」
 struct AppState {
     initial_file: Mutex<Option<String>>,
 }
@@ -22,41 +28,38 @@ fn is_markdown_arg(s: &str) -> bool {
         .any(|e| lower.ends_with(e))
 }
 
+// 返回启动时命令行传入的 .md 路径（若有）。前端在初始化时调用。
+#[tauri::command]
+fn get_initial_file(state: tauri::State<AppState>) -> Option<String> {
+    state.initial_file.lock().unwrap().clone()
+}
+
+// 按绝对路径读取文本文件（Rust 侧，无 scope 限制）
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("读取失败 {}: {}", path, e))
+}
+
+// 按绝对路径写入文本文件（Rust 侧，无 scope 限制）
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            // 第二个实例（如已运行后再双击另一 .md）把路径转发给主窗口
-            if let Some(p) = args.iter().skip(1).find(|a| is_markdown_arg(a)).cloned() {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.emit("open-file", p);
-                }
-            }
-        }))
-        .setup(|app| {
-            // 收集启动参数里的 .md 路径（argv[0] 是 exe 自身，跳过）
-            // std::env::args() 产出拥有所有权的 String，find 已返回 Option<String>
-            let initial = std::env::args().skip(1).find(|a| is_markdown_arg(a));
-
-            let handle = app.handle().clone();
-            app.manage(AppState {
-                initial_file: Mutex::new(initial),
-            });
-
-            // 前端就绪后，把启动路径通过事件发给前端打开
-            app.listen("frontend-ready", move |_event| {
-                let state = handle.state::<AppState>();
-                let path = state.initial_file.lock().unwrap().take();
-                if let Some(p) = path {
-                    if let Some(w) = handle.get_webview_window("main") {
-                        let _ = w.emit("open-file", p);
-                    }
-                }
-            });
-            Ok(())
+        .manage(AppState {
+            // argv[0] 是 exe 自身，跳过；取第一个 .md 参数
+            initial_file: Mutex::new(std::env::args().skip(1).find(|a| is_markdown_arg(a))),
         })
+        .invoke_handler(tauri::generate_handler![
+            get_initial_file,
+            read_text_file,
+            write_text_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
