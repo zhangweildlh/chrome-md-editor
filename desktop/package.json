@@ -1,7 +1,7 @@
 {
   "name": "chrome-md-editor-desktop",
   "private": true,
-  "version": "1.4.5",
+  "version": "1.4.6",
   "type": "module",
   "scripts": {
     "dev:web": "npm --prefix .. run dev",

@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.6] - 2026-07-26
+
+### Fixed
+
+- **版本号一致性修复（元数据，不影响功能）**：v1.4.5 把 `package.json` / `desktop/package.json` 升到 1.4.5，但漏改 `public/manifest.json`（扩展 manifest 模板）与 `desktop/tauri.conf.json`（EXE 资源版本），导致扩展 zip 内 manifest 版本停在 1.4.4、EXE 文件属性版本停在 1.4.4，与包版本 1.4.5 不一致，且 `scripts/qa-issue-acceptance.mjs` 的 `version package==manifest` 检查会 FAIL。现四个 version 字段统一为 1.4.6。
+- 本次修改（`src/editor.js` 顶部 `import './desktop-shims.js'` + 移除 `src/editor.html` 外置 `<script>`）**对 Chrome 扩展零功能影响**：`desktop-shims.js` 在扩展环境里 `window.chrome` 存在（跳过 chrome 垫片）、`isTauri` 为 false（跳过 FS Access 垫片），整模块零副作用；扩展的 `window.showOpenFilePicker` 仍是原生实现。
+
 ## [1.4.5] - 2026-07-26
 
 ### Fixed
