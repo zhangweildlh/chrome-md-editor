@@ -13,7 +13,7 @@ Project uses Semantic Versioning.
 - **桌面端独立 EXE 支持（Tauri）**：
   - 新增 `desktop/` 桌面壳，用 Rust + Tauri 把同一套 Web 源码（`src/`）打包为独立 Windows EXE（nsis `setup.exe` + `.msi`）
   - 新增 `src/desktop-shims.js`：桌面端提供 `chrome` 垫片（会话恢复 / 翻译设置持久化）+ File System Access API polyfill（映射原生文件对话框）；在 Chrome 扩展内自动跳过，对扩展零影响
-  - 新增 `src/index.html` 重定向入口供 Tauri 加载
+  - Tauri 窗口入口直接指向 `src/editor.html`（此前经 `src/index.html` 重定向，现已改为直连）
   - `vite.config.js` 增加 index 构建入口；根 `package.json` 增加依赖 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-fs`
   - 桌面端支持「双击 .md 文件用 EXE 打开」：把 .md 设为默认程序后，双击文件会以 `EXE "路径.md"` 启动；桌面壳读取该命令行参数，前端初始化时通过 `invoke('get_initial_file')` 取路径并打开，文件读写由 Rust 命令（`read_text_file`/`write_text_file`，`std::fs`，无作用域限制）完成，保存可写回原文件；采用多实例，每次双击启动独立 EXE 实例打开各自文件
 - 远端编译：`desktop-build.yml` 在 GitHub `windows-latest` 用 Rust + Tauri 构建 EXE
@@ -40,6 +40,7 @@ Project uses Semantic Versioning.
   - 文件读写从「Tauri fs 插件（受作用域限制）」改为 **Rust 命令 `read_text_file` / `write_text_file`（`std::fs`，无作用域限制）**，彻底绕开 fs 插件对绝对路径的限制，保存可写回原文件。
   - **移除单实例插件**，改为多实例：每次双击 .md 启动独立 EXE 实例并打开对应文件，避免“已运行时再双击被转发/被拦”的复杂性。
 - **双击打开诊断与加固（排查中）**：`openInitialCliFile` 现在把 `invoke` 异常与「未检测到参数时的原始 argv」用 toast 显示出来，便于定位「Windows 文件关联到底有没有把路径传给 EXE」；Rust 侧 `normalize_arg` 兼容外层引号与 `file://` 形式，`get_initial_file` 在解析前先归一化。
+- **根因修复：开启 `app.withGlobalTauri`**：`tauri.conf.json` 此前未设置 `withGlobalTauri`，Tauri 不会把 `window.__TAURI_INTERNALS__` 注入 webview。而桌面端全部守卫（`desktop-shims.js` 的 `isTauri` 判定、`editor.js` 的 `openInitialCliFile` 守卫）以及 `@tauri-apps/api` 的 `invoke` 都依赖该全局 → 整个桌面代码路径被静默短路（双击 .md 只显示初始界面、**且连诊断 toast 都不弹**）。现已开启 `withGlobalTauri: true`，并把窗口入口从 `src/index.html`（重定向）直接指向 `src/editor.html`，消除 `location.replace` 跨文档导航可能带来的全局丢失风险。
 
 ## [1.4.3] - 2026-07
 
