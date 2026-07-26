@@ -6,6 +6,8 @@
 // 再双击另一个 .md」会转发到已存在的主窗口，而不是再开一个进程。
 
 use tauri::Manager;
+use tauri::Listener;
+use tauri::Emitter;
 use std::sync::Mutex;
 
 // 记录「启动时通过命令行传入的 .md 文件」，等待前端就绪后再打开
