@@ -68,29 +68,6 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
-// ===== PROBE START =====
-// EXE 运行期诊断探针：把所有 PROBE 日志追加写入「EXE 同目录/md_editor_probe.log」
-// （无写入权限时回退到系统临时目录）。彻底修复 BUG 后连同该命令一并删除。
-#[tauri::command]
-async fn probe_log(msg: String) -> String {
-    use std::io::Write;
-    let dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::env::temp_dir());
-    let path = dir.join("md_editor_probe.log");
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let line = format!("[{}] {}\n", ts, msg);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = f.write_all(line.as_bytes());
-    }
-    path.to_string_lossy().to_string()
-}
-// ===== PROBE END =====
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -110,9 +87,6 @@ pub fn run() {
             debug_args,
             read_text_file,
             write_text_file,
-            // ===== PROBE START =====
-            probe_log
-            // ===== PROBE END =====
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,31 +3,19 @@
 // 兼容垫片：让同一套 Web 源码（src/editor.* 等）既能在 Chrome 扩展运行，
 // 也能在 Tauri 桌面壳里运行。
 //
-// 判定逻辑（双保险）：
+// 判定逻辑：
 //   - 在 Chrome 扩展中：window.chrome 与 window.showOpenFilePicker 均原生存在
 //     → 两段垫片全部跳过，对扩展零影响。
-//   - 在 Tauri 桌面壳中：window.__TAURI_INTERNALS__ 存在、且 showOpenFilePicker
-//     不存在 → 安装 chrome 垫片 + File System Access API 垫片。
+//   - 在 Tauri 桌面壳中：window.__TAURI_INTERNALS__ 存在 → 一律安装
+//     File System Access API 垫片（覆盖 showOpenFilePicker / __tauriFileHandle 等）。
+//     注意：Tauri v2 WebView2 里 window.showOpenFilePicker 是「原生函数」但在
+//     沙箱 webview 中并不可用；若按「不存在才装」判断会被跳过，导致
+//     __tauriFileHandle 工厂缺失、双击/拖入 .md 静默失败。故 Tauri 下无条件安装。
 // ---------------------------------------------------------------------------
 (function () {
   if (typeof window === "undefined") return;
 
   const isTauri = "__TAURI_INTERNALS__" in window;
-
-  // ===== PROBE START =====
-  const PROBE = (tag, detail) => {
-    try {
-      if (typeof window !== "undefined" && window.__PROBE__) window.__PROBE__(tag, detail);
-    } catch (e) {}
-  };
-  PROBE(
-    "shim:start",
-    "isTauri=" + isTauri +
-    " chrome=" + (typeof chrome) +
-    " showOpenFilePicker=" + (typeof window.showOpenFilePicker) +
-    " TAURI_INTERNALS=" + ("__TAURI_INTERNALS__" in window)
-  );
-  // ===== PROBE END =====
 
   // =========================================================================
   // 1. chrome 垫片
@@ -99,7 +87,7 @@
   //    以及 FileSystemFileHandle(.getFile/.createWritable) 与
   //    FileSystemDirectoryHandle(.getFileHandle/.getDirectoryHandle/.values)。
   // =========================================================================
-  if (isTauri && typeof window.showOpenFilePicker === "undefined") {
+  if (isTauri) {
     const norm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+/g, "/");
     const joinPath = (base, name) => {
       const b = norm(base).replace(/\/$/, "");
@@ -135,9 +123,6 @@
       async getFile() {
         // 文本读取改走 Rust 命令，避免 fs 插件 scope 拒绝绝对路径
         const { invoke } = await setup;
-        // ===== PROBE START =====
-        PROBE("shim:getFile", "path=" + this.path);
-        // ===== PROBE END =====
         const text = await invoke("read_text_file", { path: this.path });
         const enc = new TextEncoder();
         return {
@@ -167,9 +152,6 @@
               str = new TextDecoder().decode(u8);
             }
             await invoke("write_text_file", { path: self.path, content: str });
-            // ===== PROBE START =====
-            PROBE("shim:write", "path=" + self.path + " len=" + (str ? str.length : -1));
-            // ===== PROBE END =====
           },
           close: async () => {},
         };
@@ -235,19 +217,6 @@
 
     // 供编辑器按「命令行传入的绝对路径」构造文件句柄（双击 .md 启动 EXE 时使用）。
     // 返回的对象与 showOpenFilePicker 得到的句柄接口一致（getFile/createWritable）。
-    window.__tauriFileHandle = (path) => {
-      // ===== PROBE START =====
-      PROBE("shim:factory", "path=" + path);
-      // ===== PROBE END =====
-      return new TFileHandle(path);
-    };
+    window.__tauriFileHandle = (path) => new TFileHandle(path);
   }
-
-  // ===== PROBE START =====
-  PROBE(
-    "shim:done",
-    "__tauriFileHandle=" + (typeof window.__tauriFileHandle) +
-    " enteredFsShim=" + (isTauri && typeof window.showOpenFilePicker === "undefined")
-  );
-  // ===== PROBE END =====
 })();

@@ -5,24 +5,43 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
-## [1.4.7] - 2026-07-26 (诊断构建，含探针)
-
-### Added (诊断用，修复 BUG 后删除)
-
-- **EXE 运行期诊断探针**：为定位「双击 .md 打不开」「拖入 .md 打不开」根因，新增一套全程监测探针。
-  - 新增 `src/probe.js`：导出 `PROBE(tag, detail)`，既 `console.log` 又在桌面端调用 Rust 命令 `probe_log` 把日志追加写入「EXE 同目录/md_editor_probe.log」。
-  - `desktop/src/lib.rs`：新增 `probe_log` 命令（写日志文件，无写入权限时回退系统临时目录）。
-  - `src/editor.js` / `src/desktop-shims.js`：在模块加载、双击打开（`openInitialCliFile`/`openFileByPath`/`openWithHandle`）、拖入打开（webview `drop` 事件 + Tauri 原生 `tauri://drop` 事件）、垫片初始化等关键节点埋点。
-  - **所有探针均以 `// ===== PROBE START =====` / `// ===== PROBE END =====` 标记，并关联 `src/probe.js` 与 Rust `probe_log` 命令；彻底修复 BUG 后必须一并删除。**
-- 版本号四个字段统一升到 1.4.7（纯诊断构建，功能代码未变）。
-
-### 说明
-
-- 本版本不打「修复完成」结论，仅用于采集运行日志。用户实测后把 `md_editor_probe.log` 内容反馈，即可精确定位双击/拖入两条链路在哪一步失败。
+## [1.4.8] - 2026-07-26 (修复发布，已移除全部探针)
 
 ### Fixed
 
-- **版本号一致性修复（元数据，不影响功能）**：v1.4.5 把 `package.json` / `desktop/package.json` 升到 1.4.5，但漏改 `public/manifest.json`（扩展 manifest 模板）与 `desktop/tauri.conf.json`（EXE 资源版本），导致扩展 zip 内 manifest 版本停在 1.4.4、EXE 文件属性版本停在 1.4.4，与包版本 1.4.5 不一致，且 `scripts/qa-issue-acceptance.mjs` 的 `version package==manifest` 检查会 FAIL。现四个 version 字段统一为 1.4.6。
+- **双击 .md 无法打开（根因修复）**：`src/desktop-shims.js` 的 FS 垫片守卫原本是
+  `if (isTauri && typeof window.showOpenFilePicker === "undefined")`。但 Tauri v2 的
+  WebView2 里 `window.showOpenFilePicker` 是**原生函数**（即便在沙箱中不可用），
+  导致守卫为 false、整个 FS 垫片（含关键的 `window.__tauriFileHandle` 工厂）从未
+  安装，于是 `openFileByPath` 命中 `factory=undefined` 静默 return —— 这正是
+  「双击只显示初始界面、无任何提示」的真实根因（v1.4.7 的探针日志已确证：
+  `shim:done :: __tauriFileHandle=undefined enteredFsShim=false`）。
+  现改为 `if (isTauri)`：在 Tauri 下**无条件**安装 FS 垫片。
+- **拖入 .md 无法打开（根因修复）**：原实现用 `listen('tauri://drop')` 监听
+  Tauri 原生拖放；该事件在 WebView2 下不可靠、实测从不触发。改为使用稳定的
+  `getCurrentWebview().onDragDropEvent()`（Tauri v2 推荐 API），在 `drop` 类型事件
+  里取 `payload.paths` 并打开首个 `.md/.markdown/.txt`。
+- **移除全部诊断探针**：按约定，BUG 修复后删除 `src/probe.js`、Rust 命令
+  `probe_log` 及其注册、以及 `src/editor.js` / `src/desktop-shims.js` 内所有
+  `// ===== PROBE START/END =====` 标记块。代码恢复干净。
+- **防御性提示**：`openFileByPath` 在 `window.__tauriFileHandle` 仍非函数时改为
+  弹出可见错误 toast（不再静默 return），便于日后排查。
+- 四个版本字段统一升到 1.4.8；`src/editor.js` 内 `APP_VERSION` 同步到 1.4.8。
+
+### 对 Chrome 扩展的影响
+
+- 零功能影响：`desktop-shims.js` 在扩展环境 `isTauri=false` 仍整体跳过；`__tauriFileHandle`
+  仅在 Tauri 下定义；`onDragDropEvent` 仅在 `__TAURI_INTERNALS__` 存在时注册。
+
+## [1.4.7] - 2026-07-26 (诊断构建，含探针，已被 1.4.8 取代)
+
+### Added (诊断用，已在 1.4.8 删除)
+
+- **EXE 运行期诊断探针**：为定位「双击 .md 打不开」「拖入 .md 打不开」根因，临时新增一套全程监测探针（见 `src/probe.js`、`probe_log` 命令、各 `PROBE` 块）。**本版本仅为采集日志，请勿长期使用；所有探针已在 1.4.8 彻底删除。**
+
+### Fixed
+
+- **版本号一致性修复（元数据，不影响功能）**：v1.4.5 把 `package.json` / `desktop/package.json` 升到 1.4.5，但漏改 `public/manifest.json`（扩展 manifest 模板）与 `desktop/tauri.conf.json`（EXE 资源版本），导致扩展 zip 内 manifest 版本停在 1.4.4、EXE 文件属性版本停在 1.4.4。现四个 version 字段统一为 1.4.6/1.4.7。
 - 本次修改（`src/editor.js` 顶部 `import './desktop-shims.js'` + 移除 `src/editor.html` 外置 `<script>`）**对 Chrome 扩展零功能影响**：`desktop-shims.js` 在扩展环境里 `window.chrome` 存在（跳过 chrome 垫片）、`isTauri` 为 false（跳过 FS Access 垫片），整模块零副作用；扩展的 `window.showOpenFilePicker` 仍是原生实现。
 
 ## [1.4.5] - 2026-07-26
