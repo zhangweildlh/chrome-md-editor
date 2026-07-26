@@ -76,7 +76,10 @@ pub fn run() {
         .manage(AppState {
             // argv[0] 是 exe 自身，跳过；取第一个 .md 参数（先归一化，兼容引号/file:// 形式）
             initial_file: Mutex::new(
-                std::env::args().skip(1).map(normalize_arg).find(|a| is_markdown_arg(a)),
+                std::env::args()
+                    .skip(1)
+                    .map(|a| normalize_arg(&a))
+                    .find(|a| is_markdown_arg(a)),
             ),
         })
         .invoke_handler(tauri::generate_handler![
