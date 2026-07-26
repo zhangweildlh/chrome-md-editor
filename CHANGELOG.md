@@ -15,6 +15,7 @@ Project uses Semantic Versioning.
   - 新增 `src/desktop-shims.js`：桌面端提供 `chrome` 垫片（会话恢复 / 翻译设置持久化）+ File System Access API polyfill（映射原生文件对话框）；在 Chrome 扩展内自动跳过，对扩展零影响
   - 新增 `src/index.html` 重定向入口供 Tauri 加载
   - `vite.config.js` 增加 index 构建入口；根 `package.json` 增加依赖 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-fs`
+  - 桌面端支持「双击 .md 文件用 EXE 打开」：把 .md 设为默认程序后，双击文件会以 `EXE "路径.md"` 启动；桌面壳读取该命令行参数，等前端就绪后通过事件转发，由 FS Access 垫片按路径读取并加载进编辑器（保存可直接写回原文件）；并接入单实例插件，已运行时再双击另一 .md 会转发到主窗口而非新开进程
 - 远端编译：`desktop-build.yml` 在 GitHub `windows-latest` 用 Rust + Tauri 构建 EXE
 
 ### Changed

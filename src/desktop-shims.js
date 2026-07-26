@@ -202,5 +202,9 @@
       if (!dir) throw new DOMException("用户取消", "AbortError");
       return new TDirHandle(dir);
     };
+
+    // 供编辑器按「命令行传入的绝对路径」构造文件句柄（双击 .md 启动 EXE 时使用）。
+    // 返回的对象与 showOpenFilePicker 得到的句柄接口一致（getFile/createWritable）。
+    window.__tauriFileHandle = (path) => new TFileHandle(path);
   }
 })();

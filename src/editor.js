@@ -1117,6 +1117,21 @@ async function tryRestoreLastDocument() {
 // ==========================================
 // 文件操作
 // ==========================================
+// 把已获取的 FileHandle（来自「打开文件」对话框或桌面端命令行路径）加载进编辑器
+async function openWithHandle(fileHandle) {
+  const file = await fileHandle.getFile();
+  const content = await file.text();
+
+  currentFileHandle = fileHandle;
+  clearCurrentDocumentContext();
+  setEditorContent(content);
+  updateFilename(file.name);
+  markSaved();
+  await rememberCurrentDocument({ filename: file.name });
+  showToast(`已打开: ${file.name}`, 'success');
+  hideOnboarding();
+}
+
 async function handleOpen() {
   try {
     const [fileHandle] = await window.showOpenFilePicker({
@@ -1127,23 +1142,43 @@ async function handleOpen() {
       multiple: false,
     });
 
-    const file = await fileHandle.getFile();
-    const content = await file.text();
-
-    currentFileHandle = fileHandle;
-    clearCurrentDocumentContext();
-    setEditorContent(content);
-    updateFilename(file.name);
-    markSaved();
-    await rememberCurrentDocument({ filename: file.name });
-    showToast(`已打开: ${file.name}`, 'success');
-    hideOnboarding();
+    await openWithHandle(fileHandle);
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件失败: ' + err.message, 'error');
     }
   }
   return true;
+}
+
+// 桌面端：按命令行传入的 .md 绝对路径打开（由 Rust 经事件转发到 __tauriFileHandle）
+async function openFileByPath(path) {
+  try {
+    const factory = window.__tauriFileHandle;
+    if (typeof factory !== 'function') return;
+    await openWithHandle(factory(path));
+  } catch (err) {
+    showToast('打开文件失败: ' + (err && err.message ? err.message : err), 'error');
+  }
+}
+
+// 桌面端：注册「双击 .md 启动 EXE」传入路径的打开逻辑
+async function initTauriFileOpen() {
+  if (!('__TAURI_INTERNALS__' in window)) return;
+  try {
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+    const webview = getCurrentWebview();
+    // 前端自定义事件：由 Rust 的 open-file 事件转发而来
+    window.addEventListener('md-open-path', (e) => openFileByPath(e.detail));
+    // 订阅后续实例（单实例插件）转发的打开请求 —— 必须在通知 Rust 就绪之前注册
+    await webview.listen('open-file', (event) => {
+      window.dispatchEvent(new CustomEvent('md-open-path', { detail: event.payload }));
+    });
+    // 通知 Rust 前端已就绪，触发「启动时传入的 .md 路径」打开
+    await webview.emit('frontend-ready');
+  } catch (err) {
+    // 忽略：非桌面环境或 Tauri API 不可用
+  }
 }
 
 async function handleSave() {
@@ -2190,6 +2225,9 @@ function init() {
 
   // 检查是否有从 content script 传入的 pending file
   loadPendingFile();
+
+  // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
+  initTauriFileOpen();
 }
 
 // ==========================================
