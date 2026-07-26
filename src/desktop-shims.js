@@ -14,6 +14,21 @@
 
   const isTauri = "__TAURI_INTERNALS__" in window;
 
+  // ===== PROBE START =====
+  const PROBE = (tag, detail) => {
+    try {
+      if (typeof window !== "undefined" && window.__PROBE__) window.__PROBE__(tag, detail);
+    } catch (e) {}
+  };
+  PROBE(
+    "shim:start",
+    "isTauri=" + isTauri +
+    " chrome=" + (typeof chrome) +
+    " showOpenFilePicker=" + (typeof window.showOpenFilePicker) +
+    " TAURI_INTERNALS=" + ("__TAURI_INTERNALS__" in window)
+  );
+  // ===== PROBE END =====
+
   // =========================================================================
   // 1. chrome 垫片
   //    作用：让 session-restore（恢复上次文件）、translate（翻译设置持久化）
@@ -120,6 +135,9 @@
       async getFile() {
         // 文本读取改走 Rust 命令，避免 fs 插件 scope 拒绝绝对路径
         const { invoke } = await setup;
+        // ===== PROBE START =====
+        PROBE("shim:getFile", "path=" + this.path);
+        // ===== PROBE END =====
         const text = await invoke("read_text_file", { path: this.path });
         const enc = new TextEncoder();
         return {
@@ -149,6 +167,9 @@
               str = new TextDecoder().decode(u8);
             }
             await invoke("write_text_file", { path: self.path, content: str });
+            // ===== PROBE START =====
+            PROBE("shim:write", "path=" + self.path + " len=" + (str ? str.length : -1));
+            // ===== PROBE END =====
           },
           close: async () => {},
         };
@@ -214,6 +235,19 @@
 
     // 供编辑器按「命令行传入的绝对路径」构造文件句柄（双击 .md 启动 EXE 时使用）。
     // 返回的对象与 showOpenFilePicker 得到的句柄接口一致（getFile/createWritable）。
-    window.__tauriFileHandle = (path) => new TFileHandle(path);
+    window.__tauriFileHandle = (path) => {
+      // ===== PROBE START =====
+      PROBE("shim:factory", "path=" + path);
+      // ===== PROBE END =====
+      return new TFileHandle(path);
+    };
   }
+
+  // ===== PROBE START =====
+  PROBE(
+    "shim:done",
+    "__tauriFileHandle=" + (typeof window.__tauriFileHandle) +
+    " enteredFsShim=" + (isTauri && typeof window.showOpenFilePicker === "undefined")
+  );
+  // ===== PROBE END =====
 })();

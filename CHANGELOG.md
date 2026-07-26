@@ -5,7 +5,20 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
-## [1.4.6] - 2026-07-26
+## [1.4.7] - 2026-07-26 (诊断构建，含探针)
+
+### Added (诊断用，修复 BUG 后删除)
+
+- **EXE 运行期诊断探针**：为定位「双击 .md 打不开」「拖入 .md 打不开」根因，新增一套全程监测探针。
+  - 新增 `src/probe.js`：导出 `PROBE(tag, detail)`，既 `console.log` 又在桌面端调用 Rust 命令 `probe_log` 把日志追加写入「EXE 同目录/md_editor_probe.log」。
+  - `desktop/src/lib.rs`：新增 `probe_log` 命令（写日志文件，无写入权限时回退系统临时目录）。
+  - `src/editor.js` / `src/desktop-shims.js`：在模块加载、双击打开（`openInitialCliFile`/`openFileByPath`/`openWithHandle`）、拖入打开（webview `drop` 事件 + Tauri 原生 `tauri://drop` 事件）、垫片初始化等关键节点埋点。
+  - **所有探针均以 `// ===== PROBE START =====` / `// ===== PROBE END =====` 标记，并关联 `src/probe.js` 与 Rust `probe_log` 命令；彻底修复 BUG 后必须一并删除。**
+- 版本号四个字段统一升到 1.4.7（纯诊断构建，功能代码未变）。
+
+### 说明
+
+- 本版本不打「修复完成」结论，仅用于采集运行日志。用户实测后把 `md_editor_probe.log` 内容反馈，即可精确定位双击/拖入两条链路在哪一步失败。
 
 ### Fixed
 

@@ -7,6 +7,10 @@
 // 扩展运行、也能在 Tauri 桌面壳里运行（垫片内部有 isTauri 守卫，扩展环境零影响）。
 // 必须在 src/editor.js 顶部以 ES Module 形式 import，否则 vite 不会把它打包进
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
+// ===== PROBE START =====
+// 诊断探针：必须在 desktop-shims 之前 import，以便 shim 的 IIFE 能拿到 window.__PROBE__。
+import { PROBE } from './probe.js';
+// ===== PROBE END =====
 import './desktop-shims.js';
 
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
@@ -56,6 +60,16 @@ import {
   getTranslatePreset,
   groupTranslatePresets,
 } from './translate-presets.js';
+
+// ===== PROBE START =====
+// 模块级探针：确认 editor.js 已在该环境求值，并记录桌面/扩展守卫状态。
+PROBE(
+  "editor:module-loaded",
+  "TAURI_INTERNALS=" + ("__TAURI_INTERNALS__" in window) +
+  " __tauriFileHandle=" + (typeof window.__tauriFileHandle) +
+  " showOpenFilePicker=" + (typeof window.showOpenFilePicker)
+);
+// ===== PROBE END =====
 
 // ==========================================
 // Mermaid 初始化
@@ -1126,8 +1140,14 @@ async function tryRestoreLastDocument() {
 // ==========================================
 // 把已获取的 FileHandle（来自「打开文件」对话框或桌面端命令行路径）加载进编辑器
 async function openWithHandle(fileHandle) {
+  // ===== PROBE START =====
+  PROBE("owh:enter", "handle=" + (fileHandle && fileHandle.path ? fileHandle.path : typeof fileHandle));
+  // ===== PROBE END =====
   const file = await fileHandle.getFile();
   const content = await file.text();
+  // ===== PROBE START =====
+  PROBE("owh:loaded", "name=" + file.name + " len=" + (content ? content.length : -1));
+  // ===== PROBE END =====
 
   currentFileHandle = fileHandle;
   clearCurrentDocumentContext();
@@ -1161,11 +1181,22 @@ async function handleOpen() {
 // 桌面端：按命令行传入的 .md 绝对路径打开（构造 Tauri 文件句柄，
 // 其 getFile/createWritable 走 Rust 命令读写，绕开 fs 作用域限制）
 async function openFileByPath(path) {
+  // ===== PROBE START =====
+  PROBE("ofbp:enter", "path=" + path + " factory=" + (typeof window.__tauriFileHandle));
+  // ===== PROBE END =====
   try {
     const factory = window.__tauriFileHandle;
-    if (typeof factory !== 'function') return;
+    if (typeof factory !== 'function') {
+      // ===== PROBE START =====
+      PROBE("ofbp:no-factory", "window.__tauriFileHandle 不是函数 → 静默跳过（这正是‘无任何提示’的可能根因）");
+      // ===== PROBE END =====
+      return;
+    }
     await openWithHandle(factory(path));
   } catch (err) {
+    // ===== PROBE START =====
+    PROBE("ofbp:error", "msg=" + (err && err.message ? err.message : err));
+    // ===== PROBE END =====
     showToast('打开文件失败: ' + (err && err.message ? err.message : err), 'error');
   }
 }
@@ -1174,22 +1205,45 @@ async function openFileByPath(path) {
 // 直接在初始化时 invoke Rust 命令取路径，不依赖事件握手（更简单、时序更稳）。
 // 多实例：每个 EXE 实例只处理自己启动时的那份路径。
 async function openInitialCliFile() {
-  if (!('__TAURI_INTERNALS__' in window)) return;
+  // ===== PROBE START =====
+  PROBE("cli:enter", "TAURI_INTERNALS=" + ("__TAURI_INTERNALS__" in window));
+  // ===== PROBE END =====
+  if (!('__TAURI_INTERNALS__' in window)) {
+    // ===== PROBE START =====
+    PROBE("cli:skip", "window 无 __TAURI_INTERNALS__ → 直接 return，不打开（桌面端不该走到这里）");
+    // ===== PROBE END =====
+    return;
+  }
   try {
     const { invoke } = await import('@tauri-apps/api/core');
+    // ===== PROBE START =====
+    PROBE("cli:invoke-ready", "已 import @tauri-apps/api/core");
+    // ===== PROBE END =====
     const path = await invoke('get_initial_file');
+    // ===== PROBE START =====
+    PROBE("cli:get_initial_file", "result=" + JSON.stringify(path));
+    // ===== PROBE END =====
     if (path) {
       await openFileByPath(path);
+      // ===== PROBE START =====
+      PROBE("cli:opened", "path=" + path);
+      // ===== PROBE END =====
       return;
     }
     // 诊断：未检测到 .md 启动参数时，把原始命令行打出来，便于排查
     // Windows 文件关联到底有没有把文件路径传给 EXE。
     const args = await invoke('debug_args');
+    // ===== PROBE START =====
+    PROBE("cli:no-path", "argv=" + JSON.stringify(args));
+    // ===== PROBE END =====
     if (args && args.length > 1) {
       showToast('未检测到.md启动参数，argv=' + JSON.stringify(args), 'warn');
     }
   } catch (err) {
     // 让失败可见：invoke 调用异常（模块缺失/命令未注册等）直接提示
+    // ===== PROBE START =====
+    PROBE("cli:error", "msg=" + (err && err.message ? err.message : err));
+    // ===== PROBE END =====
     showToast('启动参数读取失败: ' + (err && err.message ? err.message : err), 'error');
   }
 }
@@ -1808,25 +1862,83 @@ function bindEvents() {
   document.addEventListener('drop', async (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // ===== PROBE START =====
+    PROBE(
+      "drop:event",
+      "dataTransfer=" + (e.dataTransfer ? "yes" : "no") +
+      " files=" + (e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files.length : 0)
+    );
+    // ===== PROBE END =====
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
+      // ===== PROBE START =====
+      PROBE(
+        "drop:file0",
+        "name=" + file.name +
+        " hasPathProp=" + ("path" in file) +
+        " path=" + (file.path || "") +
+        " size=" + file.size
+      );
+      // ===== PROBE END =====
       if (file.name.endsWith('.md') || file.name.endsWith('.markdown') || file.name.endsWith('.txt')) {
-        const content = await file.text();
-        setEditorContent(content);
-        updateFilename(file.name);
-        currentFileHandle = null; // 拖拽打开无 handle
-        clearCurrentDocumentContext();
-        markSaved();
-        await rememberCurrentDocument({ filename: file.name });
-        hideOnboarding();
-        showToast(`已打开: ${file.name}`, 'success');
+        try {
+          const content = await file.text();
+          // ===== PROBE START =====
+          PROBE("drop:read", "len=" + (content ? content.length : -1));
+          // ===== PROBE END =====
+          setEditorContent(content);
+          updateFilename(file.name);
+          currentFileHandle = null; // 拖拽打开无 handle
+          clearCurrentDocumentContext();
+          markSaved();
+          await rememberCurrentDocument({ filename: file.name });
+          hideOnboarding();
+          showToast(`已打开: ${file.name}`, 'success');
+        } catch (err) {
+          // ===== PROBE START =====
+          PROBE("drop:read-error", "msg=" + (err && err.message ? err.message : err));
+          // ===== PROBE END =====
+          showToast('打开文件失败: ' + (err && err.message ? err.message : err), 'error');
+        }
       } else {
         showToast('请拖入 .md 或 .markdown 文件', 'error');
       }
+    } else {
+      // ===== PROBE START =====
+      PROBE("drop:empty", "dataTransfer.files 为空 → 可能被 Tauri 拦截，需走 tauri://drop 事件");
+      // ===== PROBE END =====
     }
   });
+
+  // ===== PROBE START =====
+  // Tauri 原生文件拖放事件（桌面端）。Tauri v2 默认 fileDropEnabled=true 时，
+  // 操作系统文件拖放会被 Tauri 拦截并通过该事件下发真实路径，webview 的
+  // dataTransfer.files 通常为空。此处仅做诊断 + 实际打开首个 .md。
+  if ('__TAURI_INTERNALS__' in window) {
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        await listen('tauri://drop', (event) => {
+          const payload = event.payload || {};
+          const paths = payload.paths || [];
+          PROBE("tauri:drop", "paths=" + JSON.stringify(paths) + " position=" + JSON.stringify(payload.position));
+          const md = paths.find((p) => /\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(p));
+          if (md) {
+            PROBE("tauri:drop:open", "opening=" + md);
+            openFileByPath(md);
+          } else if (paths.length) {
+            showToast('请拖入 .md 或 .markdown 文件', 'error');
+          }
+        });
+        PROBE("tauri:drop-listener", "registered tauri://drop");
+      } catch (e) {
+        PROBE("tauri:drop-listener-error", "msg=" + (e && e.message ? e.message : e));
+      }
+    })();
+  }
+  // ===== PROBE END =====
 }
 
 function initPasteImageSupport() {
@@ -2241,6 +2353,26 @@ function init() {
 
   // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
   openInitialCliFile();
+
+  // ===== PROBE START =====
+  // 延迟探针：等所有模块/垫片 settling 后，确认关键全局是否就位；
+  // 并弹出日志文件路径，方便用户取回 md_editor_probe.log。
+  if ('__TAURI_INTERNALS__' in window) {
+    setTimeout(async () => {
+      PROBE(
+        "init:final-state",
+        "TAURI_INTERNALS=" + ("__TAURI_INTERNALS__" in window) +
+        " __tauriFileHandle=" + (typeof window.__tauriFileHandle) +
+        " showOpenFilePicker=" + (typeof window.showOpenFilePicker)
+      );
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const p = await invoke('probe_log', { msg: '[PROBE] init:hello' });
+        showToast('诊断模式：日志写入 ' + p, 'info');
+      } catch (_) {}
+    }, 800);
+  }
+  // ===== PROBE END =====
 }
 
 // ==========================================
