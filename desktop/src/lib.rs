@@ -28,10 +28,32 @@ fn is_markdown_arg(s: &str) -> bool {
         .any(|e| lower.ends_with(e))
 }
 
+// 归一化一个命令行参数：去外层引号、兼容 file:// 形式（Windows 某些
+// 文件关联会以 file:///C:/.../x.md 形式传入）。
+fn normalize_arg(s: &str) -> String {
+    let mut s = s.trim().to_string();
+    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        s = s[1..s.len() - 1].to_string();
+    }
+    if let Some(rest) = s.strip_prefix("file:///") {
+        s = rest.replace('/', "\\");
+    } else if let Some(rest) = s.strip_prefix("file://") {
+        s = rest.replace('/', "\\");
+    }
+    s
+}
+
 // 返回启动时命令行传入的 .md 路径（若有）。前端在初始化时调用。
 #[tauri::command]
 fn get_initial_file(state: tauri::State<AppState>) -> Option<String> {
     state.initial_file.lock().unwrap().clone()
+}
+
+// 返回原始命令行参数（诊断用）：用于排查「双击 .md 启动 EXE 时
+// Windows 到底传了什么」，便于定位文件关联未传参等问题。
+#[tauri::command]
+fn debug_args() -> Vec<String> {
+    std::env::args().map(|a| normalize_arg(&a)).collect()
 }
 
 // 按绝对路径读取文本文件（Rust 侧，无 scope 限制）
@@ -52,11 +74,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState {
-            // argv[0] 是 exe 自身，跳过；取第一个 .md 参数
-            initial_file: Mutex::new(std::env::args().skip(1).find(|a| is_markdown_arg(a))),
+            // argv[0] 是 exe 自身，跳过；取第一个 .md 参数（先归一化，兼容引号/file:// 形式）
+            initial_file: Mutex::new(
+                std::env::args().skip(1).map(normalize_arg).find(|a| is_markdown_arg(a)),
+            ),
         })
         .invoke_handler(tauri::generate_handler![
             get_initial_file,
+            debug_args,
             read_text_file,
             write_text_file
         ])

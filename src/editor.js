@@ -1173,9 +1173,17 @@ async function openInitialCliFile() {
     const path = await invoke('get_initial_file');
     if (path) {
       await openFileByPath(path);
+      return;
+    }
+    // 诊断：未检测到 .md 启动参数时，把原始命令行打出来，便于排查
+    // Windows 文件关联到底有没有把文件路径传给 EXE。
+    const args = await invoke('debug_args');
+    if (args && args.length > 1) {
+      showToast('未检测到.md启动参数，argv=' + JSON.stringify(args), 'warn');
     }
   } catch (err) {
-    // 忽略：非桌面环境、无可打开文件或命令调用失败
+    // 让失败可见：invoke 调用异常（模块缺失/命令未注册等）直接提示
+    showToast('启动参数读取失败: ' + (err && err.message ? err.message : err), 'error');
   }
 }
 
