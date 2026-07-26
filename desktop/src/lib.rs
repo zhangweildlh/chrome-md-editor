@@ -37,7 +37,8 @@ pub fn run() {
         }))
         .setup(|app| {
             // 收集启动参数里的 .md 路径（argv[0] 是 exe 自身，跳过）
-            let initial = std::env::args().skip(1).find(|a| is_markdown_arg(a)).cloned();
+            // std::env::args() 产出拥有所有权的 String，find 已返回 Option<String>
+            let initial = std::env::args().skip(1).find(|a| is_markdown_arg(a));
 
             let handle = app.handle().clone();
             app.manage(AppState {
