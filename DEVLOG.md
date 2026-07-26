@@ -409,3 +409,47 @@ Chrome 扩展管理页中原图标显示为纯紫色渐变占位块，缺少和 
 ### 验证
 - 根 `npm ci` + `vite build` 通过，生成 `dist/src/editor.html` 与 `dist/src/index.html`。
 - `v1.4.4-desktop` 标签触发 `CI`(扩展) + `Desktop Build`(EXE) 双构建均 success；推 main 再触发双构建，佐证演进自动跟随。
+
+---
+
+## 2026-07-26 桌面端 EXE 排障与版本对齐（1.4.5 → 1.4.8）
+
+v1.4.4 合并进 `main` 后，桌面 EXE 在实测中连续出现「双击 .md 打不开」「拖入 .md 打不开」，经历 1.4.5 → 1.4.6 → 1.4.7（诊断）→ 1.4.8（修复）四轮演进。
+
+### 1.4.5：vite 静默删除外置 `<script>`（根因之一）
+
+- 现象：开启 `withGlobalTauri` 之后 EXE 仍只显示初始界面、且**无任何 toast**。
+- 定位：原 `src/editor.html` 里 `<script type="module" src="./desktop-shims.js">` 在 vite `build` 时被**静默删除**——HTML 中未列入 rollup `input` entry 的外部脚本会被丢弃，导致 `dist/assets/editor.js` 里**完全没有 TFileHandle / showOpenFilePicker 垫片**；`openFileByPath` 内 `window.__tauriFileHandle` 始终 `undefined`，命中 `if (typeof factory !== 'function') return;` 静默退出。
+- 修复：`src/editor.js` 顶部 `import './desktop-shims.js';`（vite 视作编辑器依赖一并打包），并同步移除外置 `<script>` 标签避免重复执行。
+
+### 1.4.6：版本号一致性（元数据）
+
+- v1.4.5 把 `package.json` / `desktop/package.json` 升到 1.4.5，但漏改 `public/manifest.json` 与 `desktop/tauri.conf.json`，导致扩展 zip 内 manifest 版本、EXE 文件属性版本仍停在 1.4.4。
+- 本次把四个 version 字段统一升到 1.4.6（后续 1.4.7 / 1.4.8 同步跟进，含 `src/editor.js` 内 `APP_VERSION`）。
+
+### 1.4.7：诊断构建（含探针，已被 1.4.8 取代）
+
+- 为定位「双击 / 拖入均打不开」根因，临时新增一套全程监测探针：`src/probe.js` 导出 `PROBE(tag, detail)`（→ `console.log` + `invoke('probe_log')` 写 EXE 同目录 `md_editor_probe.log`）、Rust `probe_log` 命令、各 `// ===== PROBE START/END =====` 埋点。
+- 三份日志确证：
+  - `shim:done :: __tauriFileHandle=undefined enteredFsShim=false` → FS 垫片根本没装。
+  - `ofbp:no-factory` → `openFileByPath` 因工厂 undefined 静默 return（这正是「无任何提示」的原因）。
+  - 拖入场景 `argv` 无路径（符合预期），但 `listen('tauri://drop')` 事件在 WebView2 下从不触发 → 拖放链路失效。
+- **核心根因**：`desktop-shims.js` 原守卫 `if (isTauri && typeof window.showOpenFilePicker === "undefined")`。但 Tauri v2 的 WebView2 中 `window.showOpenFilePicker` 是**原生函数**（即便在沙箱中不可用），导致 `=== "undefined"` 为 false → 整个 FS Access 垫片分支不执行。
+
+### 1.4.8：根因修复 + 彻底移除探针
+
+- **双击打不开**：守卫由 `if (isTauri && ...)` 改为 `if (isTauri)`，在 Tauri 下**无条件**安装 FS 垫片（WebView2 里 `showOpenFilePicker` 原生存在但不可用，必须强制 polyfill）。
+- **拖入打不开**：改用 Tauri v2 稳定的 `getCurrentWebview().onDragDropEvent()`（取 `payload.paths` 打开首个 `.md`），替代不可靠的 `listen('tauri://drop')`。
+- **防御性提示**：`openFileByPath` 在 `window.__tauriFileHandle` 仍非函数时改为弹可见错误 toast，不再静默 return。
+- **彻底移除全部探针**：删 `src/probe.js`、Rust `probe_log` 命令及注册、`editor.js`/`desktop-shims.js` 内所有 `PROBE` 块（共删 231 行），代码恢复干净。
+- 版本号四文件 + `APP_VERSION` 统一为 1.4.8；推 `v1.4.8-desktop` 标签，CI + Desktop Build 双构建均 success，Release 含 `chrome-md-editor-v1.4.8.zip` 与 `Markdown.Editor_1.4.8_portable.exe`。
+- 用户实测：双击 .md 直接打开、启动后拖入 .md 也能打开，功能正常。
+
+### 排障经验（桌面端三大坑，已沉淀到 MEMORY）
+
+1. **Tauri v2 运行时注入**：`withGlobalTauri: true` 必须开，否则 `window.__TAURI_INTERNALS__` 不注入，`isTauri` 判定 / `openInitialCliFile` 守卫 / `@tauri-apps/api` 的 `invoke` 全部静默失败。
+2. **vite 静默删除 HTML 外置脚本**：HTML 中未列入 rollup `input` 的依赖脚本会被丢弃；可靠做法是在 JS entry 里 `import`，而非在 HTML 写外置 `<script src>`。
+3. **WebView2 中 `showOpenFilePicker` 是原生函数**：不能再用 `typeof === "undefined"` 判断是否缺失，必须直接按 `isTauri` 安装 polyfill。
+4. **可靠拖放**：用 `getCurrentWebview().onDragDropEvent()`，不要用 `listen('tauri://drop')`。
+5. **本地无 Rust 工具链**：所有 Rust 编译错误只能靠 `desktop-build.yml`（windows-latest）CI 暴露，提交前严格自审 `desktop/src/lib.rs`（trait 导入、所有权、迭代器 `.cloned()`/`.map()` 适配）。
+

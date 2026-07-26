@@ -3,8 +3,9 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.4.2](https://github.com/yishu-ziyu/chrome-md-editor/releases/tag/v1.4.2)**  
-**下载：** [chrome-md-editor-v1.4.2.zip](https://github.com/yishu-ziyu/chrome-md-editor/releases/download/v1.4.2/chrome-md-editor-v1.4.2.zip)  
+**当前版本：[v1.4.8](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.4.8-desktop)**  
+**下载（Chrome 扩展）：** [chrome-md-editor-v1.4.8.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/chrome-md-editor-v1.4.8.zip)  
+**下载（Windows 独立 EXE）：** [Markdown.Editor_1.4.8_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/Markdown.Editor_1.4.8_portable.exe)  
 **许可：** [MIT](./LICENSE)
 
 [English](#english)
@@ -50,7 +51,24 @@
 | 会话恢复 | 再次打开扩展时尽量恢复上次内容与文件名 |
 | 阅读翻译 | 预览区中英对照；**不修改** Markdown 源文件 |
 
-技术栈：CodeMirror 6 · markdown-it · Vite · Manifest V3。
+技术栈：CodeMirror 6 · markdown-it · Vite · Manifest V3。  
+桌面端额外使用 Rust + Tauri v2 打包为独立 Windows EXE。
+
+---
+
+## 桌面端独立 EXE（Tauri）
+
+除了 Chrome 扩展，本项目还提供一个**独立 Windows 程序**：用 [Tauri](https://tauri.app/) v2 把同一套 Web 编辑器（CodeMirror 6 + markdown-it + Mermaid）打包成绿色免安装的 EXE，**无需浏览器、无需安装、本地零依赖**（仅依赖系统 WebView2 运行时）。
+
+- **下载**：Release `v1.4.8-desktop` 中的 `Markdown.Editor_1.4.8_portable.exe`（便携版，直接拷到任意目录双击运行）。
+- **双击打开**：把 `.md` 设为默认打开程序后，双击任意 `.md` 文件即由 EXE 直接打开并编辑。
+- **拖入打开**：启动 EXE 后，把 `.md` 文件拖进窗口也能打开。
+- **多实例**：每次双击 / 拖入都启动一个独立 EXE 实例，各自打开对应文件，互不干扰。
+- **保存写回原文件**：底层用 Rust `std::fs` 命令读写（无路径作用域限制），`Ctrl/Cmd+S` 可直接覆盖原文件。
+- **未签名提示**：未签名版本首次运行可能被 Windows SmartScreen 拦截，点「仍要运行」即可；本机需已安装 WebView2 运行时（Win10/11 通常已自带，否则按提示安装）。
+- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.4.8-desktop` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
+
+> 桌面端与 Chrome 扩展共用 `src/editor.html/.js/.css`；仅在检测到 Tauri 环境时由 `src/desktop-shims.js` 注入 `chrome` 与 File System Access API 垫片，对扩展零影响。桌面端的具体调试与演进见 [DEVLOG.md](./DEVLOG.md)。
 
 ---
 
@@ -67,7 +85,8 @@
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.4.2**）。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.4.8**）。
+4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.4.8_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
 
@@ -127,7 +146,8 @@ npm run dev       # 仅 UI 调试用；无 chrome.* / 文件 API，不能代替�
 
 ```
 public/          # manifest、background、content-script、icons（构建时拷贝进 dist）
-src/             # 编辑器页面与逻辑
+src/             # 编辑器页面与逻辑（扩展与桌面端共用）
+desktop/         # Tauri v2 桌面壳（Rust + 配置），打包为独立 Windows EXE
 tests/           # node:test 单元测试
 scripts/         # 打包、图标、验收脚本
 docs/images/     # README 截图与演示 GIF
@@ -166,7 +186,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.4.2**).
+The toolbar should show the release version (currently **v1.4.8**).
 
 ### Features (short)
 
@@ -187,6 +207,10 @@ Load `dist/` as an unpacked extension.
 ### Privacy
 
 Editing stays local unless you enable reading translation, which sends text to the API provider you configure.
+
+### Standalone Windows EXE (Tauri)
+
+A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.4.8_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.4.8-desktop` release.
 
 ### License
 
