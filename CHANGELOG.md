@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.9] - 2026-07-31
+
+### Added
+
+- **查找 / 替换面板**：显式注册 `@codemirror/search` 的 `search()` 扩展；工具栏新增「查找」按钮（`btnFind`），点击打开 CodeMirror 原生查找/替换面板（查找输入框、上一个/下一个、区分大小写、正则、整词匹配，覆盖 Notepad4 截图全部查找选项）。
+- **中文与全角符号自动配对**：扩展 `closeBrackets` 的 `brackets` 配置，在英文 `()[]{}''""<>` 基础上新增中文双引号 `""`、中文单引号 `''`、全角圆括号 `（）`、反引号 `` ` ``；输入左符号自动补全右符号。
+- **选中符号高亮配对另一半**：新增 `selectedBracketHighlight` 自定义 `ViewPlugin`（`@codemirror/view` 的 `ViewPlugin.fromClass` + `Decoration.mark`）。当选区恰好落在单个配对符号（含中英文引号/括号/花括号/反引号）上时，自动高亮其对应的另一半，样式为 `.cm-bracket-match-active`（绿色下划 + 半透明背景）。
+
+### Changed
+
+- `src/editor.js` 导入补充 `ViewPlugin`、`Decoration`（来自 `@codemirror/view`）与 `search`、`openSearchPanel`（来自 `@codemirror/search`）；同字符串高亮由内置 `highlightSelectionMatches()` 提供，本次未改动其实现。
+
+### Notes
+
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- 分支：`feat/editor-find-replace-bracket`（基于 `main` @ `5f06e90`）。
+
 ## [1.4.8] - 2026-07-26 (修复发布，已移除全部探针)
 
 ### Fixed

@@ -9,7 +9,7 @@
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
 import './desktop-shims.js';
 
-import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars, ViewPlugin, Decoration } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -17,7 +17,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { search, searchKeymap, highlightSelectionMatches, openSearchPanel } from '@codemirror/search';
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
@@ -159,6 +159,78 @@ const lightTheme = EditorView.theme({
 }, { dark: false });
 
 // ==========================================
+// 符号配对高亮：选中单个配对符号时高亮其另一半
+// ==========================================
+const SELECTED_BRACKET_PAIRS = '()[]{}<>\u0027\u0027\u0022\u0022\u201c\u201d\u2018\u2019\uff08\uff09`';
+const bracketMatchMap = {};
+for (let i = 0; i < SELECTED_BRACKET_PAIRS.length; i += 2) {
+  const open = SELECTED_BRACKET_PAIRS[i];
+  const close = SELECTED_BRACKET_PAIRS[i + 1];
+  bracketMatchMap[open] = { other: close, dir: 1 };
+  bracketMatchMap[close] = { other: open, dir: -1 };
+}
+
+// 括号栈匹配：从选中字符向对应方向扫描，返回配对字符位置
+function findPairedBracket(docText, ch, info, from) {
+  const other = info.other;
+  if (info.dir === 1) {
+    let depth = 0;
+    for (let i = from + 1; i < docText.length; i++) {
+      const c = docText[i];
+      if (c === ch) depth++;
+      else if (c === other) {
+        if (depth === 0) return i;
+        depth--;
+      }
+    }
+  } else {
+    let depth = 0;
+    for (let i = from - 1; i >= 0; i--) {
+      const c = docText[i];
+      if (c === ch) depth++;
+      else if (c === other) {
+        if (depth === 0) return i;
+        depth--;
+      }
+    }
+  }
+  return null;
+}
+
+const selectedBracketHighlight = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = this.build(view);
+    }
+    update(update) {
+      if (update.selectionSet || update.docChanged) {
+        this.decorations = this.build(update.view);
+      }
+    }
+    build(view) {
+      const sel = view.state.selection.main;
+      if (sel.empty) return Decoration.none;
+      const doc = view.state.doc;
+      const selText = doc.sliceString(sel.from, sel.to);
+      // 仅当选区恰好为一个配对字符时，高亮其另一半
+      if (selText.length !== 1) return Decoration.none;
+      const ch = selText;
+      const info = bracketMatchMap[ch];
+      if (!info) return Decoration.none;
+      const docText = doc.toString();
+      const matchPos = findPairedBracket(docText, ch, info, sel.from);
+      if (matchPos == null) return Decoration.none;
+      const deco = Decoration.mark({ class: 'cm-bracket-match-active' });
+      return Decoration.set([
+        deco.range(sel.from, sel.to),
+        deco.range(matchPos, matchPos + 1),
+      ]);
+    }
+  },
+  { decorations: (v) => v.decorations }
+);
+
+// ==========================================
 // 编辑器初始化
 // ==========================================
 function createEditor() {
@@ -249,12 +321,17 @@ graph LR
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     bracketMatching(),
-    closeBrackets(),
+    closeBrackets({
+      // 成对相邻两字符一组；中文引号按开闭不同字符分组
+      brackets: '()[]{}<>\u0027\u0027\u0022\u0022\u201c\u201d\u2018\u2019\uff08\uff09`',
+    }),
     autocompletion(),
     rectangularSelection(),
     crosshairCursor(),
     highlightActiveLine(),
     highlightSelectionMatches(),
+    search(),
+    selectedBracketHighlight(),
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -1602,6 +1679,10 @@ function bindEvents() {
   document.getElementById('btnOpen').addEventListener('click', handleOpen);
   document.getElementById('btnSave').addEventListener('click', handleSave);
   document.getElementById('btnNew').addEventListener('click', handleNew);
+
+  // 查找 / 替换面板（Ctrl+F 亦可触发）
+  const btnFind = document.getElementById('btnFind');
+  if (btnFind) btnFind.addEventListener('click', () => openSearchPanel(editor));
 
   // 格式化按钮
   document.getElementById('btnBold').addEventListener('click', () => wrapSelection('**', '**'));

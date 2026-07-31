@@ -1664,3 +1664,12 @@ body {
     size: auto;
   }
 }
+
+/* ==========================================
+   选中符号配对高亮（选中配对符号时高亮其另一半）
+   ========================================== */
+.cm-bracket-match-active {
+  background: rgba(63, 185, 80, 0.25);
+  border-bottom: 2px solid var(--accent, #3cb750);
+  border-radius: 2px;
+}
