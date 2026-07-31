@@ -5,12 +5,26 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.10] - 2026-07-31 (缺陷修复)
+
+### Fixed
+
+- **H1 中文符号自动配对配置无效（核心缺陷）**：v1.4.9 的 `closeBrackets({ brackets })` 传入的配置被忽略（`closeBrackets` 为无参函数，配置经 `EditorState.languageDataAt('closeBrackets')` 读取）。改为通过 `EditorState.languageData.of({ closeBrackets: { brackets: [...] } })` 提供配置，中文引号/全角括号依赖 `closing()` 的「非 ASCII 字符 ch+1」回退（Unicode 连续码点）正确推导闭符号，英文 `()[]{}'"` 与中文符号、反引号均生效。
+- **M1 `bracketMatchMap` 构建缺陷**：原 `SELECTED_BRACKET_PAIRS` 奇数长字符串导致末尾反引号 `other=undefined` 且污染 `undefined` 键；英文引号同字符覆盖使 `dir` 仅剩 -1。改为 `PAIR_GROUPS`（开闭不同、中文按左右字符分组）+ `SELF_PAIRS`（英文引号/反引号自身配对，就近匹配），消除污染。
+- **反引号选中高亮补全**：将反引号纳入 `SELF_PAIRS`，支持选中单个反引号高亮其就近配对的另一个反引号，满足原始需求。
+- **L1 性能优化**：`selectedBracketHighlight` 缓存 `doc.toString()` 结果（`cachedDoc`），`docChanged` 时失效，避免每次光标移动全量重建 O(n)。
+
+### Notes
+
+- 复审报告：`.workbuddy/review-combo-2026-07-31-reaudit-fixed.md`（H1/M1/L1 已修复验证）。
+- 样式工具栏最高优先级约定未被触碰。
+
 ## [1.4.9] - 2026-07-31
 
 ### Added
 
 - **查找 / 替换面板**：显式注册 `@codemirror/search` 的 `search()` 扩展；工具栏新增「查找」按钮（`btnFind`），点击打开 CodeMirror 原生查找/替换面板（查找输入框、上一个/下一个、区分大小写、正则、整词匹配，覆盖 Notepad4 截图全部查找选项）。
-- **中文与全角符号自动配对**：扩展 `closeBrackets` 的 `brackets` 配置，在英文 `()[]{}''""<>` 基础上新增中文双引号 `""`、中文单引号 `''`、全角圆括号 `（）`、反引号 `` ` ``；输入左符号自动补全右符号。
+- **中文与全角符号自动配对（配置在 v1.4.9 实际无效，已于 v1.4.10 修正）**：原方案通过 `closeBrackets({ brackets })` 传入配置，但 `closeBrackets` 为无参函数、配置经 `languageDataAt` 读取，该调用被忽略，中文符号自动配对在 v1.4.9 并未实际生效（仅英文 `()[]{}'"` 为 CodeMirror 默认配对）。正确实现见 v1.4.10。
 - **选中符号高亮配对另一半**：新增 `selectedBracketHighlight` 自定义 `ViewPlugin`（`@codemirror/view` 的 `ViewPlugin.fromClass` + `Decoration.mark`）。当选区恰好落在单个配对符号（含中英文引号/括号/花括号/反引号）上时，自动高亮其对应的另一半，样式为 `.cm-bracket-match-active`（绿色下划 + 半透明背景）。
 
 ### Changed

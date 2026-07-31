@@ -161,17 +161,41 @@ const lightTheme = EditorView.theme({
 // ==========================================
 // 符号配对高亮：选中单个配对符号时高亮其另一半
 // ==========================================
-const SELECTED_BRACKET_PAIRS = '()[]{}<>\u0027\u0027\u0022\u0022\u201c\u201d\u2018\u2019\uff08\uff09`';
+// 开闭不同的符号（有序对：open → close）
+const PAIR_GROUPS = [
+  ['(', ')'], ['[', ']'], ['{', '}'], ['<', '>'],
+  ['\u201c', '\u201d'], // 中文双引号（左→右）
+  ['\u2018', '\u2019'], // 中文单引号（左→右）
+  ['\uff08', '\uff09'], // 全角圆括号（左→右）
+];
+// 开闭相同的符号（英文单/双引号及反引号，自身配对，无法用方向栈区分，需就近匹配）
+const SELF_PAIRS = ["'", '"', '`'];
 const bracketMatchMap = {};
-for (let i = 0; i < SELECTED_BRACKET_PAIRS.length; i += 2) {
-  const open = SELECTED_BRACKET_PAIRS[i];
-  const close = SELECTED_BRACKET_PAIRS[i + 1];
-  bracketMatchMap[open] = { other: close, dir: 1 };
-  bracketMatchMap[close] = { other: open, dir: -1 };
+for (const [open, close] of PAIR_GROUPS) {
+  bracketMatchMap[open] = { other: close, dir: 1, type: 'pair' };
+  bracketMatchMap[close] = { other: open, dir: -1, type: 'pair' };
+}
+for (const ch of SELF_PAIRS) {
+  bracketMatchMap[ch] = { other: ch, type: 'self' };
+}
+
+// 自身配对符号（如英文引号）的就近匹配：按出现序号确定开/闭，找最近的同字符配对
+function findSelfPair(docText, ch, from) {
+  let count = 0;
+  for (let i = 0; i < from; i++) if (docText[i] === ch) count++;
+  if (count % 2 === 0) {
+    // 开引号：向 from 之后找最近的同字符
+    for (let i = from + 1; i < docText.length; i++) if (docText[i] === ch) return i;
+  } else {
+    // 闭引号：向 from 之前找最近的同字符
+    for (let i = from - 1; i >= 0; i--) if (docText[i] === ch) return i;
+  }
+  return null;
 }
 
 // 括号栈匹配：从选中字符向对应方向扫描，返回配对字符位置
 function findPairedBracket(docText, ch, info, from) {
+  if (info.type === 'self') return findSelfPair(docText, ch, from);
   const other = info.other;
   if (info.dir === 1) {
     let depth = 0;
@@ -200,24 +224,26 @@ function findPairedBracket(docText, ch, info, from) {
 const selectedBracketHighlight = ViewPlugin.fromClass(
   class {
     constructor(view) {
+      this.cachedDoc = null;
       this.decorations = this.build(view);
     }
     update(update) {
       if (update.selectionSet || update.docChanged) {
+        if (update.docChanged) this.cachedDoc = null;
         this.decorations = this.build(update.view);
       }
     }
     build(view) {
       const sel = view.state.selection.main;
-      if (sel.empty) return Decoration.none;
+      if (sel.empty) { this.cachedDoc = null; return Decoration.none; }
       const doc = view.state.doc;
       const selText = doc.sliceString(sel.from, sel.to);
       // 仅当选区恰好为一个配对字符时，高亮其另一半
-      if (selText.length !== 1) return Decoration.none;
+      if (selText.length !== 1) { this.cachedDoc = null; return Decoration.none; }
       const ch = selText;
       const info = bracketMatchMap[ch];
-      if (!info) return Decoration.none;
-      const docText = doc.toString();
+      if (!info) { this.cachedDoc = null; return Decoration.none; }
+      const docText = this.cachedDoc ?? (this.cachedDoc = doc.toString());
       const matchPos = findPairedBracket(docText, ch, info, sel.from);
       if (matchPos == null) return Decoration.none;
       const deco = Decoration.mark({ class: 'cm-bracket-match-active' });
@@ -321,10 +347,16 @@ graph LR
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     bracketMatching(),
-    closeBrackets({
-      // 成对相邻两字符一组；中文引号按开闭不同字符分组
-      brackets: '()[]{}<>\u0027\u0027\u0022\u0022\u201c\u201d\u2018\u2019\uff08\uff09`',
+    // 中文符号自动配对：closeBrackets 本身不接受配置参数（配置经 languageDataAt 读取），
+    // 故通过 EditorState.languageData 提供。英文 ()[]{} 与引号由本数组显式保留；
+    // 中文引号/全角括号依赖 closing() 的「非 ASCII 字符 ch+1」回退（Unicode 连续码点）正确推导闭符号；
+    // 反引号保留自身配对以支持 Markdown 行内代码输入。
+    EditorState.languageData.of({
+      closeBrackets: {
+        brackets: ['(', '[', '{', '<', "'", '"', '`', '“', '‘', '（'],
+      },
     }),
+    closeBrackets(),
     autocompletion(),
     rectangularSelection(),
     crosshairCursor(),
