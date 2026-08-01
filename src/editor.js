@@ -38,6 +38,7 @@ import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
+import { restoreScroll } from './scroll-restore.js';
 import { newInstanceId, pendingFileStorageKey } from './instance-id.js';
 import {
   selectionInsideRoot,
@@ -699,6 +700,15 @@ async function doUpdatePreview() {
     await runPreviewTranslation(previewContainer);
   } else {
     setTranslateUiState({ active: false });
+  }
+  // 修复 BUG-2：预览区 innerHTML 重建会把滚动位置复位到头部（编辑区或预览区变更都会触发）。
+  // 在此恢复重建前的滚动位置（含 requestAnimationFrame 兜底）。若内容变短，浏览器会自动 clamp 到末尾，无副作用。
+  try {
+    if (previewContainer && previewScrollTopBefore != null) {
+      restoreScroll(previewContainer, previewScrollTopBefore);
+    }
+  } catch (e) {
+    probe('P2-B scrollRestoreErr', { message: e && e.message }, { loc: 'editor.js' });
   }
   // ===== PROBE START ===== 渲染主路径结束（耗时）
   probe('RENDER_MAIN_DONE', { costMs: Math.round(performance.now() - _t0) }, { loc: 'editor.js' });
@@ -1684,6 +1694,11 @@ function setEditorContent(content) {
       insert: content,
     },
   });
+  // 修复 BUG-2：预览区回写会触发编辑器内容全量替换，CodeMirror 会将滚动位置复位到头部。
+  // 此处显式恢复替换前的滚动位置（含 requestAnimationFrame 兜底），确保布局完成后位置稳定。
+  if (scroller && scrollTopBefore != null) {
+    restoreScroll(scroller, scrollTopBefore);
+  }
   const scrollTopAfter = scroller ? scroller.scrollTop : null;
   probe('P2-A setEditorContent滚动复位', {
     action: 'editor-full-replace',

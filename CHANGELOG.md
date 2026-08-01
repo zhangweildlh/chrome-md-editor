@@ -22,6 +22,13 @@ Project uses Semantic Versioning.
 - `src/editor.css`：新增 CSS 变量（`--editor-font-size` / `--preview-font-size` / `--ui-gap`）、专注模式淡化、Base64 折叠、Callout 配色与图标、侧边面板/大纲/任务项、Mermaid 缩放按钮与全屏浮层样式。
 - `desktop/src/lib.rs`：新增 `probe_log` Tauri 命令，将探针日志写入 `%TEMP%/md-editor-probe.log`（供 EXE 侧落盘）。
 
+### Fixed
+- **预览区编辑三类回写缺陷（BUG-1/2/3）修复**（同源 `src/`，Chrome 扩展与 Tauri EXE 共用）：
+  - **BUG-1（多余空行）**：源码为一行一段（段间无空行）时，预览区任一段尾敲回车后，编辑区与预览区不再每段间被插入一空行；多段无空行比对回归通过。`src/html-to-markdown.js` 新增 `collapseSoftBreaks` 折叠连续空行。
+  - **BUG-2（跳转文件头）**：预览区任一位置修改字符串后，编辑区与预览区不再自动跳转到文件头部。`src/editor.js` 的 `doUpdatePreview` 与 `setEditorContent` 在预览重建 / 编辑器全量替换后改用 `src/scroll-restore.js` 的 `restoreScroll` 显式恢复重建前滚动位置（含 `requestAnimationFrame` 兜底）；滚动恢复纯逻辑已抽取为可单测模块。
+  - **BUG-3（引用空段不同步）**：多段 `>` 引用场景下，预览区删除空段 `>` 时，编辑区现已跟随删除。`src/html-to-markdown.js` 的 blockquote 分支改为按块逐行还原，空块跳过、多段引用不再被折叠合并。
+- **配套自动化测试**：新增 `tests/html-to-markdown-bug1-3.test.js`（BUG-1/3 共 8 项，用 markdown-it + linkedom 复现回写机制）与 `tests/scroll-restore.test.js`（BUG-2 滚动恢复 5 项）；`node --test` 全量 110 项通过。
+
 ### Notes
 - **临时调试探针（覆盖 7 模块 A-3/A-6/A-7/A-8/A-9/A-10/A-12）**：在 `src/probe.js`（增强版）基础上为本次 7 个功能部署遍布式临时探针，满足：① 经 `// ===== PROBE START/END =====` 标记可彻底回收；② 自动捕获 `window.error` / `unhandledrejection` 并采集环境快照（版本/主题/视图模式/是否 Tauri/文档长度/行数/选区/预览滚动/UA）；③ 经「导出探针日志」按钮或 Tauri `probe_log` 命令独立写出 `.log` 文件，内容足以支撑 BUG 定位、分析排查与修复。该探针为临时调试代码，**验证稳定后将随 `src/probe.js` 及 editor.js / html-to-markdown.js / editor.html 中的探针调用整体删除，不计入正式发布**。
 - 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。

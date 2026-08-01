@@ -37,6 +37,14 @@ export function reconstructRawTag(node, convertNodeFn) {
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
 
+// 折叠 <br> 紧随字面换行造成的多余换行（<br>\n → 单个 \n）。
+// markdown-it 渲染软换行为 `<br>\n`，若直接把 <br> 转成 \n 再保留其后字面 \n，
+// 会变成 \n\n（段间空行），导致预览回写时软换行被误判为段间空行。
+// 这是 BUG-1（每行间被插入空行）与 BUG-3（blockquote 多出空 `>` 段）的共同根因。
+function collapseSoftBreaks(s) {
+  return String(s == null ? '' : s).replace(/\n{2,}/g, '\n');
+}
+
 export function convertNode(node) {
   if (node.nodeType === TEXT_NODE) {
     return node.textContent;
@@ -69,12 +77,16 @@ export function convertNode(node) {
     case 'h6':
       return `###### ${childText.trim()}\n\n`;
     case 'p': {
-      const out = `${childText.trim()}\n\n`;
+      // 折叠 <br> 后紧随的字面换行产生的多余空行（<br>\n → 单个软换行），
+      // 避免预览回写把软换行误升级为段间空行（BUG-1 / BUG-3）。
+      const collapsed = collapseSoftBreaks(childText);
+      const out = `${collapsed.trim()}\n\n`;
       probe('P1-G convertNode-p块', {
         action: 'convert-p',
         childTextSample: childText.slice(0, 200),
         childTextLen: childText.length,
-        isEmpty: childText.trim().length === 0,
+        collapsedSample: collapsed.slice(0, 200),
+        isEmpty: collapsed.trim().length === 0,
         outSample: out.slice(0, 200),
       });
       return out;
@@ -132,19 +144,37 @@ export function convertNode(node) {
         });
         return out;
       }
-      const trimmed = childText.trim();
-      const lines = trimmed.split('\n');
-      const mapped = lines.map((l) => `> ${l}`).join('\n');
-      const out = mapped + '\n\n';
+      // BUG-3 修复：逐子块转换，软换行由 p/li 分支折叠，段间空行（多 <p> 引用的
+      // 段落分隔）在此保留；空段（用户删除内容后的空 <p>）直接跳过，避免产生多余的空 `>` 段。
+      // 注意：不可用 collapseSoftBreaks 整体塌陷 childText，否则会把段间空行误删，
+      // 造成「多段落引用被合并成一段」的回归。
+      const blocks = [];
+      for (const child of node.childNodes) {
+        if (child.nodeType !== ELEMENT_NODE) continue;
+        const txt = convertNode(child).replace(/\n+$/, '');
+        if (txt.trim().length === 0) continue;
+        blocks.push(txt);
+      }
+      // BUG-3 修复（统一方案）：逐块转换，块间插入一个空 > 行作为段落分隔，
+      // 空块（用户删除内容后的空 <p>）直接跳过，避免产生多余的空 > 段；
+      // 单 <p> 内含 <br> 软换行由块内逐行加 > 处理（lazy continuation）。
+      const result = [];
+      blocks.forEach((block, idx) => {
+        if (idx > 0) result.push('>');
+        for (const line of block.split('\n')) {
+          const trimmed = line.replace(/\s+$/, '');
+          if (trimmed.length === 0) continue;
+          result.push(`> ${trimmed}`);
+        }
+      });
+      const out = result.join('\n') + '\n\n';
       probe('P3-A convertNode-blockquote', {
         action: 'convert-blockquote',
-        childTextSample: childText.slice(0, 300),
-        childTextLen: childText.length,
-        trimmedLen: trimmed.length,
-        lineCount: lines.length,
-        lines,
+        childCount: node.childNodes.length,
+        blockCount: blocks.length,
+        resultCount: result.length,
         outSample: out.slice(0, 300),
-        hasEmptyLine: lines.some((l) => l.trim().length === 0),
+        hasEmptyLine: result.some((l) => l === '>'),
       });
       return out;
     }
@@ -180,7 +210,7 @@ export function convertNode(node) {
       return result + '\n';
     }
     case 'li':
-      return childText;
+      return collapseSoftBreaks(childText);
     case 'a': {
       const href = node.getAttribute('href') || '';
       return `[${childText}](${href})`;
