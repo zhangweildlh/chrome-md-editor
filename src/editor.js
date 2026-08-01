@@ -376,10 +376,11 @@ graph LR
         updateCursorStatus();
       }
       // ===== 临时探针：查找(S1)/替换(S2)/符号配对(S3)/相同字符串高亮(S4) =====
+      try {
       const view = update.view;
       const state = view.state;
       const previewEl = document.getElementById('previewContainer');
-      const editorScrollTop = editor.scrollDOM ? editor.scrollDOM.scrollTop : null;
+      const editorScrollTop = view.scrollDOM ? view.scrollDOM.scrollTop : null;
       const previewScrollTop = previewEl ? previewEl.scrollTop : null;
 
       // S1-B / S2-A：search 面板激活（getSearchQuery 非空且有查询串）
@@ -460,6 +461,9 @@ graph LR
             previewScrollTop,
           });
         }
+      }
+      } catch (e) {
+        console.error('[PROBE] updateListener 探针异常（已忽略，不影响编辑器）', e);
       }
     }),
   ];

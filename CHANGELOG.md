@@ -10,6 +10,9 @@ Project uses Semantic Versioning.
 ### Added
 - **单元测试覆盖符号配对纯逻辑**：将 `findPairedBracket` / `findSelfPair` / `bracketMatchMap` 等符号配对纯逻辑抽取至 `src/bracket-utils.js`（行为不变），新增 `tests/bracket-utils.test.js` 覆盖 M1 map 构建、`findPairedBracket` 栈匹配、`findSelfPair` 就近匹配，共 14 项用例全部通过（`node --test`），解耦 CodeMirror 依赖以便纯逻辑验证。
 
+### Fixed
+- **探针引发的应用初始化崩溃（critical，探针直接引发）**：`src/editor.js` 的 `createEditor` 内 `updateListener` 探针代码中错误地使用**全局变量 `editor`** 读取 `editor.scrollDOM`，而 `editor` 在 `new EditorView(...)` 构造完成后才赋值；CodeMirror 在构造期会**同步触发首次 update**，此时全局 `editor` 仍为 `null`，导致 `editor.scrollDOM` 抛 `TypeError`，`new EditorView` 构造失败、`createEditor` 中断，进而 `init()` 后续的 `bindEvents()`、`openInitialCliFile()` 等全部不执行。后果表现为：**EXE 侧所有工具栏按钮失效无反应、双击 .md 打开后无法显示内容、浏览器侧主题切换等按钮失效、探针无任何 log 产出**（编辑器实例未创建 → 所有功能不可用、探针未被触发）。修复：探针改用回调参数 `update.view.scrollDOM`（已构造完成的 EditorView 实例）；并为整个探针区块包裹 `try/catch`，确保今后探针异常不再中断编辑器初始化。功能逻辑（查找/替换/符号配对/相同字符串高亮/样式工具栏等）本身未受影响，纯粹是探针副作用致崩。
+
 ### Notes
 - **临时调试探针（S1~S4）**：为「查找 / 替换 / 符号配对 / 相同字符串高亮」四个功能在 `src/probe.js` 基础上部署 7 个运行时针点（S1-A/B 查找、S2-A 替换、S3-A/B/C 符号配对、S4-A 相同字符串高亮），经浏览器/EXE 侧复现后由「导出探针日志」按钮下载 `.log` 分析。该探针为临时调试代码，**修复相关 BUG 后将随 `src/probe.js` 及 editor.js / html-to-markdown.js / editor.html 中的探针调用整体删除，不计入正式发布**。
 - 样式工具栏最高优先级约定未被触碰。
