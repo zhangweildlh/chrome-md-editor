@@ -102,6 +102,36 @@ export function convertNode(node) {
       return `\`\`\`${lang}\n${code.trimEnd()}\n\`\`\`\n\n`;
     }
     case 'blockquote': {
+      // Callout：优先还原 [!TYPE] 语法，避免预览回写退化成普通引用
+      if (node.classList && node.classList.contains('callout')) {
+        const type = (node.getAttribute('data-callout') || 'NOTE').toUpperCase();
+        // 收集 body：跳过 .callout-title 标题元素，其余 childNodes 正常转换
+        let body = '';
+        for (const child of node.childNodes) {
+          if (child.nodeType === ELEMENT_NODE) {
+            if (child.classList && child.classList.contains('callout-title')) continue;
+            body += convertNode(child);
+          } else if (child.nodeType === TEXT_NODE) {
+            body += child.textContent;
+          }
+        }
+        const lines = body.split('\n').map((l) => l.replace(/\s+$/, ''));
+        while (lines.length && lines[lines.length - 1] === '') lines.pop();
+        let out;
+        if (lines.length === 0) {
+          out = `> [!${type}]\n\n`;
+        } else {
+          out = lines.map((l, idx) => `> ${idx === 0 ? `[!${type}]` : l}`).join('\n') + '\n\n';
+        }
+        probe('P3-A convertNode-callout', {
+          action: 'convert-callout',
+          type,
+          bodySample: body.slice(0, 300),
+          lineCount: lines.length,
+          outSample: out.slice(0, 300),
+        });
+        return out;
+      }
       const trimmed = childText.trim();
       const lines = trimmed.split('\n');
       const mapped = lines.map((l) => `> ${l}`).join('\n');

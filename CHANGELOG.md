@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.12] - 2026-08-01 (第一批 A 级可吸纳功能：大纲/代码补全/Callout/专注模式/Base64折叠/Mermaid缩放/任务面板)
+
+### Added
+- **文档大纲面板（A-3）**：新增 `src/outline.js`，基于 CodeMirror 6 `syntaxTree` 遍历 ATX 标题节点生成层级大纲；工具栏新增「大纲」按钮（`btnOutline`）打开侧边抽屉（`#outlinePanel` / `#outlineList`），点击条目滚动跳转至对应标题。
+- **代码块语言自动补全（A-6）**：新增 `src/codeblock-complete.js`，在 Markdown 代码围栏起始行注入 CodeMirror 补全源，输入 ```` ``` ```` 后提示常用语言（js/ts/py/json/rust/html/css/sql/bash 等），降低代码块语言标注成本。
+- **Callout 标注渲染（A-7）**：新增 `src/callout.js` 作为 markdown-it 插件（`calloutPlugin`），识别 `> [!NOTE]` / `[!TIP]` / `[!WARNING]` 等 GitHub 风格标注语法，转译为带类型配色与图标的 `.callout` 块；`src/html-to-markdown.js` 反向还原时保留 `[!TYPE]` 语法，避免预览回写退化。
+- **专注模式 / 打字机模式（A-8）**：新增 `src/focus-mode.js`，提供两种沉浸式编辑体验——专注模式淡出非活动行（`.focus-mode .cm-line`）、打字机模式使当前行垂直居中；工具栏新增「专注」（`btnFocusMode`）、「打字机」（`btnTypewriter`）按钮及状态同步。
+- **Base64 内联图片代码折叠（A-9）**：新增 `src/base64-fold.js`，对源码中超长 `![...](data:image/...;base64,...)` 行以 `⛶` 代码折叠装饰隐藏，避免长 base64 撑爆编辑器视图，点击展开/收起。
+- **Mermaid 图缩放与全屏（A-10）**：新增 `src/mermaid-zoom.js`，为每个渲染后的 Mermaid 图注入「⛶」按钮，支持 Ctrl/Cmd+滚轮以光标为锚点缩放、重置视图、点击打开全屏浮层（`#mermaid-zoom-overlay`）细看复杂图。
+- **任务列表面板（A-12）**：新增 `src/tasklist-panel.js`，扫描源码中 `- [ ]` / `- [x]` 任务项，工具栏「任务」按钮（`btnTasks`）打开侧边抽屉（`#taskListPanel` / `#taskList`），点击复选框直接回写源码切换完成状态。
+
+### Changed
+- `src/editor.js`：集成上述 7 模块——导入区补充新模块与 `registerProbeEnvProvider`；Markdown 配置注入代码块语言补全源；扩展数组加入 Base64 折叠；`updateListener` 的 `docChanged` 触发大纲/任务面板防抖刷新（150ms）、`selectionSet` 触发专注模式当前行居中；注册 `calloutPlugin`；预览更新在 Mermaid 渲染后注入缩放增强；`createEditor` 绑定大纲/任务编辑器实例与初始渲染；`init` 注册探针环境快照与显示设置初始化；`bindEvents` 接入专注/打字机/大纲/任务/显示设置（编辑器字号、预览字号、密度）按钮与弹层。
+- `src/editor.html`：工具栏新增 `view-tools-group`（专注/打字机/大纲/任务/显示设置按钮 + `#displaySettingsPopover` 弹层），`</main>` 后新增 `#outlinePanel` / `#taskListPanel` 侧边抽屉。
+- `src/editor.css`：新增 CSS 变量（`--editor-font-size` / `--preview-font-size` / `--ui-gap`）、专注模式淡化、Base64 折叠、Callout 配色与图标、侧边面板/大纲/任务项、Mermaid 缩放按钮与全屏浮层样式。
+- `desktop/src/lib.rs`：新增 `probe_log` Tauri 命令，将探针日志写入 `%TEMP%/md-editor-probe.log`（供 EXE 侧落盘）。
+
+### Notes
+- **临时调试探针（覆盖 7 模块 A-3/A-6/A-7/A-8/A-9/A-10/A-12）**：在 `src/probe.js`（增强版）基础上为本次 7 个功能部署遍布式临时探针，满足：① 经 `// ===== PROBE START/END =====` 标记可彻底回收；② 自动捕获 `window.error` / `unhandledrejection` 并采集环境快照（版本/主题/视图模式/是否 Tauri/文档长度/行数/选区/预览滚动/UA）；③ 经「导出探针日志」按钮或 Tauri `probe_log` 命令独立写出 `.log` 文件，内容足以支撑 BUG 定位、分析排查与修复。该探针为临时调试代码，**验证稳定后将随 `src/probe.js` 及 editor.js / html-to-markdown.js / editor.html 中的探针调用整体删除，不计入正式发布**。
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- 分支：`feat/batch-a-features`（基于 `feat/editor-find-replace-bracket` 尖端 @ `33991ce`，即 `main` @ `5f06e90` 的下游）。
+
 ## [1.4.11] - 2026-08-01 (测试与调试探针)
 
 ### Added

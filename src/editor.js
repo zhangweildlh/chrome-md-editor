@@ -33,7 +33,7 @@ import {
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
 // 临时调试探针（定位 BUG-1/2/3，修复后删除）
-import { probe } from './probe.js';
+import { probe, registerProbeEnvProvider } from './probe.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
@@ -59,6 +59,31 @@ import {
   getTranslatePreset,
   groupTranslatePresets,
 } from './translate-presets.js';
+
+// A-6 代码块语言名补全
+import { codeBlockLanguageCompletions } from './codeblock-complete.js';
+// A-7 Callout 提示框（markdown-it 插件）
+import { calloutPlugin } from './callout.js';
+// A-8 专注模式 + 显示设置
+import {
+  initDisplaySettings,
+  toggleFocusMode,
+  toggleTypewriter,
+  isFocusMode,
+  isTypewriter,
+  maybeCenterActiveLine,
+  setEditorFontSize,
+  setPreviewFontSize,
+  setDensity,
+} from './focus-mode.js';
+// A-9 超长 Base64 行折叠
+import { initBase64Fold } from './base64-fold.js';
+// A-10 Mermaid 全屏缩放 / 平移
+import { enhanceMermaidDiagrams } from './mermaid-zoom.js';
+// A-3 大纲面板
+import { getOutlineItems, renderOutline, setOutlineEditor } from './outline.js';
+// A-12 任务列表面板
+import { getTaskItems, renderTaskList, setTaskEditor } from './tasklist-panel.js';
 
 // ==========================================
 // Mermaid 初始化
@@ -121,6 +146,12 @@ md.use(function taskListPlugin(md) {
     }
   });
 });
+
+// A-7 Callout 提示框（markdown-it 插件；data-callout 属性供预览回写还原）
+md.use(calloutPlugin);
+// ===== PROBE START =====
+probe('A7_PLUGIN_REGISTERED', { plugin: 'callout' }, { loc: 'editor.js' });
+// ===== PROBE END =====
 
 // ==========================================
 // 状态管理
@@ -359,6 +390,7 @@ graph LR
     highlightSelectionMatches(),
     search(),
     selectedBracketHighlight,
+    initBase64Fold(),
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -377,6 +409,9 @@ graph LR
     markdown({
       base: markdownLanguage,
       codeLanguages: languages,
+      extensions: [
+        markdownLanguage.data.of({ autocomplete: codeBlockLanguageCompletions }),
+      ],
     }),
     EditorView.lineWrapping,
     themeCompartment.of(currentTheme === 'dark' ? oneDark : lightTheme),
@@ -386,9 +421,11 @@ graph LR
         updatePreview();
         updateStatus();
         markModified();
+        scheduleStructureRefresh();
       }
       if (update.selectionSet) {
         updateCursorStatus();
+        maybeCenterActiveLine(editor);
       }
       // ===== 临时探针：查找(S1)/替换(S2)/符号配对(S3)/相同字符串高亮(S4) =====
       try {
@@ -491,9 +528,21 @@ graph LR
     parent: editorContainer,
   });
 
+  // A-3 / A-12：把编辑器视图交给大纲 / 任务面板模块
+  setOutlineEditor(editor);
+  setTaskEditor(editor);
+
   // 初始化预览
   updatePreview();
   updateStatus();
+
+  // 初始构建一次大纲 / 任务列表
+  try {
+    renderOutline(getOutlineItems(editor));
+    renderTaskList(getTaskItems(editor));
+  } catch (err) {
+    probe('STRUCT_INIT_ERR', { message: err && err.message }, { loc: 'editor.js' });
+  }
 }
 
 // ==========================================
@@ -523,6 +572,45 @@ function updatePreview() {
   previewUpdateTimer = setTimeout(() => {
     doUpdatePreview();
   }, delay);
+}
+
+// ==========================================
+// 大纲 / 任务列表结构刷新（防抖）
+// ==========================================
+let structureRefreshTimer = null;
+function scheduleStructureRefresh() {
+  clearTimeout(structureRefreshTimer);
+  structureRefreshTimer = setTimeout(() => {
+    try {
+      const items = getOutlineItems(editor);
+      renderOutline(items);
+      const tasks = getTaskItems(editor);
+      renderTaskList(tasks);
+    } catch (err) {
+      probe('STRUCT_REFRESH_ERR', { message: err && err.message, stack: err && err.stack }, { loc: 'editor.js' });
+    }
+  }, 150);
+}
+
+// 探针环境快照：每条 probe 自动附带，便于仅凭 log 复现 BUG
+function buildEnvSnapshot() {
+  const snap = {
+    version: APP_VERSION,
+    theme: currentTheme,
+    viewMode: currentViewMode,
+    isTauri: !!(window && window.__TAURI_INTERNALS__),
+    docLen: editor ? editor.state.doc.length : null,
+    lineCount: editor ? editor.state.doc.lines : null,
+    selectionHead: editor ? editor.state.selection.main.head : null,
+    previewScrollTop: (() => {
+      const p = document.getElementById('previewContainer');
+      return p ? p.scrollTop : null;
+    })(),
+  };
+  try {
+    snap.userAgent = navigator.userAgent;
+  } catch { /* ignore */ }
+  return snap;
 }
 
 async function doUpdatePreview() {
@@ -566,6 +654,13 @@ async function doUpdatePreview() {
       div.textContent = 'Mermaid 渲染错误: ' + err.message;
       pre.replaceWith(div);
     }
+  }
+
+  // A-10：为每个 mermaid 图表补充「全屏 / 缩放 / 平移」按钮（仅增强一次）
+  try {
+    enhanceMermaidDiagrams(previewContainer);
+  } catch (err) {
+    probe('A10_ENHANCE_ERR', { message: err && err.message }, { loc: 'editor.js' });
   }
 
   await resolvePreviewImages(previewContainer);
@@ -2161,6 +2256,119 @@ function bindEvents() {
       }
     })();
   }
+
+  // ==================================================
+  // A-8 专注模式 / 打字机 / 显示设置
+  // ==================================================
+  const btnFocusMode = document.getElementById('btnFocusMode');
+  if (btnFocusMode) {
+    btnFocusMode.addEventListener('click', () => {
+      const on = toggleFocusMode();
+      btnFocusMode.classList.toggle('active', on);
+      // ===== PROBE START =====
+      probe('A8_FOCUS_BTN', { on }, { loc: 'editor.js' });
+      // ===== PROBE END =====
+    });
+  }
+  const btnTypewriter = document.getElementById('btnTypewriter');
+  if (btnTypewriter) {
+    btnTypewriter.addEventListener('click', () => {
+      const on = toggleTypewriter();
+      btnTypewriter.classList.toggle('active', on);
+      // ===== PROBE START =====
+      probe('A8_TYPEWRITER_BTN', { on }, { loc: 'editor.js' });
+      // ===== PROBE END =====
+    });
+  }
+
+  // 显示设置弹层
+  const btnDisplaySettings = document.getElementById('btnDisplaySettings');
+  const displayPopover = document.getElementById('displaySettingsPopover');
+  if (btnDisplaySettings && displayPopover) {
+    const eFont = displayPopover.querySelector('#dsEditorFont');
+    const pFont = displayPopover.querySelector('#dsPreviewFont');
+    const density = displayPopover.querySelector('#dsDensity');
+    const curEf = getEditorFontSize();
+    const curPf = getPreviewFontSize();
+    if (eFont && curEf > 0) eFont.value = curEf;
+    if (pFont && curPf > 0) pFont.value = curPf;
+    if (density) density.value = getDensity();
+
+    btnDisplaySettings.addEventListener('click', (e) => {
+      e.stopPropagation();
+      displayPopover.hidden = !displayPopover.hidden;
+    });
+    if (eFont) eFont.addEventListener('change', () => {
+      setEditorFontSize(parseInt(eFont.value, 10) || 0);
+    });
+    if (pFont) pFont.addEventListener('change', () => {
+      setPreviewFontSize(parseInt(pFont.value, 10) || 0);
+    });
+    if (density) density.addEventListener('change', () => {
+      setDensity(density.value);
+    });
+    document.addEventListener('click', (e) => {
+      if (!displayPopover.hidden && !displayPopover.contains(e.target) && e.target !== btnDisplaySettings) {
+        displayPopover.hidden = true;
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') displayPopover.hidden = true;
+    });
+  }
+
+  // ==================================================
+  // A-3 大纲面板 / A-12 任务面板
+  // ==================================================
+  const btnOutline = document.getElementById('btnOutline');
+  if (btnOutline) {
+    btnOutline.addEventListener('click', () => {
+      const panel = document.getElementById('outlinePanel');
+      if (!panel) return;
+      const open = panel.classList.toggle('open');
+      btnOutline.classList.toggle('active', open);
+      if (open) {
+        renderOutline(getOutlineItems(editor));
+        // ===== PROBE START =====
+        probe('A3_PANEL_OPEN', {}, { loc: 'editor.js' });
+        // ===== PROBE END =====
+      }
+    });
+  }
+  const btnTasks = document.getElementById('btnTasks');
+  if (btnTasks) {
+    btnTasks.addEventListener('click', () => {
+      const panel = document.getElementById('taskListPanel');
+      if (!panel) return;
+      const open = panel.classList.toggle('open');
+      btnTasks.classList.toggle('active', open);
+      if (open) {
+        renderTaskList(getTaskItems(editor));
+        // ===== PROBE START =====
+        probe('A12_PANEL_OPEN', {}, { loc: 'editor.js' });
+        // ===== PROBE END =====
+      }
+    });
+  }
+  document.getElementById('outlineClose')?.addEventListener('click', () => {
+    document.getElementById('outlinePanel')?.classList.remove('open');
+    document.getElementById('btnOutline')?.classList.remove('active');
+  });
+  document.getElementById('taskClose')?.addEventListener('click', () => {
+    document.getElementById('taskListPanel')?.classList.remove('open');
+    document.getElementById('btnTasks')?.classList.remove('active');
+  });
+}
+
+// 同步专注模式 / 打字机按钮的 active 状态（init 恢复持久化设置后调用）
+function syncFocusModeButtons() {
+  const f = document.getElementById('btnFocusMode');
+  const t = document.getElementById('btnTypewriter');
+  if (f) f.classList.toggle('active', isFocusMode());
+  if (t) t.classList.toggle('active', isTypewriter());
+  // ===== PROBE START =====
+  probe('A8_SYNC_BTN', { focus: isFocusMode(), typewriter: isTypewriter() }, { loc: 'editor.js' });
+  // ===== PROBE END =====
 }
 
 function initPasteImageSupport() {
@@ -2516,6 +2724,12 @@ function init() {
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
   console.info(`[MD Editor] build v${APP_VERSION}`);
 
+  // 注册探针环境快照提供器（每条 probe 自动附带，供 BUG 定位）
+  registerProbeEnvProvider(buildEnvSnapshot);
+  // ===== PROBE START =====
+  probe('INIT_ENV_PROVIDER', { version: APP_VERSION }, { loc: 'editor.js' });
+  // ===== PROBE END =====
+
   // 恢复主题
   if (currentTheme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -2530,6 +2744,10 @@ function init() {
 
   // 创建编辑器
   createEditor();
+
+  // A-8：恢复专注模式 / 显示字号 / 密度 持久化设置
+  initDisplaySettings();
+  syncFocusModeButtons();
 
   // 绑定事件
   bindEvents();
