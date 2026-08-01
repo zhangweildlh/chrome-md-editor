@@ -421,12 +421,19 @@ graph LR
     // 内容变化时更新预览
     EditorView.updateListener.of((update) => {
       // ===== PROBE START ===== 撤销/重做检测
+      // 注：本环境打包后 Transaction.isUserEvent 静态方法不可用（tree-shaking/版本差异），
+      // 改用 tr.annotation(Transaction.userEvent) 直接读取 userEvent 注解并字符串比对，等价实现。
       try {
-        const ue = update.transactions.map((tr) => {
-          try { return Transaction.isUserEvent(tr, 'undo') ? 'undo' : (Transaction.isUserEvent(tr, 'redo') ? 'redo' : null); } catch { return null; }
-        }).filter(Boolean);
-        if (ue.includes('undo')) probe('UNDO', { count: ue.filter((x) => x === 'undo').length }, { loc: 'editor.js' });
-        if (ue.includes('redo')) probe('REDO', { count: ue.filter((x) => x === 'redo').length }, { loc: 'editor.js' });
+        for (const tr of update.transactions) {
+          let ev = null;
+          try { ev = tr.annotation(Transaction.userEvent); } catch {}
+          if (ev) {
+            for (const e of String(ev).split(' ')) {
+              if (e === 'undo') { probe('UNDO', { count: 1 }, { loc: 'editor.js' }); break; }
+              if (e === 'redo') { probe('REDO', { count: 1 }, { loc: 'editor.js' }); break; }
+            }
+          }
+        }
       } catch {}
       // ===== PROBE END =====
       if (update.docChanged) {
@@ -2449,6 +2456,10 @@ function bindEvents() {
     document.getElementById('taskListPanel')?.classList.remove('open');
     document.getElementById('btnTasks')?.classList.remove('active');
   });
+
+  // 临时调试钩子：供自动化测试加载任意边界文档 / 访问编辑器实例（与探针理念一致，测试用；保留以便重复回归）
+  window.__setEditorContent = setEditorContent;
+  window.__editor = editor;
 }
 
 // 同步专注模式 / 打字机按钮的 active 状态（init 恢复持久化设置后调用）
