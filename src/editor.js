@@ -21,6 +21,7 @@ import { search, searchKeymap, highlightSelectionMatches, openSearchPanel, getSe
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
+import DOMPurify from 'dompurify';
 import {
   buildImagesRelativePath,
   buildPastedImageMarkdown,
@@ -78,6 +79,18 @@ const md = new MarkdownIt({
   typographer: true,
   breaks: true,
 });
+
+// M1 修复（预览 XSS）：markdown-it 保留 html:true，以支持样式工具栏写入的
+// <font>/<center> 等标记；但渲染结果必须先经 DOMPurify 净化再注入 DOM，
+// 杜绝 DOM-XSS（攻击者可构造含 <script> 或 onerror= 的 .md 文件）。
+// 显式放行应用依赖的 font/center 标记与 color/face/size/align 属性；
+// class/id/style/data-* 由 DOMPurify 默认策略保留并净化。
+function sanitizePreviewHtml(dirty) {
+  return DOMPurify.sanitize(dirty, {
+    ADD_TAGS: ['font', 'center'],
+    ADD_ATTR: ['color', 'face', 'size', 'align'],
+  });
+}
 
 // 任务列表支持
 md.use(function taskListPlugin(md) {
@@ -515,7 +528,7 @@ function updatePreview() {
 async function doUpdatePreview() {
   const previewContainer = document.getElementById('previewContainer');
   const content = editor.state.doc.toString();
-  let html = md.render(content);
+  let html = sanitizePreviewHtml(md.render(content));
 
   // 渲染 Mermaid 图表
   // markdown-it 会把 ```mermaid 渲染成 <pre><code class="language-mermaid">...</code></pre>
