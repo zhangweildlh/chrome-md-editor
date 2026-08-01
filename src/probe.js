@@ -8,7 +8,9 @@
 // ============================================================
 
 // 全局日志缓冲（所有探针共享，按 tag 区分）
-window.__PROBE_LOG__ = window.__PROBE_LOG__ || [];
+// 容错：node 测试环境无 window，回退 globalThis，避免模块加载即抛 ReferenceError
+const __PROBE_GLOBAL__ = (typeof window !== 'undefined') ? window : globalThis;
+__PROBE_GLOBAL__.__PROBE_LOG__ = __PROBE_GLOBAL__.__PROBE_LOG__ || [];
 
 export const PROBE_ENABLED = true;
 
@@ -73,8 +75,8 @@ export function exportProbeLog() {
   return text;
 }
 
-window.__exportProbeLog__ = exportProbeLog;
+__PROBE_GLOBAL__.__exportProbeLog__ = exportProbeLog;
 // 清空缓冲（复现新场景前调用）
-window.__clearProbeLog__ = () => {
-  window.__PROBE_LOG__ = [];
+__PROBE_GLOBAL__.__clearProbeLog__ = () => {
+  __PROBE_GLOBAL__.__PROBE_LOG__ = [];
 };
