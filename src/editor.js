@@ -73,8 +73,11 @@ import {
   isTypewriter,
   maybeCenterActiveLine,
   setEditorFontSize,
+  getEditorFontSize,
   setPreviewFontSize,
+  getPreviewFontSize,
   setDensity,
+  getDensity,
 } from './focus-mode.js';
 // A-9 超长 Base64 行折叠
 import { initBase64Fold } from './base64-fold.js';
