@@ -10,7 +10,7 @@
 import './desktop-shims.js';
 
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars, ViewPlugin, Decoration } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Transaction } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -420,6 +420,15 @@ graph LR
     themeCompartment.of(currentTheme === 'dark' ? oneDark : lightTheme),
     // 内容变化时更新预览
     EditorView.updateListener.of((update) => {
+      // ===== PROBE START ===== 撤销/重做检测
+      try {
+        const ue = update.transactions.map((tr) => {
+          try { return Transaction.isUserEvent(tr, 'undo') ? 'undo' : (Transaction.isUserEvent(tr, 'redo') ? 'redo' : null); } catch { return null; }
+        }).filter(Boolean);
+        if (ue.includes('undo')) probe('UNDO', { count: ue.filter((x) => x === 'undo').length }, { loc: 'editor.js' });
+        if (ue.includes('redo')) probe('REDO', { count: ue.filter((x) => x === 'redo').length }, { loc: 'editor.js' });
+      } catch {}
+      // ===== PROBE END =====
       if (update.docChanged) {
         updatePreview();
         updateStatus();
@@ -619,6 +628,11 @@ function buildEnvSnapshot() {
 async function doUpdatePreview() {
   const previewContainer = document.getElementById('previewContainer');
   const content = editor.state.doc.toString();
+  // ===== PROBE START ===== 渲染主路径计时 + 边界标记计数
+  const _t0 = performance.now();
+  let _mermaid = 0; try { const _re = /```mermaid/g; let _m; while ((_m = _re.exec(content))) _mermaid++; } catch {}
+  probe('RENDER_MAIN_START', { contentLen: content.length, mermaidBlocks: _mermaid }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   let html = sanitizePreviewHtml(md.render(content));
 
   // 渲染 Mermaid 图表
@@ -645,6 +659,9 @@ async function doUpdatePreview() {
     const pre = block.parentElement;
     try {
       mermaidCounter++;
+      // ===== PROBE START =====
+      probe('MERMAID_RENDER_OK', { sourceSample: source.slice(0, 80), counter: mermaidCounter }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       const { svg } = await mermaid.render(`mermaid-${mermaidCounter}`, source);
       const div = document.createElement('div');
       div.className = 'mermaid-diagram';
@@ -652,6 +669,9 @@ async function doUpdatePreview() {
       pre.replaceWith(div);
     } catch (err) {
       // 渲染失败时显示错误
+      // ===== PROBE START =====
+      probe('MERMAID_RENDER_ERR', { sourceSample: (typeof source !== 'undefined' ? source.slice(0, 80) : ''), message: err && err.message }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       const div = document.createElement('div');
       div.className = 'mermaid-error';
       div.textContent = 'Mermaid 渲染错误: ' + err.message;
@@ -673,6 +693,9 @@ async function doUpdatePreview() {
   } else {
     setTranslateUiState({ active: false });
   }
+  // ===== PROBE START ===== 渲染主路径结束（耗时）
+  probe('RENDER_MAIN_DONE', { costMs: Math.round(performance.now() - _t0) }, { loc: 'editor.js' });
+  // ===== PROBE END =====
 }
 
 async function getTranslateSettings() {
@@ -1499,6 +1522,9 @@ async function openWithHandle(fileHandle) {
 }
 
 async function handleOpen() {
+  // ===== PROBE START =====
+  probe('FILE_OPEN', { stage: 'start' }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   try {
     const [fileHandle] = await window.showOpenFilePicker({
       types: [{
@@ -1509,6 +1535,9 @@ async function handleOpen() {
     });
 
     await openWithHandle(fileHandle);
+    // ===== PROBE START =====
+    probe('FILE_OPEN', { stage: 'success' }, { loc: 'editor.js' });
+    // ===== PROBE END =====
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件失败: ' + err.message, 'error');
@@ -1520,6 +1549,9 @@ async function handleOpen() {
 // 桌面端：按命令行传入的 .md 绝对路径打开（构造 Tauri 文件句柄，
 // 其 getFile/createWritable 走 Rust 命令读写，绕开 fs 作用域限制）
 async function openFileByPath(path) {
+  // ===== PROBE START =====
+  probe('FILE_OPEN_BY_PATH', { path }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   try {
     const factory = window.__tauriFileHandle;
     if (typeof factory !== 'function') {
@@ -1557,6 +1589,9 @@ async function openInitialCliFile() {
 }
 
 async function handleSave() {
+  // ===== PROBE START =====
+  probe('FILE_SAVE', { stage: 'start', hasHandle: !!currentFileHandle }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   try {
     if (currentFileHandle) {
       // 保存到已有文件
@@ -1565,6 +1600,9 @@ async function handleSave() {
       await writable.close();
       markSaved();
       await rememberCurrentDocument();
+      // ===== PROBE START =====
+      probe('FILE_SAVE', { stage: 'success', mode: 'overwrite' }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       showToast('文件已保存', 'success');
     } else {
       // 另存为
@@ -1579,6 +1617,9 @@ async function handleSave() {
 }
 
 async function handleSaveAs() {
+  // ===== PROBE START =====
+  probe('FILE_SAVE_AS', { stage: 'start' }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   try {
     const fileHandle = await window.showSaveFilePicker({
       suggestedName: 'untitled.md',
@@ -1598,6 +1639,9 @@ async function handleSaveAs() {
     updateFilename(savedName);
     markSaved();
     await rememberCurrentDocument({ filename: savedName });
+    // ===== PROBE START =====
+    probe('FILE_SAVE_AS', { stage: 'success', name: savedName }, { loc: 'editor.js' });
+    // ===== PROBE END =====
     showToast('文件已保存', 'success');
   } catch (err) {
     if (err.name !== 'AbortError') {
@@ -1607,6 +1651,9 @@ async function handleSaveAs() {
 }
 
 function handleNew() {
+  // ===== PROBE START =====
+  probe('FILE_NEW', { wasModified: isModified }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   if (isModified) {
     if (!confirm('当前文件有未保存的更改，确定要新建文件吗？')) {
       return;
@@ -1703,6 +1750,13 @@ function wrapSelection(before, after) {
 //  - 再次选择同一值时「智能取消」（移除该属性，若已无属性则整体去标签）；
 //  - 保留其它属性（如 color 与 size 可共存）。
 function applyFontStyle(attr, value) {
+  // ===== PROBE START =====
+  probe('STYLE_APPLY', {
+    attr, value,
+    selectedTextLen: (() => { try { const s = editor.state.selection.main; return editor.state.sliceDoc(s.from, s.to).length; } catch { return -1; } })(),
+    hasOpenClose: (() => { try { const s = editor.state.selection.main; const b = editor.state.sliceDoc(Math.max(0, s.from - 64), s.from); const a = editor.state.sliceDoc(s.to, Math.min(editor.state.doc.length, s.to + 8)); return /<font([^>]*)>$/.test(b) && a.startsWith('</font>'); } catch { return false; } })(),
+  }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   const sel = editor.state.selection.main;
   const selectedText = editor.state.sliceDoc(sel.from, sel.to);
 
@@ -1804,7 +1858,11 @@ function insertBlock(text) {
 // 主题切换
 // ==========================================
 function toggleTheme() {
+  const _prev = currentTheme;
   currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  // ===== PROBE START =====
+  probe('THEME_TOGGLE', { from: _prev, to: currentTheme }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   localStorage.setItem('md-editor-theme', currentTheme);
 
   document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
@@ -1981,6 +2039,18 @@ function initScrollSync() {
 // 事件绑定
 // ==========================================
 function bindEvents() {
+  // ===== PROBE START ===== 统一覆盖所有工具栏/侧边栏/视图/样式选项按钮点击（弥补无专属探针的按钮）
+  document.querySelectorAll('.toolbar-btn, .sidebar-action-btn, .view-btn, .fs-option, .swatch').forEach((el) => {
+    el.addEventListener('click', () => {
+      probe('UI_BTN_CLICK', {
+        id: el.id || '',
+        title: el.getAttribute('title') || '',
+        cls: el.className || '',
+      }, { loc: 'editor.js:bindEvents' });
+    });
+  });
+  // ===== PROBE END =====
+
   // 文件操作
   document.getElementById('btnOpen').addEventListener('click', handleOpen);
   document.getElementById('btnSave').addEventListener('click', handleSave);
@@ -2014,13 +2084,13 @@ function bindEvents() {
   // 自动嵌套，例如 <center><b><font color="red">文本</font></b></center>；
   // 再次点击同一按钮则取消包裹（toggle）。每个按钮独立生效，也可任意组合。
   const btnStyleCenter = document.getElementById('btnStyleCenter');
-  if (btnStyleCenter) btnStyleCenter.addEventListener('click', () => wrapSelection('<center>', '</center>'));
+  if (btnStyleCenter) btnStyleCenter.addEventListener('click', () => { probe('STYLE_WRAP', { type: 'center' }, { loc: 'editor.js' }); wrapSelection('<center>', '</center>'); });
 
   const btnStyleBold = document.getElementById('btnStyleBold');
-  if (btnStyleBold) btnStyleBold.addEventListener('click', () => wrapSelection('<b>', '</b>'));
+  if (btnStyleBold) btnStyleBold.addEventListener('click', () => { probe('STYLE_WRAP', { type: 'b' }, { loc: 'editor.js' }); wrapSelection('<b>', '</b>'); });
 
   const btnStyleHighlight = document.getElementById('btnStyleHighlight');
-  if (btnStyleHighlight) btnStyleHighlight.addEventListener('click', () => wrapSelection('<mark>', '</mark>'));
+  if (btnStyleHighlight) btnStyleHighlight.addEventListener('click', () => { probe('STYLE_WRAP', { type: 'mark' }, { loc: 'editor.js' }); wrapSelection('<mark>', '</mark>'); });
 
   // 颜色 / 字号：弹出对应弹窗，点选项即应用 <font color>/<font size>。
   // 关键改进（相对 v1.4.x 初版与 v1.3.0）：重选同一属性时「替换」而非「嵌套」，
@@ -2061,6 +2131,9 @@ function bindEvents() {
         e.stopPropagation();
         lastColor = sw.dataset.color;
         localStorage.setItem('md-editor-last-color', lastColor);
+        // ===== PROBE START =====
+        probe('STYLE_COLOR', { color: lastColor }, { loc: 'editor.js' });
+        // ===== PROBE END =====
         applyFontStyle('color', lastColor);
         markFontChoice();
         // 不自动关闭，便于在同组色板内快速改色（替换而非嵌套）
@@ -2082,6 +2155,9 @@ function bindEvents() {
         e.stopPropagation();
         lastSize = opt.dataset.size;
         localStorage.setItem('md-editor-last-size', lastSize);
+        // ===== PROBE START =====
+        probe('STYLE_SIZE', { size: lastSize }, { loc: 'editor.js' });
+        // ===== PROBE END =====
         applyFontStyle('size', lastSize);
         markFontChoice();
       });
@@ -2169,6 +2245,9 @@ function bindEvents() {
   const btnTranslate = document.getElementById('btnTranslate');
   if (btnTranslate) {
     btnTranslate.addEventListener('click', () => {
+      // ===== PROBE START =====
+      probe('TRANSLATE_TOGGLE', { willEnable: !translateEnabled }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       toggleTranslateMode();
     });
     btnTranslate.addEventListener('contextmenu', (e) => {
@@ -2302,12 +2381,21 @@ function bindEvents() {
       displayPopover.hidden = !displayPopover.hidden;
     });
     if (eFont) eFont.addEventListener('change', () => {
+      // ===== PROBE START =====
+      probe('DISPLAY_SETTINGS_CHANGE', { field: 'editorFont', value: parseInt(eFont.value, 10) || 0 }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       setEditorFontSize(parseInt(eFont.value, 10) || 0);
     });
     if (pFont) pFont.addEventListener('change', () => {
+      // ===== PROBE START =====
+      probe('DISPLAY_SETTINGS_CHANGE', { field: 'previewFont', value: parseInt(pFont.value, 10) || 0 }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       setPreviewFontSize(parseInt(pFont.value, 10) || 0);
     });
     if (density) density.addEventListener('change', () => {
+      // ===== PROBE START =====
+      probe('DISPLAY_SETTINGS_CHANGE', { field: 'density', value: density.value }, { loc: 'editor.js' });
+      // ===== PROBE END =====
       setDensity(density.value);
     });
     document.addEventListener('click', (e) => {
@@ -2378,6 +2466,9 @@ function initPasteImageSupport() {
   editor.contentDOM.addEventListener('paste', async (event) => {
     const items = Array.from(event.clipboardData?.items || []);
     const imageItem = items.find((item) => item.type.startsWith('image/'));
+    // ===== PROBE START =====
+    probe('PASTE', { hasImage: !!imageItem, itemCount: items.length }, { loc: 'editor.js' });
+    // ===== PROBE END =====
 
     if (!imageItem) return;
 
@@ -2503,9 +2594,15 @@ let directoryHandle = null;
 let isSidebarCollapsed = localStorage.getItem('md-sidebar-collapsed') === 'true';
 
 async function handleOpenFolder() {
+  // ===== PROBE START =====
+  probe('FOLDER_OPEN', { stage: 'start' }, { loc: 'editor.js' });
+  // ===== PROBE END =====
   try {
     directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     await renderFileTree();
+    // ===== PROBE START =====
+    probe('FOLDER_OPEN', { stage: 'success', name: directoryHandle.name }, { loc: 'editor.js' });
+    // ===== PROBE END =====
     showToast(`已打开文件夹: ${directoryHandle.name}`, 'success');
   } catch (err) {
     if (err.name !== 'AbortError') {

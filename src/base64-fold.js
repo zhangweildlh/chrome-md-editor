@@ -83,6 +83,7 @@ function buildFolds(view) {
   const builder = new RangeSetBuilder();
   const unfolded = view.state.field(unfoldedField);
   const doc = view.state.doc;
+  let foldedCount = 0;
   for (let i = 1; i <= doc.lines; i++) {
     const line = doc.line(i);
     const txt = line.text;
@@ -92,8 +93,12 @@ function buildFolds(view) {
         line.to,
         Decoration.replace({ widget: new Base64FoldWidget(line.from, txt.length) })
       );
+      foldedCount++;
     }
   }
+  // ===== PROBE START =====
+  probe('A9_FOLD_BUILT', { foldedCount }, { loc: 'base64-fold.js' });
+  // ===== PROBE END =====
   return builder.finish();
 }
 
