@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.11] - 2026-08-01 (测试与调试探针)
+
+### Added
+- **单元测试覆盖符号配对纯逻辑**：将 `findPairedBracket` / `findSelfPair` / `bracketMatchMap` 等符号配对纯逻辑抽取至 `src/bracket-utils.js`（行为不变），新增 `tests/bracket-utils.test.js` 覆盖 M1 map 构建、`findPairedBracket` 栈匹配、`findSelfPair` 就近匹配，共 14 项用例全部通过（`node --test`），解耦 CodeMirror 依赖以便纯逻辑验证。
+
+### Notes
+- **临时调试探针（S1~S4）**：为「查找 / 替换 / 符号配对 / 相同字符串高亮」四个功能在 `src/probe.js` 基础上部署 7 个运行时针点（S1-A/B 查找、S2-A 替换、S3-A/B/C 符号配对、S4-A 相同字符串高亮），经浏览器/EXE 侧复现后由「导出探针日志」按钮下载 `.log` 分析。该探针为临时调试代码，**修复相关 BUG 后将随 `src/probe.js` 及 editor.js / html-to-markdown.js / editor.html 中的探针调用整体删除，不计入正式发布**。
+- 样式工具栏最高优先级约定未被触碰。
+- 分支：`feat/editor-find-replace-bracket`。
+
 ## [1.4.10] - 2026-07-31 (缺陷修复)
 
 ### Fixed
