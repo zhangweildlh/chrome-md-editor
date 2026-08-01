@@ -18,6 +18,8 @@ export const PROBE_ENABLED = true;
 // 统一累积到 window.__PROBE_LOG__，最终由 exportProbeLog() 导出为 .log 文件。
 export function probe(tag, data) {
   if (!PROBE_ENABLED) return null;
+  // node 测试/构建环境无 window，跳过探针（探针仅用于浏览器/EXE 运行时复现 BUG 采集）
+  if (typeof window === 'undefined') return null;
   let safe;
   try {
     // 深拷贝基本可序列化信息，避免后续 DOM 变更影响本次快照
