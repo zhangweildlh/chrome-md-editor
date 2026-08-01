@@ -40,13 +40,21 @@ function calloutPlugin(md) {
     for (let i = 0; i < tokens.length; i++) {
       if (tokens[i].type !== 'blockquote_open') continue;
 
-      // 定位紧跟 blockquote_open 之后的 paragraph_open + inline
+      // 定位「本层」 blockquote 紧随其后的 paragraph_open + inline。
+      // 用 depth 计数跳过内层子引用（blockquote_open/close），否则会误命中
+      // 内层段落而导致外层 [!TYPE] 漏检（M4）。
       let k = i + 1;
-      while (
-        k < tokens.length &&
-        tokens[k].type !== 'blockquote_close' &&
-        tokens[k].type !== 'paragraph_open'
-      ) {
+      let depth = 0;
+      while (k < tokens.length) {
+        const t = tokens[k].type;
+        if (t === 'blockquote_open') {
+          depth++;
+        } else if (t === 'blockquote_close') {
+          if (depth === 0) break; // 本层 blockquote 已结束，未找到直接子段落
+          depth--;
+        } else if (t === 'paragraph_open' && depth === 0) {
+          break; // 命中本层直接子段落
+        }
         k++;
       }
       if (

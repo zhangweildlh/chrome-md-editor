@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { parseHTML } from 'linkedom';
 
 import { resolvePreviewImageSource } from '../src/image-support.js';
@@ -71,8 +71,8 @@ test('Issue #1 Q1: real fixture path pattern matches file URL layout', () => {
   });
   assert.ok(resolved.startsWith('file://'));
   assert.ok(resolved.includes('images/dot.png') || resolved.endsWith('images/dot.png'));
-  // file should exist at decoded path
-  const decoded = decodeURIComponent(resolved.replace(/^file:\/\//, ''));
+  // file should exist at decoded path（用标准 API 还原文件系统路径，避免 Windows 双盘符）
+  const decoded = fileURLToPath(resolved);
   assert.equal(readFileSync(decoded).length > 0, true);
 });
 

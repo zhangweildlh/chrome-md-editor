@@ -91,7 +91,7 @@ import { getTaskItems, renderTaskList, setTaskEditor } from './tasklist-panel.js
 mermaid.initialize({
   startOnLoad: false,
   theme: 'dark',
-  securityLevel: 'loose',
+  securityLevel: 'strict',
   fontFamily: 'Inter, sans-serif',
 });
 
@@ -390,7 +390,7 @@ graph LR
     highlightSelectionMatches(),
     search(),
     selectedBracketHighlight,
-    initBase64Fold(),
+    ...initBase64Fold(),
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -1816,7 +1816,7 @@ function toggleTheme() {
   mermaid.initialize({
     startOnLoad: false,
     theme: currentTheme === 'dark' ? 'dark' : 'default',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     fontFamily: 'Inter, sans-serif',
   });
   // 重新渲染预览中的 Mermaid
@@ -2736,7 +2736,7 @@ function init() {
     mermaid.initialize({
       startOnLoad: false,
       theme: 'default',
-      securityLevel: 'loose',
+      securityLevel: 'strict',
       fontFamily: 'Inter, sans-serif',
     });
   }

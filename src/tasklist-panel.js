@@ -7,9 +7,23 @@
 // ============================================================
 import { probe } from './probe.js';
 
-const TASK_LINE_RE = /^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX])\]\s+(.*)$/;
+const TASK_LINE_RE = /^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX])\]\s*(.*)$/;
 
 let taskView = null;
+
+// 纯逻辑解析单行任务；返回 null 表示非任务行。
+// m[1] 为「缩进+列表符号+空格+[」前缀长度；[ ]/[x] 标记从 line.from + indent 起，长 3。
+// 末段放宽为 \s* 以识别无尾随文本的空任务（M6）。
+export function parseTaskLine(text) {
+  if (typeof text !== 'string') return null;
+  const m = text.match(TASK_LINE_RE);
+  if (!m) return null;
+  return {
+    indent: m[1].length,
+    checked: m[2].toLowerCase() === 'x',
+    text: m[3],
+  };
+}
 
 export function setTaskEditor(view) {
   taskView = view;
@@ -22,13 +36,13 @@ export function getTaskItems(view) {
   const doc = v.state.doc;
   for (let i = 1; i <= doc.lines; i++) {
     const line = doc.line(i);
-    const m = line.text.match(TASK_LINE_RE);
-    if (m) {
+    const parsed = parseTaskLine(line.text);
+    if (parsed) {
       items.push({
         lineNumber: i,
-        checked: m[2].toLowerCase() === 'x',
-        text: m[3],
-        indent: m[1].length,
+        checked: parsed.checked,
+        text: parsed.text,
+        indent: parsed.indent,
       });
     }
   }
@@ -72,10 +86,10 @@ export function toggleTaskAtLine(lineNumber, checked) {
   const doc = taskView.state.doc;
   if (lineNumber < 1 || lineNumber > doc.lines) return;
   const line = doc.line(lineNumber);
-  const m = line.text.match(TASK_LINE_RE);
-  if (!m) return;
-  // m[1] 为「缩进+列表符号+空格+[」，标记 [ ]/[x] 从 line.from + m[1].length 起，长 3
-  const from = line.from + m[1].length;
+  const parsed = parseTaskLine(line.text);
+  if (!parsed) return;
+  // parsed.indent 即「缩进+列表符号+空格+[」前缀长度；标记 [ ]/[x] 从该处起，长 3
+  const from = line.from + parsed.indent;
   const to = from + 3;
   const newMark = checked ? '[x]' : '[ ]';
   taskView.dispatch({ changes: { from, to, insert: newMark } });

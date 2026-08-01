@@ -1,0 +1,192 @@
+{
+  "tool": "code-review-combo",
+  "mode": "dual-cross-validation",
+  "repository": "D:\\Documents\\AI_Work_Temp\\Chrome-Markdown-Edit",
+  "target": {
+    "type": "range",
+    "from": "main",
+    "to": "feat/batch-a-features",
+    "commit": null
+  },
+  "sources": ["open-code-review-delegate", "review-spd"],
+  "files": [
+    { "path": ".github/workflows/ci.yml", "status": "modified", "insertions": 4, "deletions": 0 },
+    { "path": "CHANGELOG.md", "status": "modified", "insertions": 71, "deletions": 0 },
+    { "path": "DEVLOG.md", "status": "modified", "insertions": 20, "deletions": 0 },
+    { "path": "desktop/src/lib.rs", "status": "modified", "insertions": 19, "deletions": 0 },
+    { "path": "package-lock.json", "status": "modified", "insertions": 11, "deletions": 0 },
+    { "path": "package.json", "status": "modified", "insertions": 9, "deletions": 0 },
+    { "path": "src/base64-fold.js", "status": "added", "insertions": 72, "deletions": 0 },
+    { "path": "src/bracket-utils.js", "status": "added", "insertions": 64, "deletions": 0 },
+    { "path": "src/callout.js", "status": "added", "insertions": 116, "deletions": 0 },
+    { "path": "src/codeblock-complete.js", "status": "added", "insertions": 62, "deletions": 0 },
+    { "path": "src/editor.css", "status": "modified", "insertions": 295, "deletions": 0 },
+    { "path": "src/editor.html", "status": "modified", "insertions": 79, "deletions": 0 },
+    { "path": "src/editor.js", "status": "modified", "insertions": 530, "deletions": 0 },
+    { "path": "src/focus-mode.js", "status": "added", "insertions": 113, "deletions": 0 },
+    { "path": "src/html-to-markdown.js", "status": "modified", "insertions": 115, "deletions": 0 },
+    { "path": "src/mermaid-zoom.js", "status": "added", "insertions": 159, "deletions": 0 },
+    { "path": "src/outline.js", "status": "added", "insertions": 71, "deletions": 0 },
+    { "path": "src/probe.js", "status": "added", "insertions": 181, "deletions": 0 },
+    { "path": "src/tasklist-panel.js", "status": "added", "insertions": 85, "deletions": 0 },
+    { "path": "tests/bracket-utils.test.js", "status": "added", "insertions": 125, "deletions": 0 },
+    { "path": "tests/init-regression.test.js", "status": "added", "insertions": 116, "deletions": 0 }
+  ],
+  "rules": [
+    { "rule": "combined: ocr rule-engine (XSS/innerHTML/正确性/安全性/性能/可维护性/测试覆盖) + review-spd 五焦点 (正确性/回归兼容/测试/安全/性能并发)" }
+  ],
+  "findings": [
+    {
+      "path": "src/editor.js",
+      "start_line": 430,
+      "end_line": 519,
+      "category": "performance",
+      "severity": "high",
+      "comment": "临时探针系统（updateListener 内 S1/S2/S3/S4 探针、src/probe.js、html-to-markdown.js 的 P1-F/P1-G/P3-A/P3-B、editor.html 的「导出探针日志」按钮）处于生产热路径：S4-A 在每次选区变化对整篇文档 doc.toString()+indexOf 扫描，S1-B 在查找态对整篇文档 toString+正则统计；并存在醒目调试按钮与高频 console.log。若按现状构建发布，带来运行期性能回归与调试 UI 泄漏。",
+      "suggestion": "按 src/probe.js 头部「三步回收法」整体移除：删 probe.js、删全部 PROBE START/END 块（保留 doUpdatePreview 等核心逻辑）、移除各模块 import 与 editor.html 按钮/内联脚本；回收后 vite build 并 grep -rn 'probe(' src 确认零残留。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/base64-fold.js",
+      "start_line": 25,
+      "end_line": 61,
+      "category": "bug",
+      "severity": "medium",
+      "comment": "点击展开 handler 先 unfoldedMap.set 再 view.dispatch({})；update(u) 仅在 docChanged||viewportChanged||selectionSet||focusChanged 时重建。空 dispatch 在编辑器已聚焦（最常见）时不触发任何标志，装饰不重建，展开点击无效；仅首次获得焦点（focusChanged=true）时偶然生效，行为不稳。",
+      "suggestion": "用 StateEffect+StateField 跟踪已展开行集合，点击派发 effect 强制重建；或 click handler 中 dispatch 确定性事务（如 selection）。使折叠状态进入文档相关状态而非依赖 WeakMap+空 dispatch。",
+      "verified_by": "ocr-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/base64-fold.js",
+      "start_line": 14,
+      "end_line": 49,
+      "category": "bug",
+      "severity": "medium",
+      "comment": "已展开状态以 1-based 绝对行号 i 记录。在折叠行上方插入/删除行后行号整体偏移，旧「已展开」记录指向错误行，展开状态丢失或被误用。",
+      "suggestion": "以文档位置（line.from 偏移）或内容指纹记录展开状态，避免依赖可变行号。",
+      "verified_by": "ocr-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/base64-fold.js",
+      "start_line": 58,
+      "end_line": 58,
+      "category": "performance",
+      "severity": "medium",
+      "comment": "折叠装饰与选区/焦点无关，却每次光标移动/聚焦都遍历全部行（O(n)）。与 M1 同根：重建条件过宽。",
+      "suggestion": "重建条件收敛为 docChanged||viewportChanged（配合 M1 显式强制重建）。",
+      "verified_by": "ocr-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/callout.js",
+      "start_line": 44,
+      "end_line": 59,
+      "category": "bug",
+      "severity": "medium",
+      "comment": "前向扫描从 blockquote_open 起跳，遇首个 paragraph_open 即停。若 callout 内含嵌套子引用，首个 paragraph_open 属内层，检查其文本（不含 [!TYPE]）→ 跳过，外层 [!TYPE] 漏检；标题亦可能误插到内层 blockquote 之前。",
+      "suggestion": "非嵌套 callout 正常；嵌套为已知局限。扫描时跳过内层 blockquote_open，或文档/注释明确不支持嵌套 callout。",
+      "verified_by": "ocr-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/editor.js",
+      "start_line": 91,
+      "end_line": 96,
+      "category": "security",
+      "severity": "medium",
+      "comment": "M1 已对 md.render 结果经 DOMPurify.sanitize（ADD_TAGS font/center，ADD_ATTR color/face/size/align）后注入，方向正确；但 mermaid.initialize 用 securityLevel:'loose'，允许图表内嵌脚本。恶意 .md 含构造的 mermaid 块可能在预览执行 JS（DOMPurify 不净化 mermaid 产出 SVG）。",
+      "suggestion": "评估改为 'strict' 或 'sandbox'；若离线编辑需保留交互，文档明确接受该残留风险。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/tasklist-panel.js",
+      "start_line": 10,
+      "end_line": 10,
+      "category": "bug",
+      "severity": "medium",
+      "comment": "TASK_LINE_RE 末段为 \\]\\s+(.*)$，要求 [ ] 后至少一个空格。'- [ ]' 无尾随文本的行无法匹配，不在面板列出、不可勾选，与预览 task-list 插件宽松处理略有出入。",
+      "suggestion": "放宽为 \\]\\s*(.*)$，m[3] 允许空串。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/outline.js",
+      "start_line": 19,
+      "end_line": 41,
+      "category": "other",
+      "severity": "low",
+      "comment": "syntaxTree 惰性解析，新建编辑器后首次 getOutlineItems 可能不全，需待下次更新补全。",
+      "suggestion": "无强制修复；可在面板打开时若树未就绪则延时重试一次。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/outline.js",
+      "start_line": 13,
+      "end_line": 13,
+      "category": "maintainability",
+      "severity": "low",
+      "comment": "模块级单例 outlineView / taskView，当前单实例无碍；未来多实例会串味。",
+      "suggestion": "如有多实例需求，改为按视图实例传递。",
+      "verified_by": "ocr-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/editor.html",
+      "start_line": 37,
+      "end_line": 37,
+      "category": "style",
+      "severity": "low",
+      "comment": "顶部 app-version 静态显示 v1.4.4，运行期被 editor.js 覆盖为 v1.4.8，属陈旧占位。",
+      "suggestion": "同步为 v1.4.8 或删除静态值。",
+      "verified_by": "ocr-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/probe.js",
+      "start_line": 93,
+      "end_line": 116,
+      "category": "other",
+      "severity": "low",
+      "comment": "installErrorCapture 在每次未捕获错误后触发 flushProbeLog（Blob 下载），开发期可能频繁弹下载。",
+      "suggestion": "属临时行为，H1 回收后无影响。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "src/html-to-markdown.js",
+      "start_line": 25,
+      "end_line": 33,
+      "category": "other",
+      "severity": "low",
+      "comment": "reconstructRawTag 重建 font/center 等原始标签时对属性值/子文本未做 Markdown 转义，文档中含会破坏 Markdown 的字符（如 ]）可能轻微错位。",
+      "suggestion": "因回写后再次渲染会重新经 DOMPurify 净化，影响低；如需可加转义。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    },
+    {
+      "path": "tests",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "test",
+      "severity": "low",
+      "comment": "Testing Gap：A 级七功能（callout/outline/tasklist/codeblock-complete/base64-fold 等纯逻辑）缺单测，仅依赖手动与临时探针；本机 npm test 中 issue-acceptance.test.js 因 Windows 路径双盘符报错（预存在环境，与分支无关）。",
+      "suggestion": "补纯逻辑单测（节点可导入）；合并前在 CI 确认全绿。",
+      "verified_by": "review-spd-only",
+      "cross_check": "confirmed"
+    }
+  ],
+  "summary": {
+    "files_reviewed": 21,
+    "critical": 0,
+    "high": 1,
+    "medium": 6,
+    "low": 6,
+    "ocr_only": 5,
+    "review_spd_only": 8
+  }
+}
