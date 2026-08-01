@@ -331,11 +331,13 @@ graph LR
     // 故通过 EditorState.languageData 提供。英文 ()[]{} 与引号由本数组显式保留；
     // 中文引号/全角括号依赖 closing() 的「非 ASCII 字符 ch+1」回退（Unicode 连续码点）正确推导闭符号；
     // 反引号保留自身配对以支持 Markdown 行内代码输入。
-    EditorState.languageData.of({
-      closeBrackets: {
-        brackets: ['(', '[', '{', '<', "'", '"', '`', '“', '‘', '（'],
+    EditorState.languageData.of((state, pos) => [
+      {
+        closeBrackets: {
+          brackets: ['(', '[', '{', '<', "'", '"', '`', '“', '‘', '（'],
+        },
       },
-    }),
+    ]),
     closeBrackets(),
     autocompletion(),
     rectangularSelection(),
@@ -343,7 +345,7 @@ graph LR
     highlightActiveLine(),
     highlightSelectionMatches(),
     search(),
-    selectedBracketHighlight(),
+    selectedBracketHighlight,
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
