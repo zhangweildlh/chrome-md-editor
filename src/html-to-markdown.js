@@ -1,12 +1,25 @@
 // Pure HTML → Markdown helpers (preview WYSIWYG round-trip).
 // Extracted so Issue #1 / #3 regressions can be unit-tested without a browser.
+// 临时调试探针（定位 BUG-1/2/3，修复后删除）
+import { probe } from './probe.js';
 
 export function normalizeMarkdown(md) {
-  return String(md || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const raw = String(md || '');
+  const afterCRLF = raw.replace(/\r\n/g, '\n');
+  const afterTab = afterCRLF.replace(/[ \t]+\n/g, '\n');
+  const newlinesBefore = (afterTab.match(/\n/g) || []).length;
+  const compressed = afterTab.replace(/\n{3,}/g, '\n\n');
+  const newlinesAfter = (compressed.match(/\n/g) || []).length;
+  const result = compressed.trim();
+  probe('P1-F normalizeMarkdown压缩', {
+    action: 'normalize-newlines',
+    newlinesBefore,
+    newlinesAfter,
+    collapsedCount: newlinesBefore - newlinesAfter,
+    lenBefore: afterTab.length,
+    lenAfter: result.length,
+  });
+  return result;
 }
 
 export function reconstructRawTag(node, convertNodeFn) {
@@ -55,8 +68,17 @@ export function convertNode(node) {
       return `##### ${childText.trim()}\n\n`;
     case 'h6':
       return `###### ${childText.trim()}\n\n`;
-    case 'p':
-      return `${childText.trim()}\n\n`;
+    case 'p': {
+      const out = `${childText.trim()}\n\n`;
+      probe('P1-G convertNode-p块', {
+        action: 'convert-p',
+        childTextSample: childText.slice(0, 200),
+        childTextLen: childText.length,
+        isEmpty: childText.trim().length === 0,
+        outSample: out.slice(0, 200),
+      });
+      return out;
+    }
     case 'br':
       return '\n';
     case 'strong':
@@ -79,14 +101,23 @@ export function convertNode(node) {
       const code = codeEl ? codeEl.textContent : childText;
       return `\`\`\`${lang}\n${code.trimEnd()}\n\`\`\`\n\n`;
     }
-    case 'blockquote':
-      return (
-        childText
-          .trim()
-          .split('\n')
-          .map((l) => `> ${l}`)
-          .join('\n') + '\n\n'
-      );
+    case 'blockquote': {
+      const trimmed = childText.trim();
+      const lines = trimmed.split('\n');
+      const mapped = lines.map((l) => `> ${l}`).join('\n');
+      const out = mapped + '\n\n';
+      probe('P3-A convertNode-blockquote', {
+        action: 'convert-blockquote',
+        childTextSample: childText.slice(0, 300),
+        childTextLen: childText.length,
+        trimmedLen: trimmed.length,
+        lineCount: lines.length,
+        lines,
+        outSample: out.slice(0, 300),
+        hasEmptyLine: lines.some((l) => l.trim().length === 0),
+      });
+      return out;
+    }
     case 'ul': {
       let result = '';
       for (const li of node.children) {
@@ -177,7 +208,17 @@ export function htmlToMarkdown(html, { DOMParserImpl, parseHTML } = {}) {
   if (typeof parseHTML === 'function') {
     const wrapped = `<!DOCTYPE html><html><body>${html}</body></html>`;
     const { document } = parseHTML(wrapped);
-    return normalizeMarkdown(convertNode(document.body)) + '\n';
+    const converted = convertNode(document.body);
+    const result = normalizeMarkdown(converted) + '\n';
+    probe('P3-B htmlToMarkdown转换', {
+      action: 'html-to-md',
+      mode: 'node-parseHTML',
+      htmlLen: html.length,
+      convertedSample: converted.slice(0, 400),
+      resultSample: result.slice(0, 400),
+      hasBlockquote: result.includes('> '),
+    });
+    return result;
   }
 
   const Parser = DOMParserImpl || globalThis.DOMParser;
@@ -185,5 +226,15 @@ export function htmlToMarkdown(html, { DOMParserImpl, parseHTML } = {}) {
     throw new Error('DOMParser or parseHTML is required for htmlToMarkdown');
   }
   const doc = new Parser().parseFromString(html, 'text/html');
-  return normalizeMarkdown(convertNode(doc.body)) + '\n';
+  const converted = convertNode(doc.body);
+  const result = normalizeMarkdown(converted) + '\n';
+  probe('P3-B htmlToMarkdown转换', {
+    action: 'html-to-md',
+    mode: 'browser-DOMParser',
+    htmlLen: html.length,
+    convertedSample: converted.slice(0, 400),
+    resultSample: result.slice(0, 400),
+    hasBlockquote: result.includes('> '),
+  });
+  return result;
 }

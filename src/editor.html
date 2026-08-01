@@ -640,5 +640,24 @@
     <!-- 注意：desktop-shims.js 已在 src/editor.js 顶部通过 ES Module import 引入，
          避免在此处再用 <script> 标签重复加载（vite 会把 HTML 里的外部脚本标签当
          未被引用的 asset 静默删除，所以唯一可靠的方式在 editor.js 里 import） -->
+
+    <!-- 临时调试：导出探针日志（定位 BUG-1/2/3，修复后删除） -->
+    <button id="btnExportProbe" title="导出探针日志 (.log)"
+      style="position:fixed;right:12px;bottom:12px;z-index:9999;padding:8px 12px;
+             background:#ff6600;color:#fff;border:none;border-radius:6px;cursor:pointer;
+             font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.3);">
+      导出探针日志
+    </button>
+    <script>
+      document.getElementById('btnExportProbe').addEventListener('click', function () {
+        if (window.__exportProbeLog__) {
+          const n = (window.__PROBE_LOG__ || []).length;
+          window.__exportProbeLog__();
+          alert('已导出探针日志，共 ' + n + ' 条记录。请在下载文件中查看。');
+        } else {
+          alert('探针模块尚未加载，请确认 src/probe.js 已正确引入。');
+        }
+      });
+    </script>
   </body>
 </html>

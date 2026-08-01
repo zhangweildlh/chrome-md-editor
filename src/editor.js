@@ -17,7 +17,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { search, searchKeymap, highlightSelectionMatches, openSearchPanel } from '@codemirror/search';
+import { search, searchKeymap, highlightSelectionMatches, openSearchPanel, getSearchQuery } from '@codemirror/search';
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
@@ -31,6 +31,8 @@ import {
   splitRelativePath,
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
+// 临时调试探针（定位 BUG-1/2/3，修复后删除）
+import { probe } from './probe.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
@@ -160,66 +162,9 @@ const lightTheme = EditorView.theme({
 
 // ==========================================
 // 符号配对高亮：选中单个配对符号时高亮其另一半
+// 纯逻辑已抽取至 ./bracket-utils.js（便于单元测试，行为不变）
 // ==========================================
-// 开闭不同的符号（有序对：open → close）
-const PAIR_GROUPS = [
-  ['(', ')'], ['[', ']'], ['{', '}'], ['<', '>'],
-  ['\u201c', '\u201d'], // 中文双引号（左→右）
-  ['\u2018', '\u2019'], // 中文单引号（左→右）
-  ['\uff08', '\uff09'], // 全角圆括号（左→右）
-];
-// 开闭相同的符号（英文单/双引号及反引号，自身配对，无法用方向栈区分，需就近匹配）
-const SELF_PAIRS = ["'", '"', '`'];
-const bracketMatchMap = {};
-for (const [open, close] of PAIR_GROUPS) {
-  bracketMatchMap[open] = { other: close, dir: 1, type: 'pair' };
-  bracketMatchMap[close] = { other: open, dir: -1, type: 'pair' };
-}
-for (const ch of SELF_PAIRS) {
-  bracketMatchMap[ch] = { other: ch, type: 'self' };
-}
-
-// 自身配对符号（如英文引号）的就近匹配：按出现序号确定开/闭，找最近的同字符配对
-function findSelfPair(docText, ch, from) {
-  let count = 0;
-  for (let i = 0; i < from; i++) if (docText[i] === ch) count++;
-  if (count % 2 === 0) {
-    // 开引号：向 from 之后找最近的同字符
-    for (let i = from + 1; i < docText.length; i++) if (docText[i] === ch) return i;
-  } else {
-    // 闭引号：向 from 之前找最近的同字符
-    for (let i = from - 1; i >= 0; i--) if (docText[i] === ch) return i;
-  }
-  return null;
-}
-
-// 括号栈匹配：从选中字符向对应方向扫描，返回配对字符位置
-function findPairedBracket(docText, ch, info, from) {
-  if (info.type === 'self') return findSelfPair(docText, ch, from);
-  const other = info.other;
-  if (info.dir === 1) {
-    let depth = 0;
-    for (let i = from + 1; i < docText.length; i++) {
-      const c = docText[i];
-      if (c === ch) depth++;
-      else if (c === other) {
-        if (depth === 0) return i;
-        depth--;
-      }
-    }
-  } else {
-    let depth = 0;
-    for (let i = from - 1; i >= 0; i--) {
-      const c = docText[i];
-      if (c === ch) depth++;
-      else if (c === other) {
-        if (depth === 0) return i;
-        depth--;
-      }
-    }
-  }
-  return null;
-}
+import { PAIR_GROUPS, SELF_PAIRS, bracketMatchMap, findSelfPair, findPairedBracket } from './bracket-utils.js';
 
 const selectedBracketHighlight = ViewPlugin.fromClass(
   class {
@@ -228,6 +173,13 @@ const selectedBracketHighlight = ViewPlugin.fromClass(
       this.decorations = this.build(view);
     }
     update(update) {
+      // S3-A：符号配对高亮触发入口
+      probe('S3-A 符号配对高亮触发', {
+        action: 'bracket-highlight-update',
+        trigger: update.docChanged ? 'docChanged' : (update.selectionSet ? 'selectionSet' : 'other'),
+        selEmpty: update.state.selection.main.empty,
+        selLen: update.state.selection.main.to - update.state.selection.main.from,
+      });
       if (update.selectionSet || update.docChanged) {
         if (update.docChanged) this.cachedDoc = null;
         this.decorations = this.build(update.view);
@@ -244,7 +196,17 @@ const selectedBracketHighlight = ViewPlugin.fromClass(
       const info = bracketMatchMap[ch];
       if (!info) { this.cachedDoc = null; return Decoration.none; }
       const docText = this.cachedDoc ?? (this.cachedDoc = doc.toString());
+      // S3-B：findPairedBracket 配对计算结果
       const matchPos = findPairedBracket(docText, ch, info, sel.from);
+      probe('S3-B 配对符号计算结果', {
+        action: 'find-paired-bracket',
+        ch,
+        infoType: info.type,
+        infoDir: info.dir ?? null,
+        selFrom: sel.from,
+        matchPos,
+        highlighted: matchPos != null,
+      });
       if (matchPos == null) return Decoration.none;
       const deco = Decoration.mark({ class: 'cm-bracket-match-active' });
       return Decoration.set([
@@ -335,6 +297,24 @@ graph LR
 *开始编辑你的 Markdown 文档吧！*
 `;
 
+  // 临时调试：粗略统计文档中某查询串的出现次数（查找/相同字符串高亮探针用）
+  function countMatches(docText, q) {
+    if (!q || !q.search) return 0;
+    try {
+      if (q.regexp) {
+        const re = new RegExp(q.search, q.caseSensitive ? 'g' : 'gi');
+        return (docText.match(re) || []).length;
+      }
+      const target = q.caseSensitive ? q.search : q.search.toLowerCase();
+      const src = q.caseSensitive ? docText : docText.toLowerCase();
+      let cnt = 0, i = 0;
+      while ((i = src.indexOf(target, i)) !== -1) { cnt++; i += target.length; }
+      return cnt;
+    } catch {
+      return -1;
+    }
+  }
+
   const extensions = [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -395,6 +375,92 @@ graph LR
       if (update.selectionSet) {
         updateCursorStatus();
       }
+      // ===== 临时探针：查找(S1)/替换(S2)/符号配对(S3)/相同字符串高亮(S4) =====
+      const view = update.view;
+      const state = view.state;
+      const previewEl = document.getElementById('previewContainer');
+      const editorScrollTop = editor.scrollDOM ? editor.scrollDOM.scrollTop : null;
+      const previewScrollTop = previewEl ? previewEl.scrollTop : null;
+
+      // S1-B / S2-A：search 面板激活（getSearchQuery 非空且有查询串）
+      const sq = getSearchQuery(state);
+      if (sq && sq.search) {
+        const docText = state.doc.toString();
+        const matched = countMatches(docText, sq);
+        if (update.docChanged) {
+          // S2-A：替换导致文档变更（发生在 search 激活态下）
+          probe('S2-A 替换导致文档变更', {
+            action: 'replace-doc-changed',
+            querySearch: sq.search,
+            queryReplace: sq.replace || null,
+            regexp: !!sq.regexp,
+            caseSensitive: !!sq.caseSensitive,
+            wholeWord: !!sq.wholeWord,
+            matchedCount: matched,
+            newDocLen: docText.length,
+            selHead: state.selection.main.head,
+            editorScrollTop,
+            previewScrollTop,
+          });
+        } else {
+          // S1-B：查找面板激活（查询串/配置/粗略匹配数/当前位置/滚动）
+          probe('S1-B 查找面板激活', {
+            action: 'search-active',
+            querySearch: sq.search,
+            queryReplace: sq.replace || null,
+            regexp: !!sq.regexp,
+            caseSensitive: !!sq.caseSensitive,
+            wholeWord: !!sq.wholeWord,
+            matchedCount: matched,
+            docLen: docText.length,
+            selHead: state.selection.main.head,
+            selAnchor: state.selection.main.anchor,
+            editorScrollTop,
+            previewScrollTop,
+          });
+        }
+      }
+
+      // S3-C：closeBrackets 自动配对检测（输入单字符后观察是否成对增长）
+      if (update.docChanged) {
+        let inserted = '';
+        update.changes.iterChanges((_fA, _tA, _fB, _tB, ins) => {
+          inserted += ins.toString();
+        });
+        if (inserted.length === 1) {
+          const pos = state.selection.main.head;
+          const around = state.doc.toString().slice(Math.max(0, pos - 3), pos + 3);
+          probe('S3-C 输入字符(检测自动配对)', {
+            action: 'char-input',
+            inserted,
+            around,
+            isPairedSymbol: !!bracketMatchMap[inserted],
+            closeBracketsConfig: ['(', '[', '{', '<', "'", '"', '`', '“', '‘', '（'],
+          });
+        }
+      }
+
+      // S4-A：选中非空文本 → 相同字符串高亮验证（highlightSelectionMatches）
+      if (update.selectionSet && !state.selection.main.empty) {
+        const sel = state.selection.main;
+        const selText = state.doc.sliceString(sel.from, sel.to);
+        if (selText.length >= 1) {
+          const docText = state.doc.toString();
+          let occ = 0, i = 0;
+          while ((i = docText.indexOf(selText, i)) !== -1) { occ++; i += selText.length; }
+          probe('S4-A 选中相同字符串高亮', {
+            action: 'selection-matches',
+            selTextSample: selText.slice(0, 120),
+            selTextLen: selText.length,
+            occurrenceCount: occ,
+            selFrom: sel.from,
+            selTo: sel.to,
+            selHead: sel.head,
+            editorScrollTop,
+            previewScrollTop,
+          });
+        }
+      }
     }),
   ];
 
@@ -417,11 +483,24 @@ graph LR
 let previewUpdateTimer = null;
 
 function updatePreview() {
-  if (isPreviewEditing) return; // 避免预览编辑时循环
+  if (isPreviewEditing) {
+    probe('P2-C updatePreview触发', {
+      action: 'editor-to-preview-schedule',
+      skipped: true,
+      isPreviewEditing,
+    });
+    return; // 避免预览编辑时循环
+  }
 
   // 防抖：快速输入时减少渲染次数；开启翻译时略加长，降低 API 调用频率
   clearTimeout(previewUpdateTimer);
   const delay = translateEnabled ? 450 : 80;
+  probe('P2-C updatePreview触发', {
+    action: 'editor-to-preview-schedule',
+    skipped: false,
+    isPreviewEditing,
+    delay,
+  });
   previewUpdateTimer = setTimeout(() => {
     doUpdatePreview();
   }, delay);
@@ -435,7 +514,19 @@ async function doUpdatePreview() {
   // 渲染 Mermaid 图表
   // markdown-it 会把 ```mermaid 渲染成 <pre><code class="language-mermaid">...</code></pre>
   cleanupPreviewObjectUrls();
+  const previewScrollTopBefore = previewContainer.scrollTop;
+  const previewScrollHeightBefore = previewContainer.scrollHeight;
   previewContainer.innerHTML = html;
+  const previewScrollTopAfter = previewContainer.scrollTop;
+  probe('P2-B doUpdatePreview预览重建', {
+    action: 'preview-rebuild-innerHTML',
+    previewScrollTopBefore,
+    previewScrollTopAfter,
+    previewScrollReset: previewScrollTopBefore !== previewScrollTopAfter,
+    previewScrollHeightBefore,
+    innerHTMLLen: html.length,
+    contentLen: content.length,
+  });
 
   // 查找所有 mermaid 代码块并渲染
   const mermaidBlocks = previewContainer.querySelectorAll('code.language-mermaid');
@@ -1050,6 +1141,11 @@ function initPreviewEditing() {
   previewContainer.addEventListener('focus', () => {
     isPreviewEditing = true;
     previewContainer.classList.add('editing');
+    probe('P1-A 预览区-focus事件', {
+      action: 'preview-focus',
+      previewHTML: previewContainer.innerHTML,
+      blockCount: previewContainer.children.length,
+    });
   });
 
   // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器并重新渲染预览
@@ -1059,14 +1155,32 @@ function initPreviewEditing() {
     if (!isPreviewEditing) return;
     isPreviewEditing = false;
     previewContainer.classList.remove('editing');
+    probe('P1-B 预览区-blur触发同步', {
+      action: 'preview-blur',
+      rerender: true,
+      previewHTML: previewContainer.innerHTML,
+      blockCount: previewContainer.children.length,
+    });
     syncPreviewToEditor(true);
   });
 
   // 实时同步：每次输入后短延迟同步
   let syncTimer = null;
-  previewContainer.addEventListener('input', () => {
+  previewContainer.addEventListener('input', (e) => {
     clearTimeout(syncTimer);
+    const prevHTML = previewContainer.innerHTML;
+    const prevBlocks = previewContainer.children.length;
     syncTimer = setTimeout(() => {
+      probe('P1-C 预览区-input触发同步', {
+        action: 'preview-input',
+        inputType: e.inputType || null,
+        data: e.data || null,
+        prevHTML,
+        prevBlocks,
+        nowHTML: previewContainer.innerHTML,
+        nowBlocks: previewContainer.children.length,
+        isPreviewEditing,
+      });
       syncPreviewToEditor();
     }, 500);
   });
@@ -1140,8 +1254,27 @@ function syncPreviewToEditor(rerender = false) {
 
   // 仅在内容真的变了时才同步
   const currentContent = editor.state.doc.toString();
+  probe('P1-D syncPreviewToEditor入口', {
+    action: 'sync-to-editor',
+    rerender,
+    htmlLen: html.length,
+    htmlSample: html.slice(0, 600),
+    mdLen: markdownContent.length,
+    mdSample: markdownContent.slice(0, 600),
+    currentLen: currentContent.length,
+    currentSample: currentContent.slice(0, 600),
+    trimEqual: markdownContent.trim() === currentContent.trim(),
+    isPreviewEditing,
+  });
   if (markdownContent.trim() !== currentContent.trim()) {
     isPreviewEditing = true; // 临时标记，避免 updatePreview 被触发
+    probe('P1-E 将写回编辑器', {
+      action: 'set-editor-content',
+      mdLen: markdownContent.length,
+      mdSample: markdownContent.slice(0, 600),
+      newLineCount: (markdownContent.match(/\n/g) || []).length,
+      doubleNewlineCount: (markdownContent.match(/\n\n/g) || []).length,
+    });
     setEditorContent(markdownContent);
     markModified();
     updateStatus();
@@ -1370,12 +1503,26 @@ function handleNew() {
 }
 
 function setEditorContent(content) {
+  const scroller = editor.scrollDOM;
+  const scrollTopBefore = scroller ? scroller.scrollTop : null;
+  const selHeadBefore = editor.state.selection.main.head;
   editor.dispatch({
     changes: {
       from: 0,
       to: editor.state.doc.length,
       insert: content,
     },
+  });
+  const scrollTopAfter = scroller ? scroller.scrollTop : null;
+  probe('P2-A setEditorContent滚动复位', {
+    action: 'editor-full-replace',
+    contentLen: content.length,
+    scrollTopBefore,
+    scrollTopAfter,
+    scrollTopChanged: scrollTopBefore !== scrollTopAfter,
+    selHeadBefore,
+    selHeadAfter: editor.state.selection.main.head,
+    docLenAfter: editor.state.doc.length,
   });
 }
 
@@ -1685,6 +1832,11 @@ function initScrollSync() {
   editorScroller.addEventListener('scroll', () => {
     if (!scrollSyncEnabled || isSyncing || currentViewMode !== 'split') return;
     isSyncing = true;
+    probe('P2-D 编辑器滚动事件', {
+      action: 'editor-scroll',
+      scrollTop: editorScroller.scrollTop,
+      scrollHeight: editorScroller.scrollHeight,
+    });
 
     const scrollPercent = editorScroller.scrollTop / (editorScroller.scrollHeight - editorScroller.clientHeight || 1);
     previewContainer.scrollTop = scrollPercent * (previewContainer.scrollHeight - previewContainer.clientHeight);
@@ -1695,6 +1847,11 @@ function initScrollSync() {
   previewContainer.addEventListener('scroll', () => {
     if (!scrollSyncEnabled || isSyncing || currentViewMode !== 'split') return;
     isSyncing = true;
+    probe('P2-E 预览区滚动事件', {
+      action: 'preview-scroll',
+      scrollTop: previewContainer.scrollTop,
+      scrollHeight: previewContainer.scrollHeight,
+    });
 
     const scrollPercent = previewContainer.scrollTop / (previewContainer.scrollHeight - previewContainer.clientHeight || 1);
     editorScroller.scrollTop = scrollPercent * (editorScroller.scrollHeight - editorScroller.clientHeight);
@@ -1714,7 +1871,20 @@ function bindEvents() {
 
   // 查找 / 替换面板（Ctrl+F 亦可触发）
   const btnFind = document.getElementById('btnFind');
-  if (btnFind) btnFind.addEventListener('click', () => openSearchPanel(editor));
+  if (btnFind) btnFind.addEventListener('click', () => {
+    const sel = editor.state.selection.main;
+    const selText = sel.empty ? null : editor.state.doc.sliceString(sel.from, sel.to);
+    const previewEl = document.getElementById('previewContainer');
+    probe('S1-A 点击查找/替换按钮', {
+      action: 'open-search-panel',
+      source: 'btnFind',
+      selEmpty: sel.empty,
+      selTextSample: selText ? selText.slice(0, 120) : null,
+      editorScrollTop: editor.scrollDOM ? editor.scrollDOM.scrollTop : null,
+      previewScrollTop: previewEl ? previewEl.scrollTop : null,
+    });
+    openSearchPanel(editor);
+  });
 
   // 格式化按钮
   document.getElementById('btnBold').addEventListener('click', () => wrapSelection('**', '**'));
