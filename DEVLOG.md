@@ -470,3 +470,6 @@ v1.4.4 合并进 `main` 后，桌面 EXE 在实测中连续出现「双击 .md �
 ### 分支与迁移
 - 实现落于 `feat/batch-a-features`。因上一轮会话误将工作区落在 `feat/editor-find-replace-bracket`，本次通过 `git stash -u` + 切换 batch 分支并快进合并至 bracket 尖端 `33991ce` + `git stash pop` 零冲突迁移回 `feat/batch-a-features`；`feat/editor-find-replace-bracket` 恢复为仅含其自身提交的干净状态。
 
+### 补丁（A-6 探针补齐）
+- 核查发现 A-6（codeblock-complete.js）原仅 `PROBE START/END` 注释占位、无实际 `probe()` 调用，违反「7 功能均遍布探针」硬约束。已补齐三类路径探针（A6_COMPLETE_TRIGGER / A6_COMPLETE_NO_MATCH / A6_COMPLETE_ERR），`vite build` 通过（7.99s）。
+

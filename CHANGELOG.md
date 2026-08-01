@@ -9,7 +9,7 @@ Project uses Semantic Versioning.
 
 ### Added
 - **文档大纲面板（A-3）**：新增 `src/outline.js`，基于 CodeMirror 6 `syntaxTree` 遍历 ATX 标题节点生成层级大纲；工具栏新增「大纲」按钮（`btnOutline`）打开侧边抽屉（`#outlinePanel` / `#outlineList`），点击条目滚动跳转至对应标题。
-- **代码块语言自动补全（A-6）**：新增 `src/codeblock-complete.js`，在 Markdown 代码围栏起始行注入 CodeMirror 补全源，输入 ```` ``` ```` 后提示常用语言（js/ts/py/json/rust/html/css/sql/bash 等），降低代码块语言标注成本。
+- **代码块语言自动补全（A-6）**：新增 `src/codeblock-complete.js`，在 Markdown 代码围栏起始行注入 CodeMirror 补全源，输入 ```` ``` ```` 后提示常用语言（js/ts/py/json/rust/html/css/sql/bash 等），降低代码块语言标注成本；含临时探针 A6_COMPLETE_TRIGGER / A6_COMPLETE_NO_MATCH / A6_COMPLETE_ERR。
 - **Callout 标注渲染（A-7）**：新增 `src/callout.js` 作为 markdown-it 插件（`calloutPlugin`），识别 `> [!NOTE]` / `[!TIP]` / `[!WARNING]` 等 GitHub 风格标注语法，转译为带类型配色与图标的 `.callout` 块；`src/html-to-markdown.js` 反向还原时保留 `[!TYPE]` 语法，避免预览回写退化。
 - **专注模式 / 打字机模式（A-8）**：新增 `src/focus-mode.js`，提供两种沉浸式编辑体验——专注模式淡出非活动行（`.focus-mode .cm-line`）、打字机模式使当前行垂直居中；工具栏新增「专注」（`btnFocusMode`）、「打字机」（`btnTypewriter`）按钮及状态同步。
 - **Base64 内联图片代码折叠（A-9）**：新增 `src/base64-fold.js`，对源码中超长 `![...](data:image/...;base64,...)` 行以 `⛶` 代码折叠装饰隐藏，避免长 base64 撑爆编辑器视图，点击展开/收起。
