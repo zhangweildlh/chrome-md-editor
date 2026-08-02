@@ -5,11 +5,12 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
-## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown)
+## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown + A-5：自动保存与快照环)
 
 ### Added
 - **自绘中文查找/替换面板（方案 A）**：新增 `src/search-panel.js`，替代 CodeMirror 6 默认英文 `search` 面板，注入官方 `search({ createPanel })` 钩子实现中文查/替界面——保持官方搜索语义（增量搜索、正则、大小写、全词），新增命中位置计数 `X/Y`、全选匹配（`selectMatches`）、替换下一个（`replaceNext`）/替换全部（`replaceAll`）；`src/editor.js` 第 384 行 `search()` 改为 `search({ createPanel: makeSearchPanel })`，`src/editor.css` 新增 `.md-search-panel` 系列样式（复用明暗主题变量）。
 - **粘贴为 Markdown（A-4）**：改造 `src/editor.js` 的 `initPasteImageSupport`，采用三分支逻辑——① 图片优先（保留原有截图粘贴并写入 `images/` 或内嵌 data URL）；② 富文本 HTML→Markdown（复用 `src/html-to-markdown.js` 的 `htmlToMarkdown` + `FORMATTING_SELECTOR` 启发式判定，仅当转换结果确实比纯文本多了结构化内容时才拦截，避免破坏纯文本粘贴手感）；③ 其余（纯文本等）放行默认粘贴。
+- **自动保存与历史快照环（A-5）**：新增 `src/autosave.js`——编辑停顿（防抖 800ms）将草稿写入 `chrome.storage.local`（`draft::<文件键>`），绝不触碰磁盘 `.md`（真实文件仅在用户 `Ctrl+S` 时写入，规避自动保存覆盖废稿风险）；每 2 分钟或累计 50 次改动压入一份快照，快照环（`snapshots::<文件键>`）最多保留 30 份（`unshift` 头部 + 截断尾部，最新在前）；启动发现比当前文档更新的草稿时弹窗提示恢复（不静默覆盖磁盘）；工具栏新增「快照」按钮（`btnSnapshots`）打开历史版本对话框（`#snapshotsDialog`），可查看并一键回滚任一历史快照（仅还原编辑区，不写磁盘）。`src/editor.js` 在 `docChanged` 触发 `scheduleAutosave()` 并注入 `initAutosave`/`offerDraftRestore`；`src/editor.html` 新增按钮与对话框，`src/editor.css` 新增 `.snapshots-*` 样式（复用明暗主题变量）；新增 `tests/autosave.test.js`（草稿读回、快照环截断到 30、还原编辑区）。
 
 ### Changed
 - `package.json` / `package-lock.json`：将 `@tauri-apps/api` / `@tauri-apps/plugin-dialog` / `@tauri-apps/plugin-fs` 由 `^2` 精确化为 `^2.11.1` / `^2.7.2` / `^2.5.1`，与桌面版 `main` 既有 Tauri 依赖状态对齐（浏览器侧动态 `import()` 仍受 `__TAURI_INTERNALS__` 守卫，不受影响）。
