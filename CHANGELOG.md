@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
-## [1.5.0] - 2026-08-02 (Markdown 语法高亮：编辑区+预览区彩色字体+行底色+多套配色)
+## [1.5.0] - 2026-08-02 (Markdown 语法高亮 + compare 多栏对照模块)
 
 ### Added
 - **Markdown 语法高亮（A+B 两区各自彩色字体 + 行底色 + 多套配色）**：编辑区与预览区各自获得 Markdown 语法彩色字体与块/行底色，两区独立、不强制同色对齐。
@@ -14,6 +14,20 @@ Project uses Semantic Versioning.
   - **多套配色 + 与主题正交**：新增 `src/md-theme-tokens.js`（`COLOR_SCHEMES` / `getColorScheme` / `setColorScheme` / `applyStoredColorScheme`，薄封装 localStorage + `<html data-color-scheme>`）；`src/editor.css` 以 `[data-color-scheme]` × `[data-theme]` 变量层定义 classic / sepia / high-contrast 三套配色，切换仅改文档属性、编辑区与预览区瞬时跟随，无需 `reconfigure` 高亮；`src/editor.html` 显示设置弹窗新增「配色方案」下拉，`src/editor.js` 绑定并持久化、启动时 `applyStoredColorScheme()` 防刷新丢失。
   - 新增运行时依赖 `highlight.js ^11`（预览区代码高亮；采用 `highlight.js/lib/common` 常用语言子集以控制打包体积，未注册语言走 `mdEscape` 转义回退）。
   - 新增配套测试 `tests/md-highlight.test.js`（13 项：编辑区行底色标题/引用/围栏分类、StateField 集成、预览 hljs token 与回退转义、模块导出结构）；`node --test` 全量 140 项通过。
+
+### Added
+- **compare 多栏对照模块（本地文件对照 + 逐块合并）**：新增基于 `@codemirror/merge` 的 `MergeView` / `unifiedMergeView` 对照合并能力（零自研 diff），不依赖 Git 目录，纯前端 diff/merge 本地 Markdown / 纯文本。
+  - **三种视图**：两栏 diff（Yours / Theirs，差异块红绿高亮 + 行号 `−`/`+` 标记，a 侧可只读）、三栏合并（Yours 只读 / Result 可编辑 / Theirs 只读参考，中文「⇄ 接受此块」逐块并入、支持「接受 Theirs 块」）、单栏 unified（行内对照 + 删除行语法高亮 + 中文「接受 / 拒绝」块按钮）。
+  - **文件多选与拖拽**（T3）：`<input multiple>` + `File.text()` 及拖拽区读取 `.md` / `.txt`（不限于 Git 目录）；第 1 个文件为 Yours、第 2 个为 Theirs。
+  - **块导航**（增量 B）：「上一块 / 下一块」绑定 `goToNextChunk` / `goToPreviousChunk`（现成 `StateCommand`）。
+  - **折叠未改**（增量 E）：`uncollapseUnchanged` 折叠 / 展开大片未改区域（单栏展开当前光标处）。
+  - **图片插入**（T5）：拖拽 / 点选图片转 data URL 插入当前光标，复用 `src/image-support.js` 纯函数。
+  - **导出合并结果**（T6）：`showSaveFilePicker` 句柄留存写回 + `<a download>` 降级 + 剪贴板降级三级策略（按文件名留存句柄，避免误写回）。
+  - **导出 diff 报告**（增量 F）：`presentableDiff` → 自写文本渲染层生成 git 风格可读 diff（`.diff`，`@` 行 + `+/-` 标记）。
+  - **单栏行内 diff**（C）与删除行语法高亮（D）；**中文自定义按钮**（G，类名 `cm-compare-revert` / `cm-compare-chunk-btn`，避开验收闸门禁用类名）。
+  - **入口**：Chrome 扩展右键菜单「打开对比合并」（`public/background.js` 的 `chrome.contextMenus`）+ 新开 `src/compare.html` 独立实例；桌面端（Tauri EXE）同源入口。
+  - **桌面同源**（T7）：`desktop/src/lib.rs` 新增 `read_multiple_text_files` / `save_compare_result` 命令；`src/compare-shims.js` 提供浏览器 / 桌面统一文件读写垫片。
+  - 新增运行时依赖 `@codemirror/merge ^6.12.1`（对照合并核心）；新增配套测试 `tests/compare-*.test.js`（约 16 项：unified side 标记、桥接层命令名/容错、行标记装饰、IO 对话框/容错）；`node --test` 全量 156 项通过。
 
 ### Changed
 - `src/editor.js`：在默认高亮（`syntaxHighlighting(defaultHighlightStyle)`）之后叠加 `...mdEditorHighlightExtensions`；MarkdownIt 配置加 `highlight` 回调（含 sanitize）；导入三个新模块；启动时 `applyStoredColorScheme()`；`toggleTheme` 末尾防御性同步 `data-color-scheme`；显示设置绑定 `dsColorScheme`。
@@ -25,6 +39,8 @@ Project uses Semantic Versioning.
 - 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
 - 分支：`feat/md-syntax-highlight`（基于 `main` @ `d66536f5`，即 v1.4.15 线）。
 - 已于 2026-08-02 经 `--no-ff` 普通合并合入 `main`（合并提交 `eb26bc5`；保留功能分支提交 `886edae` 为独立谱系，中间提交全保留、历史零改写）；如需整段回滚：`git revert -m 1 eb26bc5`。
+- compare 多栏对照模块经 `--no-ff` 普通合并合入 `main`（合并提交 `0ea56e5`；保留功能分支 `feature/compare-merge-ag` 提交 `e348d9b`…`e65b9a0` 为独立谱系，中间提交全保留、历史零改写）；如需整段回滚：`git revert -m 1 0ea56e5`。
+- 验收闸门：compare 页自定义按钮统一使用 `cm-compare-revert` / `cm-compare-chunk-btn` / `compare-toolbar-btn` 等新类名，未触碰禁用类名 `btnCenterBold` / `btnCenterBoldRed` / `styleGroup`。
 
 ## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown + A-5：自动保存与快照环)
 
