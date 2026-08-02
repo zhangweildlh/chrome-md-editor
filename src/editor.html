@@ -701,13 +701,23 @@
       导出探针日志
     </button>
     <script>
-      document.getElementById('btnExportProbe').addEventListener('click', function () {
-        if (window.__exportProbeLog__) {
-          const n = (window.__PROBE_LOG__ || []).length;
-          window.__exportProbeLog__();
-          alert('已导出探针日志，共 ' + n + ' 条记录。请在下载文件中查看。');
-        } else {
+      document.getElementById('btnExportProbe').addEventListener('click', async function () {
+        if (!window.__exportProbeLog__) {
           alert('探针模块尚未加载，请确认 src/probe.js 已正确引入。');
+          return;
+        }
+        const n = (window.__PROBE_LOG__ || []).length;
+        const result = await window.__exportProbeLog__();
+        if (result && result.ok) {
+          if (result.path) {
+            alert('已导出探针日志，共 ' + n + ' 条记录。\n保存位置：' + result.path);
+          } else {
+            alert('已导出探针日志，共 ' + n + ' 条记录。已通过浏览器下载。');
+          }
+        } else if (result && result.canceled) {
+          // 用户在保存对话框点了取消，不打扰
+        } else {
+          alert('导出失败：' + (result && result.error ? result.error : '未知错误'));
         }
       });
     </script>

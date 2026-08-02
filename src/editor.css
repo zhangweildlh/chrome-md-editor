@@ -280,13 +280,16 @@ body {
   display: inline-flex;
 }
 
-/* 样式工具栏弹窗（颜色 / 字号），复用主题变量，深浅主题一致 */
+/* 样式工具栏弹窗（颜色 / 字号 / 显示设置），复用主题变量，深浅主题一致 */
 .style-popover {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  /* 锚到按钮右侧：避免「显示设置」按钮位于工具栏最右侧时弹窗向左溢出屏幕 */
+  right: 0;
   z-index: 50;
   min-width: 140px;
+  /* 限制弹窗宽度，防止内容撑开后超出窗口/屏幕边界（特别是显示设置含三个字段时） */
+  max-width: min(280px, calc(100vw - 24px));
   padding: 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);

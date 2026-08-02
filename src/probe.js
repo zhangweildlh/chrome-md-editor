@@ -139,27 +139,46 @@ function buildLogText() {
   return header + '\n\n' + blocks.join('\n\n') + `\n\n========== PROBE LOG END (${arr.length} entries) ==========\n`;
 }
 
-// 写出 log 文件：EXE 经 Tauri invoke 落盘；扩展/兜底经 Blob 触发下载
+// 写出 log 文件：EXE 弹保存对话框让用户选位置后写入；扩展/兜底经 Blob 触发下载
 export async function flushProbeLog() {
   const text = buildLogText();
-  // EXE 环境：调用 Rust 命令把整份日志写入磁盘 .log 文件（真正「独立写文件」）
+  const defaultName = `probe-log-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+
+  // 1. EXE 环境：弹系统 Save 对话框（用户取消→返回 canceled:true，不再静默写 TEMP 让用户找不到）
+  //    旧实现直接 invoke('probe_log') 写 %TEMP%/md-editor-probe.log，提示却说「下载文件」，
+  //    用户在下载文件夹找不到文件 → 误以为未导出。改为 save 对话框后用户主导位置，消息里附实际路径。
   if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('probe_log', { content: text });
-      console.log('[PROBE] 已通过 Tauri 落盘 probe 日志');
-      return { ok: true, method: 'tauri-file', length: text.length };
+      const [{ save }, { invoke }] = await Promise.all([
+        import('@tauri-apps/plugin-dialog'),
+        import('@tauri-apps/api/core'),
+      ]);
+      const path = await save({
+        defaultPath: defaultName,
+        filters: [
+          { name: 'Log Files', extensions: ['log', 'txt'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (!path) {
+        return { ok: false, canceled: true };
+      }
+      // 使用 Rust 侧已有的 write_text_file 命令（desktop/src/lib.rs 中已注册，无 fs scope 限制）
+      await invoke('write_text_file', { path, content: text });
+      console.log('[PROBE] 已通过 Tauri 保存对话框落盘:', path);
+      return { ok: true, method: 'tauri-save-dialog', path, length: text.length };
     } catch (err) {
-      console.warn('[PROBE] Tauri 落盘失败，回退下载', err);
+      console.warn('[PROBE] Tauri 保存对话框失败，回退到下载', err);
     }
   }
-  // 扩展 / 兜底：构造 Blob 并触发浏览器下载为 .log
+
+  // 2. 扩展 / 兜底：构造 Blob 并触发浏览器下载为 .log
   try {
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `probe-log-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+    a.download = defaultName;
     document.body.appendChild(a);
     a.click();
     a.remove();

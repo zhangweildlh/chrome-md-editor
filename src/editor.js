@@ -213,6 +213,10 @@ const lightTheme = EditorView.theme({
 // 纯逻辑已抽取至 ./bracket-utils.js（便于单元测试，行为不变）
 // ==========================================
 import { PAIR_GROUPS, SELF_PAIRS, bracketMatchMap, findSelfPair, findPairedBracket } from './bracket-utils.js';
+// CodeMirror closeBrackets 配置（单一事实源：BRACKETS_STR 已按 CM6 「相邻成对」规则构造）
+import { BRACKETS_STR } from './close-brackets-config.js';
+// 预览区符号自动配对（与编辑器 closeBrackets 行为对齐）
+import { getAutoPairClose } from './auto-pair.js';
 
 const selectedBracketHighlight = ViewPlugin.fromClass(
   class {
@@ -375,14 +379,18 @@ graph LR
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     bracketMatching(),
-    // 中文符号自动配对：closeBrackets 本身不接受配置参数（配置经 languageDataAt 读取），
-    // 故通过 EditorState.languageData 提供。英文 ()[]{} 与引号由本数组显式保留；
-    // 中文引号/全角括号依赖 closing() 的「非 ASCII 字符 ch+1」回退（Unicode 连续码点）正确推导闭符号；
+    // 中文符号自动配对：closeBrackets 本身不接受配置参数（配置经 languageDataAt 读取）。
+    // 【关键约束】CodeMirror 6 的 closeBrackets 把 `brackets` 视为「连续成对」字符串：
+    //   索引 0&1 为一对、2&3 为一对……；自配对符号需将同一字符连续写两次。
+    //   若给成数组且长度非偶数对，或把开/闭符号混排（例 `[('(', '[')]`），CM6 会按相邻两位强
+    //   行配对，导致 `(` 闭合到 `[`、`“` 闭合到 `` ` ``、`‘` 闭合到 `（` 等完全错乱的组合。
+    // BRACKETS_STR 已在 ./close-brackets-config.js 由唯一权威的 BRACKET_PAIRS 派生，
+    // 本处仅消费；测试在 tests/close-brackets-config.test.js 验证字符串正确性。
     // 反引号保留自身配对以支持 Markdown 行内代码输入。
     EditorState.languageData.of((state, pos) => [
       {
         closeBrackets: {
-          brackets: ['(', '[', '{', '<', "'", '"', '`', '“', '‘', '（'],
+          brackets: BRACKETS_STR,
         },
       },
     ]),
@@ -1340,6 +1348,42 @@ function initPreviewEditing() {
       });
       syncPreviewToEditor();
     }, 500);
+  });
+
+  // 符号自动配对：与编辑器侧 closeBrackets 行为对齐。
+  // 输入开符号（(、[、{、<、"、'、（）时，自动补闭符号并把光标移回中间。
+  // 仅在文本节点内、有选区时跳过、nextChar 为字母/数字时跳过（由 getAutoPairClose 处理）。
+  // 程序插入的闭符号不会触发额外 input 事件（避免与上方 sync 监听相互干扰）。
+  previewContainer.addEventListener('input', (e) => {
+    if (!isPreviewEditing) return;
+    if (e.inputType !== 'insertText' || !e.data || e.data.length !== 1) return;
+    const inserted = e.data;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) return; // 有选区时不处理（避免破坏选区替换语义）
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE) return; // 仅在文本节点内做配对
+
+    const nextChar = node.data[range.startOffset] || '';
+    const close = getAutoPairClose(inserted, nextChar);
+    if (!close) return;
+
+    // 在光标位置插入闭符号文本节点
+    const closeNode = document.createTextNode(close);
+    if (range.startOffset >= node.data.length) {
+      // 文本节点末尾插入
+      node.parentNode.insertBefore(closeNode, node.nextSibling);
+    } else {
+      range.insertNode(closeNode);
+    }
+
+    // 把光标移回开闭符号中间（保持在原文本节点的偏移处）
+    const newRange = document.createRange();
+    newRange.setStart(node, range.startOffset);
+    newRange.setEnd(node, range.startOffset);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
   });
 
   // 记录预览选区

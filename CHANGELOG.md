@@ -34,6 +34,21 @@ Project uses Semantic Versioning.
 - 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
 - 分支：`feat/batch-a-features`（基于 `feat/editor-find-replace-bracket` 尖端 @ `33991ce`，即 `main` @ `5f06e90` 的下游）。
 
+## [1.4.13] - 2026-08-02 (第二轮修复：预览区体验对齐 + 符号配对 + UI 溢出)
+
+### Fixed
+- **中文单/双引号错配对（BUG-4）**：CodeMirror 6 的 `closeBrackets` 把 `brackets` 视为「连续成对字符串」，原配置是普通数组且按相邻两位强行配对，导致 `(` 闭合到 `[`、`“` 闭合到 `` ` ``、`‘` 闭合到 `（` 等完全错乱——表现为输入 `“` 出现 `“`+`` ` `` 而非 `“”`、重复输入出三个字符。改为唯一事实源 `src/close-brackets-config.js` 的 `BRACKET_PAIRS`（开闭显式成对）派生成 `BRACKETS_STR`，由 `editor.js` 仅消费：`()[]{}<> '' "" \`\` “” ‘’ （）`，ASCII 自配对引号以「同字符连续两次」表达。
+- **「导出探针日志」按钮无文件落地（BUG-1）**：EXE 端旧实现走 `probe_log` 直接写 `%TEMP%/md-editor-probe.log`，但按钮提示说「下载文件」让用户在下载文件夹找不到文件、误以为未导出。改为「Save 对话框 + write_text_file」流程：用户在系统保存对话框自选位置，回调中把实际保存路径附在成功提示里。`src/probe.js` 在 Tauri 路径走 `import('@tauri-apps/plugin-dialog').save()` + `invoke('write_text_file', { path, content })`，失败回退到扩展端的 Blob 下载。`src/editor.html` 按钮处理改为 `async`，正确展示「已保存到 X / 用户取消 / 失败原因」。
+- **显示设置弹窗溢出屏幕（BUG-2）**：`.style-popover` 旧用 `left:0` 锚定到按钮左侧，「显示设置」按钮位于工具栏最右侧时弹窗向左溢出屏幕（截图见 `ScreenShot_2026-08-02_075128_975.jpg`）。CSS 改为 `right:0` 锚到按钮右侧，并加 `max-width: min(280px, calc(100vw - 24px))` 限制最大宽度，同时覆盖颜色/字号/显示设置三个弹层。
+
+### Added
+- **预览区符号自动配对（BUG-3）**：编辑器侧有 CodeMirror `closeBrackets`，预览侧（contentEditable HTML）原无此能力，两侧输入体验不一致。新增 `src/auto-pair.js` 提供 `getAutoPairClose(insertedChar, nextChar)` 纯逻辑——输入开符号时返回对应闭符号、nextChar 是字母/数字则跳过（避免中间输入 `foo|` 变 `foo()|`）、nextChar 已是闭符号则跳过（避免重复插入）。`initPreviewEditing` 在 `input` 事件中调用该函数，在光标位置插入闭符号并把光标移回中间。覆盖 ASCII `()[]{}<>` 与中文 `“”‘’（）`。
+- **配套自动化测试**：新增 `tests/auto-pair.test.js`（7 项，验证各开符号 + 边界场景）与 `tests/close-brackets-config.test.js`（7 项，验证 BRACKETS_STR 满足 CM6 相邻成对解析约束且旧 BUG-4 错配对不再出现）；`node --test` 全量 125 项通过。
+
+### Notes
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- BUG-1 修复仍依赖 `tauri_plugin_dialog::init()`（`desktop/src/lib.rs:92` 已注册）与 capability `dialog:allow-save`、`fs:allow-write-text-file`（`desktop/capabilities/default.json` 已含）。`write_text_file` 为项目自定义 Tauri 命令（`desktop/src/lib.rs:66`），未走 `fs:` 权限范围。
+
 ## [1.4.11] - 2026-08-01 (测试与调试探针)
 
 ### Added
