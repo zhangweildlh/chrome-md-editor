@@ -8,7 +8,7 @@ permissions:
 # 在 GitHub 云端跑 npm ci + vite build 产出 dist/，并作为 artifact 上传（不创建 Release）。
 on:
   push:
-    branches: [main, fix/print-multipage, feat/editor-find-replace-bracket]
+    branches: [main, fix/print-multipage, feat/editor-find-replace-bracket, feature/compare-merge-ag]
     tags: ["v*"]
   pull_request:
     branches: [main]
