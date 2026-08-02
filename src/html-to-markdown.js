@@ -1,7 +1,5 @@
 // Pure HTML → Markdown helpers (preview WYSIWYG round-trip).
 // Extracted so Issue #1 / #3 regressions can be unit-tested without a browser.
-// 临时调试探针（定位 BUG-1/2/3，修复后删除）
-import { probe } from './probe.js';
 
 export function normalizeMarkdown(md) {
   const raw = String(md || '');
@@ -11,14 +9,7 @@ export function normalizeMarkdown(md) {
   const compressed = afterTab.replace(/\n{3,}/g, '\n\n');
   const newlinesAfter = (compressed.match(/\n/g) || []).length;
   const result = compressed.trim();
-  probe('P1-F normalizeMarkdown压缩', {
-    action: 'normalize-newlines',
-    newlinesBefore,
-    newlinesAfter,
-    collapsedCount: newlinesBefore - newlinesAfter,
-    lenBefore: afterTab.length,
-    lenAfter: result.length,
-  });
+  
   return result;
 }
 
@@ -81,14 +72,7 @@ export function convertNode(node) {
       // 避免预览回写把软换行误升级为段间空行（BUG-1 / BUG-3）。
       const collapsed = collapseSoftBreaks(childText);
       const out = `${collapsed.trim()}\n\n`;
-      probe('P1-G convertNode-p块', {
-        action: 'convert-p',
-        childTextSample: childText.slice(0, 200),
-        childTextLen: childText.length,
-        collapsedSample: collapsed.slice(0, 200),
-        isEmpty: collapsed.trim().length === 0,
-        outSample: out.slice(0, 200),
-      });
+      
       return out;
     }
     case 'br':
@@ -135,13 +119,7 @@ export function convertNode(node) {
         } else {
           out = lines.map((l, idx) => `> ${idx === 0 ? `[!${type}]` : l}`).join('\n') + '\n\n';
         }
-        probe('P3-A convertNode-callout', {
-          action: 'convert-callout',
-          type,
-          bodySample: body.slice(0, 300),
-          lineCount: lines.length,
-          outSample: out.slice(0, 300),
-        });
+        
         return out;
       }
       // BUG-3 修复：逐子块转换，软换行由 p/li 分支折叠，段间空行（多 <p> 引用的
@@ -168,14 +146,7 @@ export function convertNode(node) {
         }
       });
       const out = result.join('\n') + '\n\n';
-      probe('P3-A convertNode-blockquote', {
-        action: 'convert-blockquote',
-        childCount: node.childNodes.length,
-        blockCount: blocks.length,
-        resultCount: result.length,
-        outSample: out.slice(0, 300),
-        hasEmptyLine: result.some((l) => l === '>'),
-      });
+      
       return out;
     }
     case 'ul': {
@@ -270,14 +241,7 @@ export function htmlToMarkdown(html, { DOMParserImpl, parseHTML } = {}) {
     const { document } = parseHTML(wrapped);
     const converted = convertNode(document.body);
     const result = normalizeMarkdown(converted) + '\n';
-    probe('P3-B htmlToMarkdown转换', {
-      action: 'html-to-md',
-      mode: 'node-parseHTML',
-      htmlLen: html.length,
-      convertedSample: converted.slice(0, 400),
-      resultSample: result.slice(0, 400),
-      hasBlockquote: result.includes('> '),
-    });
+    
     return result;
   }
 
@@ -288,13 +252,6 @@ export function htmlToMarkdown(html, { DOMParserImpl, parseHTML } = {}) {
   const doc = new Parser().parseFromString(html, 'text/html');
   const converted = convertNode(doc.body);
   const result = normalizeMarkdown(converted) + '\n';
-  probe('P3-B htmlToMarkdown转换', {
-    action: 'html-to-md',
-    mode: 'browser-DOMParser',
-    htmlLen: html.length,
-    convertedSample: converted.slice(0, 400),
-    resultSample: result.slice(0, 400),
-    hasBlockquote: result.includes('> '),
-  });
+  
   return result;
 }

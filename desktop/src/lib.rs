@@ -68,24 +68,6 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
-// 临时调试：把探针日志（前端 flushProbeLog 经 Tauri invoke 而来）写入磁盘 .log 文件，
-// 便于 EXE 环境在崩溃/异常时留存完整 BUG 定位信息（开发期专用，发布回收）。
-#[tauri::command]
-fn probe_log(content: String) -> Result<(), String> {
-    use std::io::Write;
-    let mut path = std::env::temp_dir();
-    path.push("md-editor-probe.log");
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&path)
-        .map_err(|e| format!("无法打开探针日志文件 {}: {}", path.display(), e))?;
-    file.write_all(content.as_bytes())
-        .map_err(|e| format!("写入探针日志失败: {}", e))?;
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -105,7 +87,6 @@ pub fn run() {
             debug_args,
             read_text_file,
             write_text_file,
-            probe_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

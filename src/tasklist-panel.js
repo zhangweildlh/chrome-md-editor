@@ -5,7 +5,6 @@
 //  - 与预览区已有的任务列表 checkbox 互不冲突（都基于同一份源码）。
 // 纯前端。
 // ============================================================
-import { probe } from './probe.js';
 
 const TASK_LINE_RE = /^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX])\]\s*(.*)$/;
 
@@ -46,10 +45,7 @@ export function getTaskItems(view) {
       });
     }
   }
-  // ===== PROBE START =====
-  probe('A12_TASKS_BUILD', { count: items.length }, { loc: 'tasklist-panel.js' });
-  // ===== PROBE END =====
-  return items;
+    return items;
 }
 
 export function renderTaskList(items) {
@@ -93,7 +89,4 @@ export function toggleTaskAtLine(lineNumber, checked) {
   const to = from + 3;
   const newMark = checked ? '[x]' : '[ ]';
   taskView.dispatch({ changes: { from, to, insert: newMark } });
-  // ===== PROBE START =====
-  probe('A12_TASK_TOGGLE', { lineNumber, checked, from, to }, { loc: 'tasklist-panel.js' });
-  // ===== PROBE END =====
-}
+  }

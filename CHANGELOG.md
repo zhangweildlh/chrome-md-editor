@@ -34,6 +34,15 @@ Project uses Semantic Versioning.
 - 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
 - 分支：`feat/batch-a-features`（基于 `feat/editor-find-replace-bracket` 尖端 @ `33991ce`，即 `main` @ `5f06e90` 的下游）。
 
+## [1.4.14] - 2026-08-01 (彻底回收临时调试探针，发布干净稳定版)
+
+### Removed
+- **完整彻底回收全部临时调试探针**：删除 `src/probe.js` 核心探针模块；移除 `src/editor.js`、`src/editor.html`、`src/html-to-markdown.js`、`src/outline.js`、`src/tasklist-panel.js`、`src/mermaid-zoom.js`、`src/focus-mode.js`、`src/codeblock-complete.js`、`src/callout.js`、`src/base64-fold.js` 中全部 `// ===== PROBE START/END =====` 标记块、裸 `probe()` 调用、`registerProbeEnvProvider` 调用与 `import { ... } from './probe.js'` 引用；移除 `src/editor.html` 的「导出探针日志」按钮及导出脚本；移除 `desktop/src/lib.rs` 的孤儿 `probe_log` Tauri 命令及其注册。代码恢复干净，无任何探针残留（`node --test` 全量 125 项通过，`vite build` 成功重新生成无探针 `dist/`）。
+
+### Notes
+- 本次为将 `feat/batch-a-features` 合并入 `main` 前的清理发布。探针系统原为 A 级功能开发与 BUG 定位（BUG-1/2/3/4）的临时调试设施，定位修复后按计划整体回收，不计入正式发布。
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+
 ## [1.4.13] - 2026-08-02 (第二轮修复：预览区体验对齐 + 符号配对 + UI 溢出)
 
 ### Fixed

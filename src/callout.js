@@ -9,7 +9,6 @@
 // data-callout 属性用于「预览区失焦回写 Markdown」时还原 `[!TYPE]` 语法，
 // 避免 WYSIWYG 把 callout 退化成普通引用（html-to-markdown.js 对应分支处理）。
 // ============================================================
-import { probe } from './probe.js';
 
 // 各类型中文显示名（标题文本）。未知类型回退为类型本身（大写）。
 const TYPE_NAMES = {
@@ -40,22 +39,7 @@ function calloutPlugin(md) {
     for (let i = 0; i < tokens.length; i++) {
       if (tokens[i].type !== 'blockquote_open') continue;
 
-      // ===== PROBE START ===== 嵌套 callout 检测（M4 设计上跳过内层 blockquote，这里记录以便测试验证嵌套语法是否被识别/跳过）
-      let _nested = null; let _d = 0;
-      for (let _j = i + 1; _j < tokens.length; _j++) {
-        const _tt = tokens[_j].type;
-        if (_tt === 'blockquote_open') { _d++; continue; }
-        if (_tt === 'blockquote_close') { if (_d === 0) break; _d--; continue; }
-        if (_d >= 1 && _tt === 'inline') {
-          const _mm = (tokens[_j].content || '').match(CALLOUT_RE);
-          if (_mm) { _nested = _mm[1].toUpperCase(); break; }
-        }
-      }
-      if (_nested) {
-        probe('A7_NESTED_DETECT', { outerIndex: i, nestedType: _nested }, { loc: 'callout.js' });
-      }
-      // ===== PROBE END =====
-
+      
       // 定位「本层」 blockquote 紧随其后的 paragraph_open + inline。
       // 用 depth 计数跳过内层子引用（blockquote_open/close），否则会误命中
       // 内层段落而导致外层 [!TYPE] 漏检（M4）。
@@ -101,12 +85,7 @@ function calloutPlugin(md) {
       try {
         md.inline.parse(rest, md, state.env, newChildren);
       } catch (err) {
-        // ===== PROBE START =====
-        probe('A7_INLINE_REPARSE_ERR', {
-          rawType, restSample: rest.slice(0, 200), message: err && err.message,
-        }, { loc: 'callout.js' });
-        // ===== PROBE END =====
-        // 失败时退回：保留原样（移除标记行，避免把 [!TYPE] 当作正文）
+                // 失败时退回：保留原样（移除标记行，避免把 [!TYPE] 当作正文）
         newChildren.length = 0;
       }
       inlineTok.content = rest;
@@ -120,12 +99,7 @@ function calloutPlugin(md) {
       titleToken.block = true;
       tokens.splice(k, 0, titleToken);
 
-      // ===== PROBE START =====
-      probe('A7_CALLOUT_RENDER', {
-        type: rawType, name, restLen: rest.length, childCount: newChildren.length,
-      }, { loc: 'callout.js' });
-      // ===== PROBE END =====
-    }
+          }
   });
 }
 

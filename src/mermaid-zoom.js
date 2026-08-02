@@ -6,7 +6,6 @@
 //  - Esc 或点击背景关闭。
 // 纯前端，不改 Markdown 源码。
 // ============================================================
-import { probe } from './probe.js';
 
 let overlayEl = null;
 let overlayCanvas = null;
@@ -96,20 +95,14 @@ function setZoom(next, originEvent) {
     panY = cy - (cy - panY) * (zoom / prev);
   }
   applyTransform();
-  // ===== PROBE START =====
-  probe('A10_ZOOM', { zoom, prev }, { loc: 'mermaid-zoom.js' });
-  // ===== PROBE END =====
-}
+  }
 
 function resetView() {
   zoom = 1;
   panX = 0;
   panY = 0;
   applyTransform();
-  // ===== PROBE START =====
-  probe('A10_RESET', {}, { loc: 'mermaid-zoom.js' });
-  // ===== PROBE END =====
-}
+  }
 
 function openOverlay(svgEl) {
   ensureOverlay();
@@ -118,18 +111,12 @@ function openOverlay(svgEl) {
   overlayCanvas.appendChild(clone);
   resetView();
   overlayEl.hidden = false;
-  // ===== PROBE START =====
-  probe('A10_OPEN', { svgHasContent: !!(svgEl && svgEl.innerHTML) }, { loc: 'mermaid-zoom.js' });
-  // ===== PROBE END =====
-}
+  }
 
 function closeOverlay() {
   if (!overlayEl) return;
   overlayEl.hidden = true;
-  // ===== PROBE START =====
-  probe('A10_CLOSE', {}, { loc: 'mermaid-zoom.js' });
-  // ===== PROBE END =====
-}
+  }
 
 // 预览渲染后调用：为每个 .mermaid-diagram 添加全屏按钮（仅增强一次）
 export function enhanceMermaidDiagrams(container) {
@@ -149,11 +136,6 @@ export function enhanceMermaidDiagrams(container) {
     });
     div.appendChild(btn);
   });
-  // ===== PROBE START =====
-  if (diagrams.length) {
-    probe('A10_ENHANCE', { count: diagrams.length }, { loc: 'mermaid-zoom.js' });
   }
-  // ===== PROBE END =====
-}
 
 export { openOverlay, closeOverlay };

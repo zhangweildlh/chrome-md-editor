@@ -32,8 +32,6 @@ import {
   splitRelativePath,
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
-// 临时调试探针（定位 BUG-1/2/3，修复后删除）
-import { probe, registerProbeEnvProvider } from './probe.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
@@ -153,9 +151,6 @@ md.use(function taskListPlugin(md) {
 
 // A-7 Callout 提示框（markdown-it 插件；data-callout 属性供预览回写还原）
 md.use(calloutPlugin);
-// ===== PROBE START =====
-probe('A7_PLUGIN_REGISTERED', { plugin: 'callout' }, { loc: 'editor.js' });
-// ===== PROBE END =====
 
 // ==========================================
 // 状态管理
@@ -226,12 +221,7 @@ const selectedBracketHighlight = ViewPlugin.fromClass(
     }
     update(update) {
       // S3-A：符号配对高亮触发入口
-      probe('S3-A 符号配对高亮触发', {
-        action: 'bracket-highlight-update',
-        trigger: update.docChanged ? 'docChanged' : (update.selectionSet ? 'selectionSet' : 'other'),
-        selEmpty: update.state.selection.main.empty,
-        selLen: update.state.selection.main.to - update.state.selection.main.from,
-      });
+      
       if (update.selectionSet || update.docChanged) {
         if (update.docChanged) this.cachedDoc = null;
         this.decorations = this.build(update.view);
@@ -250,15 +240,7 @@ const selectedBracketHighlight = ViewPlugin.fromClass(
       const docText = this.cachedDoc ?? (this.cachedDoc = doc.toString());
       // S3-B：findPairedBracket 配对计算结果
       const matchPos = findPairedBracket(docText, ch, info, sel.from);
-      probe('S3-B 配对符号计算结果', {
-        action: 'find-paired-bracket',
-        ch,
-        infoType: info.type,
-        infoDir: info.dir ?? null,
-        selFrom: sel.from,
-        matchPos,
-        highlighted: matchPos != null,
-      });
+      
       if (matchPos == null) return Decoration.none;
       const deco = Decoration.mark({ class: 'cm-bracket-match-active' });
       return Decoration.set([
@@ -349,7 +331,6 @@ graph LR
 *开始编辑你的 Markdown 文档吧！*
 `;
 
-  // 临时调试：粗略统计文档中某查询串的出现次数（查找/相同字符串高亮探针用）
   function countMatches(docText, q) {
     if (!q || !q.search) return 0;
     try {
@@ -429,23 +410,7 @@ graph LR
     themeCompartment.of(currentTheme === 'dark' ? oneDark : lightTheme),
     // 内容变化时更新预览
     EditorView.updateListener.of((update) => {
-      // ===== PROBE START ===== 撤销/重做检测
-      // 注：本环境打包后 Transaction.isUserEvent 静态方法不可用（tree-shaking/版本差异），
-      // 改用 tr.annotation(Transaction.userEvent) 直接读取 userEvent 注解并字符串比对，等价实现。
-      try {
-        for (const tr of update.transactions) {
-          let ev = null;
-          try { ev = tr.annotation(Transaction.userEvent); } catch {}
-          if (ev) {
-            for (const e of String(ev).split(' ')) {
-              if (e === 'undo') { probe('UNDO', { count: 1 }, { loc: 'editor.js' }); break; }
-              if (e === 'redo') { probe('REDO', { count: 1 }, { loc: 'editor.js' }); break; }
-            }
-          }
-        }
-      } catch {}
-      // ===== PROBE END =====
-      if (update.docChanged) {
+            if (update.docChanged) {
         updatePreview();
         updateStatus();
         markModified();
@@ -455,7 +420,6 @@ graph LR
         updateCursorStatus();
         maybeCenterActiveLine(editor);
       }
-      // ===== 临时探针：查找(S1)/替换(S2)/符号配对(S3)/相同字符串高亮(S4) =====
       try {
       const view = update.view;
       const state = view.state;
@@ -470,35 +434,10 @@ graph LR
         const matched = countMatches(docText, sq);
         if (update.docChanged) {
           // S2-A：替换导致文档变更（发生在 search 激活态下）
-          probe('S2-A 替换导致文档变更', {
-            action: 'replace-doc-changed',
-            querySearch: sq.search,
-            queryReplace: sq.replace || null,
-            regexp: !!sq.regexp,
-            caseSensitive: !!sq.caseSensitive,
-            wholeWord: !!sq.wholeWord,
-            matchedCount: matched,
-            newDocLen: docText.length,
-            selHead: state.selection.main.head,
-            editorScrollTop,
-            previewScrollTop,
-          });
+          
         } else {
           // S1-B：查找面板激活（查询串/配置/粗略匹配数/当前位置/滚动）
-          probe('S1-B 查找面板激活', {
-            action: 'search-active',
-            querySearch: sq.search,
-            queryReplace: sq.replace || null,
-            regexp: !!sq.regexp,
-            caseSensitive: !!sq.caseSensitive,
-            wholeWord: !!sq.wholeWord,
-            matchedCount: matched,
-            docLen: docText.length,
-            selHead: state.selection.main.head,
-            selAnchor: state.selection.main.anchor,
-            editorScrollTop,
-            previewScrollTop,
-          });
+          
         }
       }
 
@@ -511,13 +450,7 @@ graph LR
         if (inserted.length === 1) {
           const pos = state.selection.main.head;
           const around = state.doc.toString().slice(Math.max(0, pos - 3), pos + 3);
-          probe('S3-C 输入字符(检测自动配对)', {
-            action: 'char-input',
-            inserted,
-            around,
-            isPairedSymbol: !!bracketMatchMap[inserted],
-            closeBracketsConfig: ['(', '[', '{', '<', "'", '"', '`', '“', '‘', '（'],
-          });
+          
         }
       }
 
@@ -529,21 +462,11 @@ graph LR
           const docText = state.doc.toString();
           let occ = 0, i = 0;
           while ((i = docText.indexOf(selText, i)) !== -1) { occ++; i += selText.length; }
-          probe('S4-A 选中相同字符串高亮', {
-            action: 'selection-matches',
-            selTextSample: selText.slice(0, 120),
-            selTextLen: selText.length,
-            occurrenceCount: occ,
-            selFrom: sel.from,
-            selTo: sel.to,
-            selHead: sel.head,
-            editorScrollTop,
-            previewScrollTop,
-          });
+          
         }
       }
       } catch (e) {
-        console.error('[PROBE] updateListener 探针异常（已忽略，不影响编辑器）', e);
+        console.error('[updateListener] 处理异常（已忽略，不影响编辑器）', e);
       }
     }),
   ];
@@ -569,7 +492,7 @@ graph LR
     renderOutline(getOutlineItems(editor));
     renderTaskList(getTaskItems(editor));
   } catch (err) {
-    probe('STRUCT_INIT_ERR', { message: err && err.message }, { loc: 'editor.js' });
+    
   }
 }
 
@@ -580,23 +503,14 @@ let previewUpdateTimer = null;
 
 function updatePreview() {
   if (isPreviewEditing) {
-    probe('P2-C updatePreview触发', {
-      action: 'editor-to-preview-schedule',
-      skipped: true,
-      isPreviewEditing,
-    });
+    
     return; // 避免预览编辑时循环
   }
 
   // 防抖：快速输入时减少渲染次数；开启翻译时略加长，降低 API 调用频率
   clearTimeout(previewUpdateTimer);
   const delay = translateEnabled ? 450 : 80;
-  probe('P2-C updatePreview触发', {
-    action: 'editor-to-preview-schedule',
-    skipped: false,
-    isPreviewEditing,
-    delay,
-  });
+  
   previewUpdateTimer = setTimeout(() => {
     doUpdatePreview();
   }, delay);
@@ -615,12 +529,11 @@ function scheduleStructureRefresh() {
       const tasks = getTaskItems(editor);
       renderTaskList(tasks);
     } catch (err) {
-      probe('STRUCT_REFRESH_ERR', { message: err && err.message, stack: err && err.stack }, { loc: 'editor.js' });
+      
     }
   }, 150);
 }
 
-// 探针环境快照：每条 probe 自动附带，便于仅凭 log 复现 BUG
 function buildEnvSnapshot() {
   const snap = {
     version: APP_VERSION,
@@ -644,12 +557,7 @@ function buildEnvSnapshot() {
 async function doUpdatePreview() {
   const previewContainer = document.getElementById('previewContainer');
   const content = editor.state.doc.toString();
-  // ===== PROBE START ===== 渲染主路径计时 + 边界标记计数
-  const _t0 = performance.now();
-  let _mermaid = 0; try { const _re = /```mermaid/g; let _m; while ((_m = _re.exec(content))) _mermaid++; } catch {}
-  probe('RENDER_MAIN_START', { contentLen: content.length, mermaidBlocks: _mermaid }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  let html = sanitizePreviewHtml(md.render(content));
+    let html = sanitizePreviewHtml(md.render(content));
 
   // 渲染 Mermaid 图表
   // markdown-it 会把 ```mermaid 渲染成 <pre><code class="language-mermaid">...</code></pre>
@@ -658,15 +566,7 @@ async function doUpdatePreview() {
   const previewScrollHeightBefore = previewContainer.scrollHeight;
   previewContainer.innerHTML = html;
   const previewScrollTopAfter = previewContainer.scrollTop;
-  probe('P2-B doUpdatePreview预览重建', {
-    action: 'preview-rebuild-innerHTML',
-    previewScrollTopBefore,
-    previewScrollTopAfter,
-    previewScrollReset: previewScrollTopBefore !== previewScrollTopAfter,
-    previewScrollHeightBefore,
-    innerHTMLLen: html.length,
-    contentLen: content.length,
-  });
+  
 
   // 查找所有 mermaid 代码块并渲染
   const mermaidBlocks = previewContainer.querySelectorAll('code.language-mermaid');
@@ -675,20 +575,14 @@ async function doUpdatePreview() {
     const pre = block.parentElement;
     try {
       mermaidCounter++;
-      // ===== PROBE START =====
-      probe('MERMAID_RENDER_OK', { sourceSample: source.slice(0, 80), counter: mermaidCounter }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      const { svg } = await mermaid.render(`mermaid-${mermaidCounter}`, source);
+            const { svg } = await mermaid.render(`mermaid-${mermaidCounter}`, source);
       const div = document.createElement('div');
       div.className = 'mermaid-diagram';
       div.innerHTML = svg;
       pre.replaceWith(div);
     } catch (err) {
       // 渲染失败时显示错误
-      // ===== PROBE START =====
-      probe('MERMAID_RENDER_ERR', { sourceSample: (typeof source !== 'undefined' ? source.slice(0, 80) : ''), message: err && err.message }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      const div = document.createElement('div');
+            const div = document.createElement('div');
       div.className = 'mermaid-error';
       div.textContent = 'Mermaid 渲染错误: ' + err.message;
       pre.replaceWith(div);
@@ -699,7 +593,7 @@ async function doUpdatePreview() {
   try {
     enhanceMermaidDiagrams(previewContainer);
   } catch (err) {
-    probe('A10_ENHANCE_ERR', { message: err && err.message }, { loc: 'editor.js' });
+    
   }
 
   await resolvePreviewImages(previewContainer);
@@ -716,12 +610,9 @@ async function doUpdatePreview() {
       restoreScroll(previewContainer, previewScrollTopBefore);
     }
   } catch (e) {
-    probe('P2-B scrollRestoreErr', { message: e && e.message }, { loc: 'editor.js' });
+    
   }
-  // ===== PROBE START ===== 渲染主路径结束（耗时）
-  probe('RENDER_MAIN_DONE', { costMs: Math.round(performance.now() - _t0) }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-}
+  }
 
 async function getTranslateSettings() {
   if (translateSettingsCache) return translateSettingsCache;
@@ -1306,11 +1197,7 @@ function initPreviewEditing() {
   previewContainer.addEventListener('focus', () => {
     isPreviewEditing = true;
     previewContainer.classList.add('editing');
-    probe('P1-A 预览区-focus事件', {
-      action: 'preview-focus',
-      previewHTML: previewContainer.innerHTML,
-      blockCount: previewContainer.children.length,
-    });
+    
   });
 
   // 失焦时：把编辑后的 HTML 转回 Markdown，同步到编辑器并重新渲染预览
@@ -1320,12 +1207,7 @@ function initPreviewEditing() {
     if (!isPreviewEditing) return;
     isPreviewEditing = false;
     previewContainer.classList.remove('editing');
-    probe('P1-B 预览区-blur触发同步', {
-      action: 'preview-blur',
-      rerender: true,
-      previewHTML: previewContainer.innerHTML,
-      blockCount: previewContainer.children.length,
-    });
+    
     syncPreviewToEditor(true);
   });
 
@@ -1336,16 +1218,7 @@ function initPreviewEditing() {
     const prevHTML = previewContainer.innerHTML;
     const prevBlocks = previewContainer.children.length;
     syncTimer = setTimeout(() => {
-      probe('P1-C 预览区-input触发同步', {
-        action: 'preview-input',
-        inputType: e.inputType || null,
-        data: e.data || null,
-        prevHTML,
-        prevBlocks,
-        nowHTML: previewContainer.innerHTML,
-        nowBlocks: previewContainer.children.length,
-        isPreviewEditing,
-      });
+      
       syncPreviewToEditor();
     }, 500);
   });
@@ -1455,27 +1328,10 @@ function syncPreviewToEditor(rerender = false) {
 
   // 仅在内容真的变了时才同步
   const currentContent = editor.state.doc.toString();
-  probe('P1-D syncPreviewToEditor入口', {
-    action: 'sync-to-editor',
-    rerender,
-    htmlLen: html.length,
-    htmlSample: html.slice(0, 600),
-    mdLen: markdownContent.length,
-    mdSample: markdownContent.slice(0, 600),
-    currentLen: currentContent.length,
-    currentSample: currentContent.slice(0, 600),
-    trimEqual: markdownContent.trim() === currentContent.trim(),
-    isPreviewEditing,
-  });
+  
   if (markdownContent.trim() !== currentContent.trim()) {
     isPreviewEditing = true; // 临时标记，避免 updatePreview 被触发
-    probe('P1-E 将写回编辑器', {
-      action: 'set-editor-content',
-      mdLen: markdownContent.length,
-      mdSample: markdownContent.slice(0, 600),
-      newLineCount: (markdownContent.match(/\n/g) || []).length,
-      doubleNewlineCount: (markdownContent.match(/\n\n/g) || []).length,
-    });
+    
     setEditorContent(markdownContent);
     markModified();
     updateStatus();
@@ -1583,10 +1439,7 @@ async function openWithHandle(fileHandle) {
 }
 
 async function handleOpen() {
-  // ===== PROBE START =====
-  probe('FILE_OPEN', { stage: 'start' }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  try {
+    try {
     const [fileHandle] = await window.showOpenFilePicker({
       types: [{
         description: 'Markdown 文件',
@@ -1596,10 +1449,7 @@ async function handleOpen() {
     });
 
     await openWithHandle(fileHandle);
-    // ===== PROBE START =====
-    probe('FILE_OPEN', { stage: 'success' }, { loc: 'editor.js' });
-    // ===== PROBE END =====
-  } catch (err) {
+      } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件失败: ' + err.message, 'error');
     }
@@ -1610,10 +1460,7 @@ async function handleOpen() {
 // 桌面端：按命令行传入的 .md 绝对路径打开（构造 Tauri 文件句柄，
 // 其 getFile/createWritable 走 Rust 命令读写，绕开 fs 作用域限制）
 async function openFileByPath(path) {
-  // ===== PROBE START =====
-  probe('FILE_OPEN_BY_PATH', { path }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  try {
+    try {
     const factory = window.__tauriFileHandle;
     if (typeof factory !== 'function') {
       showToast('无法打开文件：桌面端文件句柄未就绪，请重试或重新打开程序', 'error');
@@ -1650,10 +1497,7 @@ async function openInitialCliFile() {
 }
 
 async function handleSave() {
-  // ===== PROBE START =====
-  probe('FILE_SAVE', { stage: 'start', hasHandle: !!currentFileHandle }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  try {
+    try {
     if (currentFileHandle) {
       // 保存到已有文件
       const writable = await currentFileHandle.createWritable();
@@ -1661,10 +1505,7 @@ async function handleSave() {
       await writable.close();
       markSaved();
       await rememberCurrentDocument();
-      // ===== PROBE START =====
-      probe('FILE_SAVE', { stage: 'success', mode: 'overwrite' }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      showToast('文件已保存', 'success');
+            showToast('文件已保存', 'success');
     } else {
       // 另存为
       await handleSaveAs();
@@ -1678,10 +1519,7 @@ async function handleSave() {
 }
 
 async function handleSaveAs() {
-  // ===== PROBE START =====
-  probe('FILE_SAVE_AS', { stage: 'start' }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  try {
+    try {
     const fileHandle = await window.showSaveFilePicker({
       suggestedName: 'untitled.md',
       types: [{
@@ -1700,10 +1538,7 @@ async function handleSaveAs() {
     updateFilename(savedName);
     markSaved();
     await rememberCurrentDocument({ filename: savedName });
-    // ===== PROBE START =====
-    probe('FILE_SAVE_AS', { stage: 'success', name: savedName }, { loc: 'editor.js' });
-    // ===== PROBE END =====
-    showToast('文件已保存', 'success');
+        showToast('文件已保存', 'success');
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('保存失败: ' + err.message, 'error');
@@ -1712,10 +1547,7 @@ async function handleSaveAs() {
 }
 
 function handleNew() {
-  // ===== PROBE START =====
-  probe('FILE_NEW', { wasModified: isModified }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  if (isModified) {
+    if (isModified) {
     if (!confirm('当前文件有未保存的更改，确定要新建文件吗？')) {
       return;
     }
@@ -1744,16 +1576,7 @@ function setEditorContent(content) {
     restoreScroll(scroller, scrollTopBefore);
   }
   const scrollTopAfter = scroller ? scroller.scrollTop : null;
-  probe('P2-A setEditorContent滚动复位', {
-    action: 'editor-full-replace',
-    contentLen: content.length,
-    scrollTopBefore,
-    scrollTopAfter,
-    scrollTopChanged: scrollTopBefore !== scrollTopAfter,
-    selHeadBefore,
-    selHeadAfter: editor.state.selection.main.head,
-    docLenAfter: editor.state.doc.length,
-  });
+  
 }
 
 function updateFilename(name) {
@@ -1816,14 +1639,7 @@ function wrapSelection(before, after) {
 //  - 再次选择同一值时「智能取消」（移除该属性，若已无属性则整体去标签）；
 //  - 保留其它属性（如 color 与 size 可共存）。
 function applyFontStyle(attr, value) {
-  // ===== PROBE START =====
-  probe('STYLE_APPLY', {
-    attr, value,
-    selectedTextLen: (() => { try { const s = editor.state.selection.main; return editor.state.sliceDoc(s.from, s.to).length; } catch { return -1; } })(),
-    hasOpenClose: (() => { try { const s = editor.state.selection.main; const b = editor.state.sliceDoc(Math.max(0, s.from - 64), s.from); const a = editor.state.sliceDoc(s.to, Math.min(editor.state.doc.length, s.to + 8)); return /<font([^>]*)>$/.test(b) && a.startsWith('</font>'); } catch { return false; } })(),
-  }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  const sel = editor.state.selection.main;
+    const sel = editor.state.selection.main;
   const selectedText = editor.state.sliceDoc(sel.from, sel.to);
 
   // 选区两侧紧邻的 <font ...> 开标签与 </font> 闭标签
@@ -1926,10 +1742,7 @@ function insertBlock(text) {
 function toggleTheme() {
   const _prev = currentTheme;
   currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-  // ===== PROBE START =====
-  probe('THEME_TOGGLE', { from: _prev, to: currentTheme }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  localStorage.setItem('md-editor-theme', currentTheme);
+    localStorage.setItem('md-editor-theme', currentTheme);
 
   document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
 
@@ -2073,11 +1886,7 @@ function initScrollSync() {
   editorScroller.addEventListener('scroll', () => {
     if (!scrollSyncEnabled || isSyncing || currentViewMode !== 'split') return;
     isSyncing = true;
-    probe('P2-D 编辑器滚动事件', {
-      action: 'editor-scroll',
-      scrollTop: editorScroller.scrollTop,
-      scrollHeight: editorScroller.scrollHeight,
-    });
+    
 
     const scrollPercent = editorScroller.scrollTop / (editorScroller.scrollHeight - editorScroller.clientHeight || 1);
     previewContainer.scrollTop = scrollPercent * (previewContainer.scrollHeight - previewContainer.clientHeight);
@@ -2088,11 +1897,7 @@ function initScrollSync() {
   previewContainer.addEventListener('scroll', () => {
     if (!scrollSyncEnabled || isSyncing || currentViewMode !== 'split') return;
     isSyncing = true;
-    probe('P2-E 预览区滚动事件', {
-      action: 'preview-scroll',
-      scrollTop: previewContainer.scrollTop,
-      scrollHeight: previewContainer.scrollHeight,
-    });
+    
 
     const scrollPercent = previewContainer.scrollTop / (previewContainer.scrollHeight - previewContainer.clientHeight || 1);
     editorScroller.scrollTop = scrollPercent * (editorScroller.scrollHeight - editorScroller.clientHeight);
@@ -2105,18 +1910,7 @@ function initScrollSync() {
 // 事件绑定
 // ==========================================
 function bindEvents() {
-  // ===== PROBE START ===== 统一覆盖所有工具栏/侧边栏/视图/样式选项按钮点击（弥补无专属探针的按钮）
-  document.querySelectorAll('.toolbar-btn, .sidebar-action-btn, .view-btn, .fs-option, .swatch').forEach((el) => {
-    el.addEventListener('click', () => {
-      probe('UI_BTN_CLICK', {
-        id: el.id || '',
-        title: el.getAttribute('title') || '',
-        cls: el.className || '',
-      }, { loc: 'editor.js:bindEvents' });
-    });
-  });
-  // ===== PROBE END =====
-
+  
   // 文件操作
   document.getElementById('btnOpen').addEventListener('click', handleOpen);
   document.getElementById('btnSave').addEventListener('click', handleSave);
@@ -2128,14 +1922,7 @@ function bindEvents() {
     const sel = editor.state.selection.main;
     const selText = sel.empty ? null : editor.state.doc.sliceString(sel.from, sel.to);
     const previewEl = document.getElementById('previewContainer');
-    probe('S1-A 点击查找/替换按钮', {
-      action: 'open-search-panel',
-      source: 'btnFind',
-      selEmpty: sel.empty,
-      selTextSample: selText ? selText.slice(0, 120) : null,
-      editorScrollTop: editor.scrollDOM ? editor.scrollDOM.scrollTop : null,
-      previewScrollTop: previewEl ? previewEl.scrollTop : null,
-    });
+    
     openSearchPanel(editor);
   });
 
@@ -2150,13 +1937,13 @@ function bindEvents() {
   // 自动嵌套，例如 <center><b><font color="red">文本</font></b></center>；
   // 再次点击同一按钮则取消包裹（toggle）。每个按钮独立生效，也可任意组合。
   const btnStyleCenter = document.getElementById('btnStyleCenter');
-  if (btnStyleCenter) btnStyleCenter.addEventListener('click', () => { probe('STYLE_WRAP', { type: 'center' }, { loc: 'editor.js' }); wrapSelection('<center>', '</center>'); });
+  if (btnStyleCenter) btnStyleCenter.addEventListener('click', () => {  wrapSelection('<center>', '</center>'); });
 
   const btnStyleBold = document.getElementById('btnStyleBold');
-  if (btnStyleBold) btnStyleBold.addEventListener('click', () => { probe('STYLE_WRAP', { type: 'b' }, { loc: 'editor.js' }); wrapSelection('<b>', '</b>'); });
+  if (btnStyleBold) btnStyleBold.addEventListener('click', () => {  wrapSelection('<b>', '</b>'); });
 
   const btnStyleHighlight = document.getElementById('btnStyleHighlight');
-  if (btnStyleHighlight) btnStyleHighlight.addEventListener('click', () => { probe('STYLE_WRAP', { type: 'mark' }, { loc: 'editor.js' }); wrapSelection('<mark>', '</mark>'); });
+  if (btnStyleHighlight) btnStyleHighlight.addEventListener('click', () => {  wrapSelection('<mark>', '</mark>'); });
 
   // 颜色 / 字号：弹出对应弹窗，点选项即应用 <font color>/<font size>。
   // 关键改进（相对 v1.4.x 初版与 v1.3.0）：重选同一属性时「替换」而非「嵌套」，
@@ -2197,10 +1984,7 @@ function bindEvents() {
         e.stopPropagation();
         lastColor = sw.dataset.color;
         localStorage.setItem('md-editor-last-color', lastColor);
-        // ===== PROBE START =====
-        probe('STYLE_COLOR', { color: lastColor }, { loc: 'editor.js' });
-        // ===== PROBE END =====
-        applyFontStyle('color', lastColor);
+                applyFontStyle('color', lastColor);
         markFontChoice();
         // 不自动关闭，便于在同组色板内快速改色（替换而非嵌套）
       });
@@ -2221,10 +2005,7 @@ function bindEvents() {
         e.stopPropagation();
         lastSize = opt.dataset.size;
         localStorage.setItem('md-editor-last-size', lastSize);
-        // ===== PROBE START =====
-        probe('STYLE_SIZE', { size: lastSize }, { loc: 'editor.js' });
-        // ===== PROBE END =====
-        applyFontStyle('size', lastSize);
+                applyFontStyle('size', lastSize);
         markFontChoice();
       });
     });
@@ -2311,10 +2092,7 @@ function bindEvents() {
   const btnTranslate = document.getElementById('btnTranslate');
   if (btnTranslate) {
     btnTranslate.addEventListener('click', () => {
-      // ===== PROBE START =====
-      probe('TRANSLATE_TOGGLE', { willEnable: !translateEnabled }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      toggleTranslateMode();
+            toggleTranslateMode();
     });
     btnTranslate.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -2413,20 +2191,14 @@ function bindEvents() {
     btnFocusMode.addEventListener('click', () => {
       const on = toggleFocusMode();
       btnFocusMode.classList.toggle('active', on);
-      // ===== PROBE START =====
-      probe('A8_FOCUS_BTN', { on }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-    });
+          });
   }
   const btnTypewriter = document.getElementById('btnTypewriter');
   if (btnTypewriter) {
     btnTypewriter.addEventListener('click', () => {
       const on = toggleTypewriter();
       btnTypewriter.classList.toggle('active', on);
-      // ===== PROBE START =====
-      probe('A8_TYPEWRITER_BTN', { on }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-    });
+          });
   }
 
   // 显示设置弹层
@@ -2447,22 +2219,13 @@ function bindEvents() {
       displayPopover.hidden = !displayPopover.hidden;
     });
     if (eFont) eFont.addEventListener('change', () => {
-      // ===== PROBE START =====
-      probe('DISPLAY_SETTINGS_CHANGE', { field: 'editorFont', value: parseInt(eFont.value, 10) || 0 }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      setEditorFontSize(parseInt(eFont.value, 10) || 0);
+            setEditorFontSize(parseInt(eFont.value, 10) || 0);
     });
     if (pFont) pFont.addEventListener('change', () => {
-      // ===== PROBE START =====
-      probe('DISPLAY_SETTINGS_CHANGE', { field: 'previewFont', value: parseInt(pFont.value, 10) || 0 }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      setPreviewFontSize(parseInt(pFont.value, 10) || 0);
+            setPreviewFontSize(parseInt(pFont.value, 10) || 0);
     });
     if (density) density.addEventListener('change', () => {
-      // ===== PROBE START =====
-      probe('DISPLAY_SETTINGS_CHANGE', { field: 'density', value: density.value }, { loc: 'editor.js' });
-      // ===== PROBE END =====
-      setDensity(density.value);
+            setDensity(density.value);
     });
     document.addEventListener('click', (e) => {
       if (!displayPopover.hidden && !displayPopover.contains(e.target) && e.target !== btnDisplaySettings) {
@@ -2486,10 +2249,7 @@ function bindEvents() {
       btnOutline.classList.toggle('active', open);
       if (open) {
         renderOutline(getOutlineItems(editor));
-        // ===== PROBE START =====
-        probe('A3_PANEL_OPEN', {}, { loc: 'editor.js' });
-        // ===== PROBE END =====
-      }
+              }
     });
   }
   const btnTasks = document.getElementById('btnTasks');
@@ -2501,10 +2261,7 @@ function bindEvents() {
       btnTasks.classList.toggle('active', open);
       if (open) {
         renderTaskList(getTaskItems(editor));
-        // ===== PROBE START =====
-        probe('A12_PANEL_OPEN', {}, { loc: 'editor.js' });
-        // ===== PROBE END =====
-      }
+              }
     });
   }
   document.getElementById('outlineClose')?.addEventListener('click', () => {
@@ -2516,7 +2273,6 @@ function bindEvents() {
     document.getElementById('btnTasks')?.classList.remove('active');
   });
 
-  // 临时调试钩子：供自动化测试加载任意边界文档 / 访问编辑器实例（与探针理念一致，测试用；保留以便重复回归）
   window.__setEditorContent = setEditorContent;
   window.__editor = editor;
 }
@@ -2527,19 +2283,13 @@ function syncFocusModeButtons() {
   const t = document.getElementById('btnTypewriter');
   if (f) f.classList.toggle('active', isFocusMode());
   if (t) t.classList.toggle('active', isTypewriter());
-  // ===== PROBE START =====
-  probe('A8_SYNC_BTN', { focus: isFocusMode(), typewriter: isTypewriter() }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-}
+  }
 
 function initPasteImageSupport() {
   editor.contentDOM.addEventListener('paste', async (event) => {
     const items = Array.from(event.clipboardData?.items || []);
     const imageItem = items.find((item) => item.type.startsWith('image/'));
-    // ===== PROBE START =====
-    probe('PASTE', { hasImage: !!imageItem, itemCount: items.length }, { loc: 'editor.js' });
-    // ===== PROBE END =====
-
+    
     if (!imageItem) return;
 
     const file = imageItem.getAsFile();
@@ -2664,16 +2414,10 @@ let directoryHandle = null;
 let isSidebarCollapsed = localStorage.getItem('md-sidebar-collapsed') === 'true';
 
 async function handleOpenFolder() {
-  // ===== PROBE START =====
-  probe('FOLDER_OPEN', { stage: 'start' }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-  try {
+    try {
     directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     await renderFileTree();
-    // ===== PROBE START =====
-    probe('FOLDER_OPEN', { stage: 'success', name: directoryHandle.name }, { loc: 'editor.js' });
-    // ===== PROBE END =====
-    showToast(`已打开文件夹: ${directoryHandle.name}`, 'success');
+        showToast(`已打开文件夹: ${directoryHandle.name}`, 'success');
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件夹失败: ' + err.message, 'error');
@@ -2894,12 +2638,7 @@ function init() {
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
   console.info(`[MD Editor] build v${APP_VERSION}`);
 
-  // 注册探针环境快照提供器（每条 probe 自动附带，供 BUG 定位）
-  registerProbeEnvProvider(buildEnvSnapshot);
-  // ===== PROBE START =====
-  probe('INIT_ENV_PROVIDER', { version: APP_VERSION }, { loc: 'editor.js' });
-  // ===== PROBE END =====
-
+  
   // 恢复主题
   if (currentTheme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');

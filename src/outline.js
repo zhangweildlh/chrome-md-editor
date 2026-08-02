@@ -6,7 +6,6 @@
 // 纯前端，不改 Markdown 源码。
 // ============================================================
 import { syntaxTree } from '@codemirror/language';
-import { probe } from './probe.js';
 
 const HEADING_RE = /^ATXHeading(\d)$/;
 
@@ -34,10 +33,7 @@ export function getOutlineItems(view) {
       }
     } while (cursor.next());
   })();
-  // ===== PROBE START =====
-  probe('A3_OUTLINE_BUILD', { count: items.length }, { loc: 'outline.js' });
-  // ===== PROBE END =====
-  return items;
+    return items;
 }
 
 export function renderOutline(items) {
@@ -65,7 +61,4 @@ export function scrollToHeading(pos) {
     scrollIntoView: true,
   });
   outlineView.focus();
-  // ===== PROBE START =====
-  probe('A3_OUTLINE_GOTO', { pos }, { loc: 'outline.js' });
-  // ===== PROBE END =====
-}
+  }

@@ -6,7 +6,6 @@
 // ============================================================
 import { Decoration, ViewPlugin, EditorView, WidgetType } from '@codemirror/view';
 import { StateField, StateEffect, RangeSetBuilder } from '@codemirror/state';
-import { probe } from './probe.js';
 
 const FOLD_MIN_LEN = 200; // 超过此长度的 data: 行才折叠
 
@@ -62,10 +61,7 @@ class Base64FoldWidget extends WidgetType {
     wrap.addEventListener('click', (e) => {
       e.preventDefault();
       const off = this.offset;
-      // ===== PROBE START =====
-      probe('A9_EXPAND', { offset: off, len: this.len }, { loc: 'base64-fold.js' });
-      // ===== PROBE END =====
-      // 派发确定性事务（仅 effect，无 doc/selection 变动），强制 StateField 变更
+            // 派发确定性事务（仅 effect，无 doc/selection 变动），强制 StateField 变更
       // 且 ViewPlugin 据此重建装饰，修正 M1（空 dispatch 在已聚焦时不重建）。
       view.dispatch({ effects: toggleFold.of(off) });
     });
@@ -96,10 +92,7 @@ function buildFolds(view) {
       foldedCount++;
     }
   }
-  // ===== PROBE START =====
-  probe('A9_FOLD_BUILT', { foldedCount }, { loc: 'base64-fold.js' });
-  // ===== PROBE END =====
-  return builder.finish();
+    return builder.finish();
 }
 
 export const base64FoldPlugin = ViewPlugin.fromClass(
@@ -118,11 +111,7 @@ export const base64FoldPlugin = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations }
 );
 
-// 提供给 editor.js 的接入点（统一在 editor.js 注册探针环境与调用）。
 // 返回 [plugin, field]：两者须同处一个 EditorState，ViewPlugin 才能读取 field。
 export function initBase64Fold() {
-  // ===== PROBE START =====
-  probe('A9_INIT', { foldMinLen: FOLD_MIN_LEN }, { loc: 'base64-fold.js' });
-  // ===== PROBE END =====
-  return [base64FoldPlugin, unfoldedField];
+    return [base64FoldPlugin, unfoldedField];
 }
