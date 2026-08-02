@@ -181,6 +181,14 @@ import { exportDiffReport } from "./compare-diff-export.js";
       if (btn) btn.classList.toggle("active", key === mode);
     }
 
+    // 同步折叠状态与按钮文案（跨模式切换保持一致）
+    if (instance && typeof instance.setCollapse === "function") {
+      instance.setCollapse(collapsed);
+    }
+    if (btnToggleCollapse) {
+      btnToggleCollapse.textContent = collapsed ? "展开未改" : "折叠未改";
+    }
+
     // M3：「接受 Theirs 块」仅在三栏模式可用（两栏实例返回 false、单栏无该字段）
     if (btnAcceptTheirs) {
       btnAcceptTheirs.disabled = mode !== "three";
@@ -231,7 +239,10 @@ import { exportDiffReport } from "./compare-diff-export.js";
     try {
       await exportResult(content, "merged.md");
     } catch (e) {
-      console.error("[compare] 导出结果失败:", e);
+      // 用户取消保存：忽略 AbortError
+      if (!(e && e.name === "AbortError")) {
+        console.error("[compare] 导出结果失败:", e);
+      }
     }
   }
 
@@ -242,7 +253,10 @@ import { exportDiffReport } from "./compare-diff-export.js";
     try {
       await exportDiffReport(a, b, "diff.diff");
     } catch (e) {
-      console.error("[compare] 导出 diff 失败:", e);
+      // 用户取消保存：忽略 AbortError
+      if (!(e && e.name === "AbortError")) {
+        console.error("[compare] 导出 diff 失败:", e);
+      }
     }
   }
 

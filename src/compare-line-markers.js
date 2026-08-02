@@ -109,12 +109,33 @@ const compareChunkGutter = gutter({
   lineMarker(view, line) {
     const res = getChunks(view.state);
     if (!res) return null;
+    const side = res.side;
+    const lf = line.from;
+    if (side === "a") {
+      // A 面板（两/三栏 Yours，文档即 A）：行位置是 A 坐标，比对 fromA/toA。
+      // 纯新增（fromA==toA && fromB!=toB）在 A 面板无对应行，不显示。
+      for (const chunk of res.chunks) {
+        const fromA = chunk.fromA;
+        const toA = chunk.toA;
+        const fromB = chunk.fromB;
+        const toB = chunk.toB;
+        // 修改块（A 有删除且 B 有新增）→ ±
+        if (fromA !== toA && fromB !== toB && lf >= fromA && lf < toA) {
+          return new CompareChunkMarker("±");
+        }
+        // 纯删除（A 有删除，B 无对应新增）→ −
+        if (fromA !== toA && lf >= fromA && lf < toA) {
+          return new CompareChunkMarker("−");
+        }
+      }
+      return null;
+    }
+    // 其余（side==='b' 或 undefined，即 b 面板 / unified 视图）：行位置是 B 坐标，比对 fromB/toB。
     for (const chunk of res.chunks) {
       const fromA = chunk.fromA;
       const toA = chunk.toA;
       const fromB = chunk.fromB;
       const toB = chunk.toB;
-      const lf = line.from;
       // 修改块（A 有删除且 B 有新增）→ ±（删除内容以 deletedChunks widget 显示于 [fromB,toB) 上方）
       if (fromA !== toA && fromB !== toB && lf >= fromB && lf < toB) {
         return new CompareChunkMarker("±");
