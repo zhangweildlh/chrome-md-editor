@@ -76,7 +76,7 @@ test('JS 桥接层确实 invoke 这两个命令（命令名拼写一致，无漂
 });
 
 test('H2: saveFile 桌面分支使用 dialog.save( 弹保存对话框', () => {
-  const m = shims.match(/export async function saveFile[\s\S]*?\n}\n/);
+  const m = shims.match(/export async function saveFile[\s\S]*?\n}\s*/);
   assert.ok(m, '应能定位 saveFile 函数体');
   const body = m[0];
   assert.ok(
@@ -90,7 +90,7 @@ test('H2: saveFile 桌面分支使用 dialog.save( 弹保存对话框', () => {
 });
 
 test('M4: compare-files.js 浏览器 pickFiles 分支包含 oncancel 处理', () => {
-  const m = files.match(/export async function pickFiles[\s\S]*?\n}\n/);
+  const m = files.match(/export async function pickFiles[\s\S]*?\n}\s*/);
   assert.ok(m, '应能定位 pickFiles 函数体');
   const body = m[0];
   assert.ok(
