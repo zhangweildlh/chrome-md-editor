@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.16] - 2026-08-02 (文件对照与多栏合并：compare 模块)
+
+### Added
+- **compare 模块（本地文件对照 + 逐块合并）**：新增基于 `@codemirror/merge` 的 `MergeView` / `unifiedMergeView` 对照合并能力（零自研 diff），不依赖 Git 目录，纯前端 diff/merge 本地 Markdown / 纯文本。
+- **三种视图**：两栏 diff（Yours / Theirs，差异块红绿高亮 + 行号 `−`/`+` 标记，a 侧可只读）、三栏合并（Yours 只读 / Result 可编辑 / Theirs 只读参考，中文「⇄ 接受此块」逐块并入、支持「接受 Theirs 块」）、单栏 unified（行内对照 + 删除行语法高亮 + 中文「接受 / 拒绝」块按钮）。
+- **文件多选与拖拽**（T3）：`<input multiple>` + `File.text()` 及拖拽区读取 `.md` / `.txt`（不限于 Git 目录）；第 1 个文件为 Yours、第 2 个为 Theirs。
+- **块导航**（增量 B）：「上一块 / 下一块」绑定 `goToNextChunk` / `goToPreviousChunk`（现成 `StateCommand`）。
+- **折叠未改**（增量 E）：`uncollapseUnchanged` 折叠 / 展开大片未改区域（单栏展开当前光标处）。
+- **图片插入**（T5）：拖拽 / 点选图片转 data URL 插入当前光标，复用 `src/image-support.js` 纯函数。
+- **导出合并结果**（T6）：`showSaveFilePicker` 句柄留存写回 + `<a download>` 降级 + 剪贴板降级三级策略（按文件名留存句柄，避免误写回）。
+- **导出 diff 报告**（增量 F）：`presentableDiff` → 自写文本渲染层生成 git 风格可读 diff（`.diff`，`@` 行 + `+/-` 标记）。
+- **单栏行内 diff**（C）与删除行语法高亮（D）；**中文自定义按钮**（G，类名 `cm-compare-revert` / `cm-compare-chunk-btn`，避开验收闸门禁用类名）。
+- **入口**：Chrome 扩展右键菜单「打开对比合并」（`public/background.js` 的 `chrome.contextMenus`）+ 新开 `src/compare.html` 独立实例；桌面端（Tauri EXE）同源入口。
+- **桌面同源**（T7）：`desktop/src/lib.rs` 新增 `read_multiple_text_files` / `save_compare_result` 命令；`src/compare-shims.js` 提供浏览器 / 桌面统一文件读写垫片。
+
+### Notes
+- 分支：`feature/compare-merge-ag`（基于 `main` @ `v1.4.15`）。
+- 验收闸门：compare 页自定义按钮统一使用 `cm-compare-revert` / `cm-compare-chunk-btn` / `compare-toolbar-btn` 等新类名，未触碰禁用类名 `btnCenterBold` / `btnCenterBoldRed` / `styleGroup`。
+- 模块文件：`src/compare.js`、`src/compare-merge.js`、`src/compare-unified.js`、`src/compare-nav.js`、`src/compare-line-markers.js`、`src/compare-files.js`、`src/compare-images.js`、`src/compare-export.js`、`src/compare-diff-export.js`、`src/compare-shims.js`；新增 `src/compare.html` 与 `vite.config.js` 多入口 `compare`、manifest `web_accessible_resources` + `contextMenus` 权限。
+- 构建 / 测试状态：全部新建 `.js` 经 `node --check` 校验通过（`vite build` 待 CI 验证）；`tests/compare-diff.test.js` 等单元测试由测试 Agent 跟进（见 `docs/compare-progress.md` T8）。
+
 ## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown + A-5：自动保存与快照环)
 
 ### Added

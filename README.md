@@ -3,7 +3,7 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.4.14](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.4.14-desktop)**  
+**当前版本：[v1.4.16](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.4.16-desktop)**  
 **下载（Chrome 扩展）：** [chrome-md-editor-v1.4.8.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/chrome-md-editor-v1.4.8.zip)  
 **下载（Windows 独立 EXE）：** [Markdown.Editor_1.4.8_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/Markdown.Editor_1.4.8_portable.exe)  
 **许可：** [MIT](./LICENSE)
@@ -75,6 +75,58 @@
 
 ---
 
+## 文件对照 / 多栏合并（compare 模块）
+
+把两个本地 Markdown / 纯文本文件并排对照、逐块合并，无需 Git 目录、纯前端 diff/merge。底层使用 `@codemirror/merge` 的 `MergeView` / `unifiedMergeView`，零自研 diff 算法。
+
+### 如何打开
+
+- **Chrome 扩展**：在任意页面或扩展图标上点右键，选择「打开对比合并」（由 `public/background.js` 的 `chrome.contextMenus` 注册），会新开一个 `src/compare.html` 独立实例（沿用 `newInstanceId()`，不复用编辑器状态）。
+- **桌面端（Tauri EXE）**：同源入口——EXE 内同样通过右键菜单打开 compare 页，复用同一套 `src/compare.html`。
+
+### 三种视图
+
+- **两栏 diff**：左 `Yours` / 右 `Theirs`，差异块红绿高亮 + 行号差异标记（`−` / `+` gutter）。两栏默认可编辑；亦可将 `Yours` 侧设为只读。
+- **三栏合并**：左 `Yours`（只读）/ 中 `Result`（可编辑合并结果）/ 右 `Theirs`（只读参考）。每块提供中文「⇄ 接受此块」按钮，把 `Yours` 当前块并入 `Result`；另有「接受 Theirs 块」把 `Theirs` 对应块拷入 `Result`，逐步合并出最终结果。
+- **单栏 unified**：`unifiedMergeView` 行内对照——删除行以 widget 显示在原行上方，块内提供中文「接受 / 拒绝」按钮；开启行内 diff 与删除行语法高亮，保留 Markdown 语法色。
+
+> 工具栏可随时切换「两栏 / 三栏 / 单栏」；三种视图统一从已选的两个文件渲染。
+
+### 文件选择与拖拽
+
+- 点「选择文件」按钮或拖拽区，多选本地 `.md` / `.markdown` / `.mdown` / `.mkd` / `.mkdn` / `.txt`（不限于 Git 仓库目录）。
+- 选中的**第 1 个**文件作为 `Yours`、**第 2 个**作为 `Theirs`（更多文件当前版本未纳入对照）。
+- 也可将文件直接拖入页面拖拽区读取。
+
+### 块导航与逐块接受
+
+- **块导航**：「上一块 / 下一块」按钮跳转差异块（底层 `goToNextChunk` / `goToPreviousChunk`）。
+- **逐块接受**：
+  - 三栏：每块「⇄ 接受此块」把 `Yours` 当前块并入 `Result`；「接受 Theirs 块」把 `Theirs` 对应块拷入 `Result`。
+  - 单栏：块内中文「接受 / 拒绝」按钮（自定义 `mergeControls`，避开验收闸门禁用类名）。
+
+### 图片插入
+
+- 点「图片」按钮或拖拽图片到图片区：图片转为内嵌 `data URL`，插入到当前光标（或当前活动编辑块）处，生成 Markdown 语法 `![name](data:image/...)`；复用 `src/image-support.js` 的纯函数。
+
+### 导出
+
+- **导出合并结果**：把 `Result` / 单栏当前内容写出。优先 `showSaveFilePicker` **句柄留存**写回，失败降级为浏览器下载（`<a download>`），再失败降级到剪贴板。
+- **导出 diff 报告**：生成 git 风格可读 diff 文本（`@@` 行 + `+/-` 标记，底层 `presentableDiff` 渲染层），同样走「句柄留存 / 下载 / 剪贴板」三级降级。
+
+### 折叠未改 / 主题
+
+- 单栏 unified：「展开未改」按钮展开当前光标处的大片未改区域（单栏以展开为主；真正的折叠收起能力见 `docs/compare-progress.md`，不在当前版本承诺）。两栏 / 三栏视图由 `@codemirror/merge` 的 `collapseUnchanged` 配置自动折叠未改区域。
+- 明暗主题：复用编辑器既有 `--bg` / `--fg` / `--accent` / `--border` 等 CSS 变量，`@codemirror/merge` 自带 `&light` / `&dark` 选择器，随主题自动适配，**不新建主题变量**。
+
+### 桌面端（Tauri 同源）
+
+compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果保存复用桌面端既有的 Tauri 文件访问能力（`showOpenFilePicker` / `showSaveFilePicker` 垫片 → `read_text_file` / `write_text_file`）。Rust 侧另已实现并注册 `read_multiple_text_files` / `save_compare_result` 命令（`desktop/src/lib.rs`），作为对比批处理读写的专用通道；对应桥接模块 `src/compare-shims.js` 提供浏览器 / 桌面统一的文件读写签名。
+
+> 模块文件：`src/compare.js`（页面控制器）、`src/compare-merge.js`、`src/compare-unified.js`、`src/compare-nav.js`、`src/compare-line-markers.js`、`src/compare-files.js`、`src/compare-images.js`、`src/compare-export.js`、`src/compare-diff-export.js`、`src/compare-shims.js`；新增 `src/compare.html` 与 `vite.config.js` 多入口 `compare`、manifest `web_accessible_resources` + `contextMenus` 权限。
+
+---
+
 ## 安装（用户）
 
 1. 打开 [Releases](https://github.com/yishu-ziyu/chrome-md-editor/releases)，下载最新 `chrome-md-editor-v*.zip`。
@@ -88,7 +140,7 @@
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.4.14**）。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.4.16**）。
 4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.4.8_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
@@ -189,7 +241,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.4.14**).
+The toolbar should show the release version (currently **v1.4.16**).
 
 ### Features (short)
 
