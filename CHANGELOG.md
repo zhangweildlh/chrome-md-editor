@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.5.0] - 2026-08-02 (Markdown 语法高亮：编辑区+预览区彩色字体+行底色+多套配色)
+
+### Added
+- **Markdown 语法高亮（A+B 两区各自彩色字体 + 行底色 + 多套配色）**：编辑区与预览区各自获得 Markdown 语法彩色字体与块/行底色，两区独立、不强制同色对齐。
+  - **编辑区（CodeMirror 6，正则法）**：新增 `src/md-editor-highlight.js`——`markdownHighlightStyle` 以 class 驱动把语法 tag（标题 1-6 / 粗体 / 斜体 / 链接 / 引用 / 行内代码 / 分隔符 / 标记）映射到 `.cm-md-token-*` CSS 类；`lineBgDecorations`（StateField）为正则法识别的标题行 / 引用行 / 围栏代码块行加 `cm-md-heading-N` / `cm-md-quote-line` / `cm-md-fence-line` 行底色（`inFence` 状态机追踪围栏起止与内部）；`markdownMarkerDecorations`（ViewPlugin）为 `#`/`>`/列表标记与 ```` ``` ```` 围栏行加标记装饰；三者经 `mdEditorHighlightExtensions` 由 `src/editor.js` 在默认高亮之后叠加。
+  - **预览区（markdown-it 14 + highlight.js 11）**：新增 `src/md-preview-highlight.js`——`createMarkdownHighlight(sanitize)` 工厂以 hljs 11 新 API（`hljs.highlight(str, { language, ignoreIllegals })`）产出 `<pre class="hljs">` token，并**外包 `sanitizePreviewHtml`（DOMPurify）保持 XSS 防护链不回退**；未识别语言 / hljs 抛错时回退 `mdEscape` 转义，杜绝注入；`src/editor.js` 在 MarkdownIt 配置注入 `highlight` 回调。
+  - **多套配色 + 与主题正交**：新增 `src/md-theme-tokens.js`（`COLOR_SCHEMES` / `getColorScheme` / `setColorScheme` / `applyStoredColorScheme`，薄封装 localStorage + `<html data-color-scheme>`）；`src/editor.css` 以 `[data-color-scheme]` × `[data-theme]` 变量层定义 classic / sepia / high-contrast 三套配色，切换仅改文档属性、编辑区与预览区瞬时跟随，无需 `reconfigure` 高亮；`src/editor.html` 显示设置弹窗新增「配色方案」下拉，`src/editor.js` 绑定并持久化、启动时 `applyStoredColorScheme()` 防刷新丢失。
+  - 新增运行时依赖 `highlight.js ^11`（预览区代码高亮；采用 `highlight.js/lib/common` 常用语言子集以控制打包体积，未注册语言走 `mdEscape` 转义回退）。
+  - 新增配套测试 `tests/md-highlight.test.js`（13 项：编辑区行底色标题/引用/围栏分类、StateField 集成、预览 hljs token 与回退转义、模块导出结构）；`node --test` 全量 140 项通过。
+
+### Changed
+- `src/editor.js`：在默认高亮（`syntaxHighlighting(defaultHighlightStyle)`）之后叠加 `...mdEditorHighlightExtensions`；MarkdownIt 配置加 `highlight` 回调（含 sanitize）；导入三个新模块；启动时 `applyStoredColorScheme()`；`toggleTheme` 末尾防御性同步 `data-color-scheme`；显示设置绑定 `dsColorScheme`。
+- `src/editor.css`：新增三套 `[data-color-scheme]` 变量块（dark/light 两态）与 `.cm-content .cm-md-*`、`.preview-container .hljs-*`、预览区语义块底色绑定（class 驱动，色值全部交给 CSS 变量）。
+- `src/editor.html`：显示设置弹窗 `#displaySettingsPopover` 内 `#dsDensity` 之后新增「配色方案」`<select id="dsColorScheme">`。
+
+### Notes
+- **复用来源（MIT / 类 MIT，已保留来源注释）**：`orchidsoftware/platform`（编辑区 class 驱动高亮 + 正则法行底色 + 标记装饰，第 2.1 章）；`markdown-it` 官方 + `tensorflow/tfjs-website` / `BaileyJM02/markdown-to-pdf`（hljs 回调范式，第 2.3 章）；hljs 主题 CSS 模板来自社区通用模式（第 2.6 章）。`heyman/heynote`（Nord 配色参考）、`wxmvv/MokoEditor`（Compartment 范式参考）仅作设计参考。
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- 分支：`feat/md-syntax-highlight`（基于 `main` @ `1.4.15`）。
+
 ## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown + A-5：自动保存与快照环)
 
 ### Added

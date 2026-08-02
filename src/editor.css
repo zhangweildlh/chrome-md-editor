@@ -2098,3 +2098,142 @@ body {
   display: flex;
   justify-content: flex-end;
 }
+
+/* =========================================================================
+   Markdown 语法高亮：多套配色令牌（Phase 1）
+   维度正交：[data-theme=dark|light]（基础 UI/背景） × [data-color-scheme=classic|sepia|high-contrast]（markdown 语法色 + 块底色）
+   切换配色仅需改变 <html data-color-scheme>，编辑区(CM6)与预览区(hljs)瞬时跟随，无需 reconfigure 高亮。
+   注：预览区容器为 .preview-container（已按本项目实际类名校正，非方案草案的 .markdown-preview）。
+   ========================================================================= */
+
+/* ---------- classic 方案（默认） ---------- */
+:root[data-color-scheme="classic"] {
+  /* markdown 语法色（暗底） */
+  --md-h1-color:#c9a0ff; --md-h2-color:#8ab4ff; --md-h3-color:#7fd1c0;
+  --md-strong-color:#ffb86c; --md-em-color:#ff9ec4; --md-link-color:#6cb6ff;
+  --md-quote-color:#9aa0a6;
+  /* 块/行底色（半透明，适配暗底） */
+  --md-h1-bg:rgba(201,160,255,.10); --md-h2-bg:rgba(138,180,255,.09); --md-h3-bg:rgba(127,209,192,.08);
+  --md-quote-bg:rgba(120,120,120,.10); --md-code-bg:rgba(135,131,120,.15); --md-fence-bg:rgba(135,131,120,.12);
+  /* 代码 token（hljs，GitHub dark 风格） */
+  --code-keyword:#ff7b72; --code-string:#a5d6ff; --code-comment:#8b949e;
+  --code-number:#79c0ff; --code-function:#d2a8ff; --code-tag:#7ee787;
+}
+[data-theme="light"][data-color-scheme="classic"] {
+  /* markdown 语法色（亮底，加深以保证对比度） */
+  --md-h1-color:#8250df; --md-h2-color:#0969da; --md-h3-color:#0a7d6b;
+  --md-strong-color:#bc4c00; --md-em-color:#bf3989; --md-link-color:#0969da;
+  --md-quote-color:#57606a;
+  --md-h1-bg:rgba(130,80,223,.08); --md-h2-bg:rgba(9,105,218,.07); --md-h3-bg:rgba(10,125,107,.07);
+  --md-quote-bg:rgba(87,96,106,.10); --md-code-bg:rgba(135,131,120,.12); --md-fence-bg:rgba(135,131,120,.10);
+  --code-keyword:#cf222e; --code-string:#0a3069; --code-comment:#6e7781;
+  --code-number:#0550ae; --code-function:#8250df; --code-tag:#116329;
+}
+
+/* ---------- sepia 方案（暖色语法，正交不改动全局背景） ---------- */
+:root[data-color-scheme="sepia"] {
+  --md-h1-color:#e8b86d; --md-h2-color:#d9a05b; --md-h3-color:#c9b458;
+  --md-strong-color:#f0a868; --md-em-color:#e8a0a0; --md-link-color:#d99a5b;
+  --md-quote-color:#b0a090;
+  --md-h1-bg:rgba(232,184,109,.10); --md-h2-bg:rgba(217,160,91,.09); --md-h3-bg:rgba(201,180,88,.08);
+  --md-quote-bg:rgba(176,160,144,.10); --md-code-bg:rgba(176,160,144,.14); --md-fence-bg:rgba(176,160,144,.12);
+  --code-keyword:#e8886d; --code-string:#d9b48a; --code-comment:#a09080;
+  --code-number:#d99a5b; --code-function:#e8b86d; --code-tag:#a8c090;
+}
+[data-theme="light"][data-color-scheme="sepia"] {
+  --md-h1-color:#9a6b1f; --md-h2-color:#8a5a2b; --md-h3-color:#6f7a2b;
+  --md-strong-color:#a85a1f; --md-em-color:#a53d6b; --md-link-color:#8a5a2b;
+  --md-quote-color:#7a6f5a;
+  --md-h1-bg:rgba(154,107,31,.08); --md-h2-bg:rgba(138,90,43,.07); --md-h3-bg:rgba(111,122,43,.07);
+  --md-quote-bg:rgba(122,111,90,.10); --md-code-bg:rgba(122,111,90,.12); --md-fence-bg:rgba(122,111,90,.08);
+  --code-keyword:#c2553a; --code-string:#7a5a1f; --code-comment:#8a7a5a;
+  --code-number:#8a5a2b; --code-function:#9a6b1f; --code-tag:#5a7a2b;
+}
+
+/* ---------- high-contrast 方案（强对比） ---------- */
+:root[data-color-scheme="high-contrast"] {
+  --md-h1-color:#ffffff; --md-h2-color:#00ffff; --md-h3-color:#00ff00;
+  --md-strong-color:#ffaa00; --md-em-color:#ff55ff; --md-link-color:#00bfff;
+  --md-quote-color:#dddddd;
+  --md-h1-bg:rgba(255,255,255,.18); --md-h2-bg:rgba(0,255,255,.12); --md-h3-bg:rgba(0,255,0,.10);
+  --md-quote-bg:rgba(255,255,255,.12); --md-code-bg:rgba(255,255,255,.14); --md-fence-bg:rgba(255,255,255,.12);
+  --code-keyword:#ff5555; --code-string:#55ff55; --code-comment:#aaaaaa;
+  --code-number:#55ffff; --code-function:#ff55ff; --code-tag:#ffff55;
+}
+[data-theme="light"][data-color-scheme="high-contrast"] {
+  --md-h1-color:#000000; --md-h2-color:#0000cc; --md-h3-color:#006600;
+  --md-strong-color:#cc6600; --md-em-color:#cc0099; --md-link-color:#0000cc;
+  --md-quote-color:#333333;
+  --md-h1-bg:rgba(0,0,0,.10); --md-h2-bg:rgba(0,0,204,.08); --md-h3-bg:rgba(0,102,0,.08);
+  --md-quote-bg:rgba(0,0,0,.08); --md-code-bg:rgba(0,0,0,.10); --md-fence-bg:rgba(0,0,0,.08);
+  --code-keyword:#cc0000; --code-string:#006600; --code-comment:#666666;
+  --code-number:#0000cc; --code-function:#990099; --code-tag:#006600;
+}
+
+/* ===================== 编辑区 CM6 类绑定（class 驱动核心） ===================== */
+/* 彩色字体：markdown 语法 token → 变量色 */
+.cm-content .cm-md-token-heading-1 { color: var(--md-h1-color); font-weight: 700; }
+.cm-content .cm-md-token-heading-2 { color: var(--md-h2-color); font-weight: 700; }
+.cm-content .cm-md-token-heading-3 { color: var(--md-h3-color); font-weight: 700; }
+.cm-content .cm-md-token-heading-4 { color: var(--md-h2-color); font-weight: 700; opacity: .92; }
+.cm-content .cm-md-token-heading-5 { color: var(--md-h3-color); font-weight: 700; opacity: .9; }
+.cm-content .cm-md-token-heading-6 { color: var(--md-h1-color); font-weight: 700; opacity: .85; }
+.cm-content .cm-md-token-strong { color: var(--md-strong-color); font-weight: 700; }
+.cm-content .cm-md-token-emphasis { color: var(--md-em-color); font-style: italic; }
+.cm-content .cm-md-token-link { color: var(--md-link-color); text-decoration: underline; }
+.cm-content .cm-md-token-url { color: var(--md-link-color); }
+.cm-content .cm-md-token-quote { color: var(--md-quote-color); font-style: italic; }
+.cm-content .cm-md-token-code { color: var(--text-primary); background: var(--md-code-bg); border-radius: 3px; padding: 0 2px; }
+.cm-content .cm-md-token-separator { color: var(--md-quote-color); }
+.cm-content .cm-md-token-markup { color: var(--text-secondary); opacity: .7; }
+
+/* 行底色：标题/引用/代码块行（正则法产生 class） */
+.cm-content .cm-md-heading-1 { background: var(--md-h1-bg); }
+.cm-content .cm-md-heading-2 { background: var(--md-h2-bg); }
+.cm-content .cm-md-heading-3 { background: var(--md-h3-bg); }
+.cm-content .cm-md-heading-4 { background: var(--md-h2-bg); }
+.cm-content .cm-md-heading-5 { background: var(--md-h3-bg); }
+.cm-content .cm-md-heading-6 { background: var(--md-h1-bg); }
+.cm-content .cm-md-quote-line { background: var(--md-quote-bg); }
+.cm-content .cm-md-fence-line { background: var(--md-fence-bg); }
+
+/* 标记装饰（#、>、*、` 等标记符弱化显示，可选） */
+.cm-content .cm-md-marker { color: var(--text-secondary); opacity: .55; }
+.cm-content .cm-md-code-fence { color: var(--text-secondary); opacity: .7; }
+
+/* ===================== 预览区 hljs + 块底色（.preview-container） ===================== */
+/* 代码块 hljs token 色 → 变量（不加载 hljs 预置主题，完全由本方案变量驱动） */
+.preview-container .hljs-keyword,
+.preview-container .hljs-selector-tag,
+.preview-container .hljs-built_in { color: var(--code-keyword); }
+.preview-container .hljs-string,
+.preview-container .hljs-attr,
+.preview-container .hljs-template-tag { color: var(--code-string); }
+.preview-container .hljs-comment,
+.preview-container .hljs-quote { color: var(--code-comment); font-style: italic; }
+.preview-container .hljs-number,
+.preview-container .hljs-literal,
+.preview-container .hljs-meta { color: var(--code-number); }
+.preview-container .hljs-title,
+.preview-container .hljs-section,
+.preview-container .hljs-function .hljs-title { color: var(--code-function); }
+.preview-container .hljs-tag,
+.preview-container .hljs-name,
+.preview-container .hljs-attribute { color: var(--code-tag); }
+
+/* 预览区 markdown 语义块底色/色 */
+.preview-container h1 { color: var(--md-h1-color); border-bottom: 1px solid var(--border-subtle, #21262d); padding-bottom: .2em; }
+.preview-container h2 { color: var(--md-h2-color); }
+.preview-container h3 { color: var(--md-h3-color); }
+.preview-container h4 { color: var(--md-h2-color); }
+.preview-container h5 { color: var(--md-h3-color); }
+.preview-container h6 { color: var(--md-h1-color); }
+.preview-container blockquote {
+  background: var(--md-quote-bg);
+  border-left: 3px solid var(--md-quote-color);
+  color: var(--md-quote-color);
+}
+.preview-container pre.hljs,
+.preview-container pre > code.hljs {
+  background: var(--md-fence-bg);
+}

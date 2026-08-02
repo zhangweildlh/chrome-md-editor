@@ -89,6 +89,12 @@ import { getOutlineItems, renderOutline, setOutlineEditor } from './outline.js';
 // A-12 任务列表面板
 import { getTaskItems, renderTaskList, setTaskEditor } from './tasklist-panel.js';
 
+// Markdown 语法高亮（A+B 方案）：编辑区 class 驱动高亮 + 行底色（P2）、
+// 预览区 highlight.js 代码块高亮（P3）、多套配色令牌与切换（Phase 1/P4）。
+import { mdEditorHighlightExtensions } from './md-editor-highlight.js';
+import { createMarkdownHighlight } from './md-preview-highlight.js';
+import { getColorScheme, setColorScheme, applyStoredColorScheme } from './md-theme-tokens.js';
+
 // ==========================================
 // Mermaid 初始化
 // ==========================================
@@ -107,6 +113,9 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true,
   breaks: true,
+  // A+B 方案 Phase 3：预览区代码块语法高亮（highlight.js 11）。
+  // 回调内部已对输出外包 sanitizePreviewHtml（DOMPurify），保持 XSS 防护链不回退。
+  highlight: createMarkdownHighlight(sanitizePreviewHtml),
 });
 
 // M1 修复（预览 XSS）：markdown-it 保留 html:true，以支持样式工具栏写入的
@@ -175,6 +184,10 @@ let translateSettingsCache = null;
 
 // Theme compartment for dynamic switching
 const themeCompartment = new Compartment();
+
+// A+B 方案 Phase 1/4：应用启动即把持久化的配色方案同步到 <html data-color-scheme>，
+// 使编辑区(CM6)与预览区(hljs)的令牌色随配色方案即时生效（无需 reconfigure 高亮）。
+applyStoredColorScheme();
 
 // Custom light theme
 const lightTheme = EditorView.theme({
@@ -344,6 +357,9 @@ graph LR
     EditorState.allowMultipleSelections.of(true),
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    // A+B 方案 Phase 2：编辑区 Markdown 语法彩色字体（class 驱动）+ 行底色。
+    // 叠加在通用高亮之上，不冲突（前者管通用 token，后者管 markdown tag 的 cm-md-* 类）。
+    ...mdEditorHighlightExtensions,
     bracketMatching(),
     // 中文符号自动配对：closeBrackets 本身不接受配置参数（配置经 languageDataAt 读取）。
     // 【关键约束】CodeMirror 6 的 closeBrackets 把 `brackets` 视为「连续成对」字符串：
@@ -1702,6 +1718,8 @@ function toggleTheme() {
 
   // 更新主题图标
   updateThemeIcon();
+  // A+B 方案 Phase 4：主题切换时防御性重设配色方案属性（data-color-scheme 与 data-theme 正交）。
+  document.documentElement.setAttribute('data-color-scheme', getColorScheme());
 }
 
 function updateThemeIcon() {
@@ -2157,11 +2175,13 @@ function bindEvents() {
     const eFont = displayPopover.querySelector('#dsEditorFont');
     const pFont = displayPopover.querySelector('#dsPreviewFont');
     const density = displayPopover.querySelector('#dsDensity');
+    const colorScheme = displayPopover.querySelector('#dsColorScheme');
     const curEf = getEditorFontSize();
     const curPf = getPreviewFontSize();
     if (eFont && curEf > 0) eFont.value = curEf;
     if (pFont && curPf > 0) pFont.value = curPf;
     if (density) density.value = getDensity();
+    if (colorScheme) colorScheme.value = getColorScheme();
 
     btnDisplaySettings.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2175,6 +2195,9 @@ function bindEvents() {
     });
     if (density) density.addEventListener('change', () => {
             setDensity(density.value);
+    });
+    if (colorScheme) colorScheme.addEventListener('change', () => {
+            setColorScheme(colorScheme.value);
     });
     document.addEventListener('click', (e) => {
       if (!displayPopover.hidden && !displayPopover.contains(e.target) && e.target !== btnDisplaySettings) {
