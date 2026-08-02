@@ -15,6 +15,10 @@ Project uses Semantic Versioning.
 ### Changed
 - `package.json` / `package-lock.json`：将 `@tauri-apps/api` / `@tauri-apps/plugin-dialog` / `@tauri-apps/plugin-fs` 由 `^2` 精确化为 `^2.11.1` / `^2.7.2` / `^2.5.1`，与桌面版 `main` 既有 Tauri 依赖状态对齐（浏览器侧动态 `import()` 仍受 `__TAURI_INTERNALS__` 守卫，不受影响）。
 
+### Fixed
+- **A-5 自动保存键串档（Bug #1，高）**：`initAutosave` 的 `getFileId` 原仅取 `currentFileHandle?.name || 'unsaved'`；而通过 `file://` 打开的 `.md` 文件（内容脚本重定向的主入口）`currentFileHandle` 恒为 `null`，导致所有 `file://` 文件共用 `'unsaved'` 键，不同文件的草稿（`draft::`）与历史快照（`snapshots::`）互相覆盖、互相串档，且启动恢复草稿弹窗会对新打开的文件误报。修复：新增纯函数 `resolveFileKey(handleName, fileName)`（已加回归测试），优先句柄名、回退「已加载文件名」（`updateFilename` 现同步记录 `currentFileName`）、最后 `'unsaved'`；`getFileId` 改用 `resolveFileKey(currentFileHandle?.name, currentFileName)`。
+- **方案 A 实时命中计数不刷新（Bug #2，中）**：自绘查/替面板的 `update()` 仅在 `docChanged || selectionSet` 时调用 `renderCount()`，而提交查询（`setSearchQuery`）既不改文档也不改选区，导致用户输入查找词后 `X/Y` 计数长期为空/陈旧，破坏「实时命中计数」功能。修复：`update()` 在检测到 `setSearchQuery` 副作用后立即补调 `renderCount()`。
+
 ### Notes
 - 功能开发与验证沿用双端兼容临时探针（浏览器侧写 `chrome.storage.local`、EXE 侧写 `probe-<scope>.log`，均追加不覆盖）；每完成一项功能即部署探针、验证、彻底全量回收，本提交**不含任何探针残留**（`node --test` 全量 124 项通过，`vite build` 成功重新生成无探针 `dist/`）。
 - `src/editor.js` 同步清理了 `updateListener` 内 Task 1 遗留的空注释诊断死代码（`matched`/`inserted`/`occ` 计算后未使用、整段 `try/catch` 包裹），并移除因此死代码衍生的孤立回归测试 C3（`tests/init-regression.test.js`），代码恢复干净。

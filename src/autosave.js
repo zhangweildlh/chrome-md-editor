@@ -45,6 +45,15 @@ export function debounce(fn, delay) {
   return wrapped;
 }
 
+// 解析文件唯一键：优先用文件系统句柄名（FileHandle.name），其次用已加载文件名，
+// 最后回退 'unsaved'。
+// 关键修复（Bug #1）：file:// 打开的文件没有 FileHandle（currentFileHandle 为 null），
+// 必须回退到「已加载文件名」，否则所有 file:// 文件会共用 'unsaved' 键，导致不同文件的
+// 草稿（draft::）与历史快照（snapshots::）互相覆盖、互相串档。
+export function resolveFileKey(handleName, fileName) {
+  return handleName || fileName || 'unsaved';
+}
+
 // 文件唯一键：优先用句柄名（含扩展名与文件名，区分不同文件），均无则 'unsaved'
 function fileKey() {
   const id = fileIdResolver ? fileIdResolver() : 'unsaved';

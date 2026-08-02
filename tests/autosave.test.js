@@ -24,7 +24,23 @@ const {
   listSnapshots,
   pushSnapshot,
   restoreSnapshot,
+  resolveFileKey,
 } = await import('../src/autosave.js');
+
+test('resolveFileKey：优先句柄名，其次文件名，最后 unsaved（Bug #1 回归）', () => {
+  assert.equal(resolveFileKey('a.md', 'b.md'), 'a.md', '优先用句柄名');
+  // file:// 打开没有 FileHandle -> 必须回退到已加载文件名，不能为 'unsaved'
+  assert.equal(resolveFileKey(undefined, '笔记.md'), '笔记.md', '无句柄时回退文件名');
+  assert.equal(resolveFileKey(null, '笔记.md'), '笔记.md', 'null 句柄时回退文件名');
+  assert.equal(resolveFileKey(undefined, undefined), 'unsaved', '两者皆无时回退 unsaved');
+  assert.equal(resolveFileKey(null, ''), 'unsaved', '空文件名回退 unsaved');
+});
+
+test('resolveFileKey：不同 file:// 文件名得到不同键，不串档（Bug #1 回归）', () => {
+  const k1 = resolveFileKey(undefined, 'a.md');
+  const k2 = resolveFileKey(undefined, 'b.md');
+  assert.notEqual(k1, k2, '两个不同 file:// 文件必须拥有不同键，否则草稿/快照会互相覆盖');
+});
 
 const fakeEditor = {
   state: { doc: { toString: () => 'hello world', length: 11 }, length: 11 },

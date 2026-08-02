@@ -170,6 +170,9 @@ export function makeSearchPanel(view) {
     update(update) {
       if (update.transactions.some((tr) => tr.effects.some((e) => e.is(setSearchQuery)))) {
         syncFromQuery();
+        // Bug #2 修复：查询变更后必须立即刷新 X/Y 命中计数。否则仅当文档/选区变化时才刷新，
+        // 导致用户输入查找词后计数长期为空/陈旧，破坏「实时命中计数」功能。
+        renderCount();
       }
       if (update.docChanged || update.selectionSet) {
         renderCount();

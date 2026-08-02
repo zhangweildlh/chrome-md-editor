@@ -38,7 +38,7 @@ import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { makeSearchPanel } from './search-panel.js';
 import { restoreScroll } from './scroll-restore.js';
-import { scheduleAutosave, initAutosave, listSnapshots, restoreSnapshot, offerDraftRestore } from './autosave.js';
+import { scheduleAutosave, initAutosave, listSnapshots, restoreSnapshot, offerDraftRestore, resolveFileKey } from './autosave.js';
 import { newInstanceId, pendingFileStorageKey } from './instance-id.js';
 import {
   selectionInsideRoot,
@@ -159,6 +159,8 @@ md.use(calloutPlugin);
 // ==========================================
 let editor = null;
 let currentFileHandle = null;
+// 已加载文件名（file:// 打开时没有 FileHandle，用此值作为自动保存/快照键的回退来源，见 Bug #1 修复）
+let currentFileName = 'unsaved';
 let isModified = false;
 let currentTheme = localStorage.getItem('md-editor-theme') || 'dark';
 let currentViewMode = localStorage.getItem('md-editor-view-mode') || 'split';
@@ -1519,6 +1521,9 @@ function setEditorContent(content) {
 
 function updateFilename(name) {
   document.getElementById('filename').textContent = name;
+  // Bug #1 修复：记录当前文件名，供 getFileId 在 file://（无句柄）场景下回退使用，
+  // 避免所有 file:// 文件共用 'unsaved' 键导致草稿/快照串档。
+  currentFileName = name || 'unsaved';
 }
 
 function markModified() {
@@ -2678,7 +2683,8 @@ function init() {
   createEditor();
 
   // A-5：初始化自动保存上下文（注入 editor 实例与文件唯一键解析器）
-  initAutosave({ editor, getFileId: () => currentFileHandle?.name || 'unsaved' });
+  // Bug #1 修复：用 resolveFileKey 优先句柄名、回退已加载文件名，避免 file:// 文件串档。
+  initAutosave({ editor, getFileId: () => resolveFileKey(currentFileHandle?.name, currentFileName) });
   // A-5：启动后若发现未保存草稿，提示恢复（异步，不阻塞初始化）
   offerDraftRestore().catch((e) => console.error('[autosave] 草稿恢复检查失败', e));
 
