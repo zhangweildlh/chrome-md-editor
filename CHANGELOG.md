@@ -23,7 +23,8 @@ Project uses Semantic Versioning.
 ### Notes
 - **复用来源（MIT / 类 MIT，已保留来源注释）**：`orchidsoftware/platform`（编辑区 class 驱动高亮 + 正则法行底色 + 标记装饰，第 2.1 章）；`markdown-it` 官方 + `tensorflow/tfjs-website` / `BaileyJM02/markdown-to-pdf`（hljs 回调范式，第 2.3 章）；hljs 主题 CSS 模板来自社区通用模式（第 2.6 章）。`heyman/heynote`（Nord 配色参考）、`wxmvv/MokoEditor`（Compartment 范式参考）仅作设计参考。
 - 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
-- 分支：`feat/md-syntax-highlight`（基于 `main` @ `1.4.15`）。
+- 分支：`feat/md-syntax-highlight`（基于 `main` @ `d66536f5`，即 v1.4.15 线）。
+- 已于 2026-08-02 经 `--no-ff` 普通合并合入 `main`（合并提交 `eb26bc5`；保留功能分支提交 `886edae` 为独立谱系，中间提交全保留、历史零改写）；如需整段回滚：`git revert -m 1 eb26bc5`。
 
 ## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown + A-5：自动保存与快照环)
 
