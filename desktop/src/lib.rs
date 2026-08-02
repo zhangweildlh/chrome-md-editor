@@ -68,6 +68,42 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
+// 批量读取结果（逐文件容错）：成功时 content 为 Some，失败时 error 为 Some。
+#[derive(serde::Serialize)]
+struct FileReadResult {
+    path: String,
+    content: Option<String>,
+    error: Option<String>,
+}
+
+// 批量按绝对路径读取多个文本文件（对比合并模块专用）。
+// 逐文件 std::fs::read_to_string，单文件失败不影响其他文件：返回结构化
+// Vec<FileReadResult>，调用方（compare-shims.js）据此区分成功/失败项。
+#[tauri::command]
+fn read_multiple_text_files(paths: Vec<String>) -> Vec<FileReadResult> {
+    paths
+        .into_iter()
+        .map(|p| match std::fs::read_to_string(&p) {
+            Ok(c) => FileReadResult {
+                path: p,
+                content: Some(c),
+                error: None,
+            },
+            Err(e) => FileReadResult {
+                path: p,
+                content: None,
+                error: Some(format!("{}", e)),
+            },
+        })
+        .collect()
+}
+
+// 按绝对路径写入对比合并结果（桌面端导出合并结果专用，无 scope 限制）。
+#[tauri::command]
+fn save_compare_result(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -87,6 +123,8 @@ pub fn run() {
             debug_args,
             read_text_file,
             write_text_file,
+            read_multiple_text_files,
+            save_compare_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

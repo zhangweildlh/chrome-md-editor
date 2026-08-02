@@ -23,7 +23,8 @@
   "permissions": [
     "storage",
     "scripting",
-    "tabs"
+    "tabs",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://api.openai.com/*",
@@ -77,7 +78,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/editor.html"
+        "src/editor.html",
+        "src/compare.html"
       ],
       "matches": [
         "file:///*"
