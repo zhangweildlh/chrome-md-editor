@@ -5,6 +5,108 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.12] - 2026-08-01 (第一批 A 级可吸纳功能：大纲/代码补全/Callout/专注模式/Base64折叠/Mermaid缩放/任务面板)
+
+### Added
+- **文档大纲面板（A-3）**：新增 `src/outline.js`，基于 CodeMirror 6 `syntaxTree` 遍历 ATX 标题节点生成层级大纲；工具栏新增「大纲」按钮（`btnOutline`）打开侧边抽屉（`#outlinePanel` / `#outlineList`），点击条目滚动跳转至对应标题。
+- **代码块语言自动补全（A-6）**：新增 `src/codeblock-complete.js`，在 Markdown 代码围栏起始行注入 CodeMirror 补全源，输入 ```` ``` ```` 后提示常用语言（js/ts/py/json/rust/html/css/sql/bash 等），降低代码块语言标注成本；含临时探针 A6_COMPLETE_TRIGGER / A6_COMPLETE_NO_MATCH / A6_COMPLETE_ERR。
+- **Callout 标注渲染（A-7）**：新增 `src/callout.js` 作为 markdown-it 插件（`calloutPlugin`），识别 `> [!NOTE]` / `[!TIP]` / `[!WARNING]` 等 GitHub 风格标注语法，转译为带类型配色与图标的 `.callout` 块；`src/html-to-markdown.js` 反向还原时保留 `[!TYPE]` 语法，避免预览回写退化。
+- **专注模式 / 打字机模式（A-8）**：新增 `src/focus-mode.js`，提供两种沉浸式编辑体验——专注模式淡出非活动行（`.focus-mode .cm-line`）、打字机模式使当前行垂直居中；工具栏新增「专注」（`btnFocusMode`）、「打字机」（`btnTypewriter`）按钮及状态同步。
+- **Base64 内联图片代码折叠（A-9）**：新增 `src/base64-fold.js`，对源码中超长 `![...](data:image/...;base64,...)` 行以 `⛶` 代码折叠装饰隐藏，避免长 base64 撑爆编辑器视图，点击展开/收起。
+- **Mermaid 图缩放与全屏（A-10）**：新增 `src/mermaid-zoom.js`，为每个渲染后的 Mermaid 图注入「⛶」按钮，支持 Ctrl/Cmd+滚轮以光标为锚点缩放、重置视图、点击打开全屏浮层（`#mermaid-zoom-overlay`）细看复杂图。
+- **任务列表面板（A-12）**：新增 `src/tasklist-panel.js`，扫描源码中 `- [ ]` / `- [x]` 任务项，工具栏「任务」按钮（`btnTasks`）打开侧边抽屉（`#taskListPanel` / `#taskList`），点击复选框直接回写源码切换完成状态。
+
+### Changed
+- `src/editor.js`：集成上述 7 模块——导入区补充新模块与 `registerProbeEnvProvider`；Markdown 配置注入代码块语言补全源；扩展数组加入 Base64 折叠；`updateListener` 的 `docChanged` 触发大纲/任务面板防抖刷新（150ms）、`selectionSet` 触发专注模式当前行居中；注册 `calloutPlugin`；预览更新在 Mermaid 渲染后注入缩放增强；`createEditor` 绑定大纲/任务编辑器实例与初始渲染；`init` 注册探针环境快照与显示设置初始化；`bindEvents` 接入专注/打字机/大纲/任务/显示设置（编辑器字号、预览字号、密度）按钮与弹层。
+- `src/editor.html`：工具栏新增 `view-tools-group`（专注/打字机/大纲/任务/显示设置按钮 + `#displaySettingsPopover` 弹层），`</main>` 后新增 `#outlinePanel` / `#taskListPanel` 侧边抽屉。
+- `src/editor.css`：新增 CSS 变量（`--editor-font-size` / `--preview-font-size` / `--ui-gap`）、专注模式淡化、Base64 折叠、Callout 配色与图标、侧边面板/大纲/任务项、Mermaid 缩放按钮与全屏浮层样式。
+- `desktop/src/lib.rs`：新增 `probe_log` Tauri 命令，将探针日志写入 `%TEMP%/md-editor-probe.log`（供 EXE 侧落盘）。
+
+### Fixed
+- **预览区编辑三类回写缺陷（BUG-1/2/3）修复**（同源 `src/`，Chrome 扩展与 Tauri EXE 共用）：
+  - **BUG-1（多余空行）**：源码为一行一段（段间无空行）时，预览区任一段尾敲回车后，编辑区与预览区不再每段间被插入一空行；多段无空行比对回归通过。`src/html-to-markdown.js` 新增 `collapseSoftBreaks` 折叠连续空行。
+  - **BUG-2（跳转文件头）**：预览区任一位置修改字符串后，编辑区与预览区不再自动跳转到文件头部。`src/editor.js` 的 `doUpdatePreview` 与 `setEditorContent` 在预览重建 / 编辑器全量替换后改用 `src/scroll-restore.js` 的 `restoreScroll` 显式恢复重建前滚动位置（含 `requestAnimationFrame` 兜底）；滚动恢复纯逻辑已抽取为可单测模块。
+  - **BUG-3（引用空段不同步）**：多段 `>` 引用场景下，预览区删除空段 `>` 时，编辑区现已跟随删除。`src/html-to-markdown.js` 的 blockquote 分支改为按块逐行还原，空块跳过、多段引用不再被折叠合并。
+- **配套自动化测试**：新增 `tests/html-to-markdown-bug1-3.test.js`（BUG-1/3 共 8 项，用 markdown-it + linkedom 复现回写机制）与 `tests/scroll-restore.test.js`（BUG-2 滚动恢复 5 项）；`node --test` 全量 110 项通过。
+
+### Notes
+- **临时调试探针（覆盖 7 模块 A-3/A-6/A-7/A-8/A-9/A-10/A-12）**：在 `src/probe.js`（增强版）基础上为本次 7 个功能部署遍布式临时探针，满足：① 经 `// ===== PROBE START/END =====` 标记可彻底回收；② 自动捕获 `window.error` / `unhandledrejection` 并采集环境快照（版本/主题/视图模式/是否 Tauri/文档长度/行数/选区/预览滚动/UA）；③ 经「导出探针日志」按钮或 Tauri `probe_log` 命令独立写出 `.log` 文件，内容足以支撑 BUG 定位、分析排查与修复。该探针为临时调试代码，**验证稳定后将随 `src/probe.js` 及 editor.js / html-to-markdown.js / editor.html 中的探针调用整体删除，不计入正式发布**。
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- 分支：`feat/batch-a-features`（基于 `feat/editor-find-replace-bracket` 尖端 @ `33991ce`，即 `main` @ `5f06e90` 的下游）。
+
+## [1.4.14] - 2026-08-01 (彻底回收临时调试探针，发布干净稳定版)
+
+### Removed
+- **完整彻底回收全部临时调试探针**：删除 `src/probe.js` 核心探针模块；移除 `src/editor.js`、`src/editor.html`、`src/html-to-markdown.js`、`src/outline.js`、`src/tasklist-panel.js`、`src/mermaid-zoom.js`、`src/focus-mode.js`、`src/codeblock-complete.js`、`src/callout.js`、`src/base64-fold.js` 中全部 `// ===== PROBE START/END =====` 标记块、裸 `probe()` 调用、`registerProbeEnvProvider` 调用与 `import { ... } from './probe.js'` 引用；移除 `src/editor.html` 的「导出探针日志」按钮及导出脚本；移除 `desktop/src/lib.rs` 的孤儿 `probe_log` Tauri 命令及其注册。代码恢复干净，无任何探针残留（`node --test` 全量 125 项通过，`vite build` 成功重新生成无探针 `dist/`）。
+
+### Notes
+- 本次为将 `feat/batch-a-features` 合并入 `main` 前的清理发布。探针系统原为 A 级功能开发与 BUG 定位（BUG-1/2/3/4）的临时调试设施，定位修复后按计划整体回收，不计入正式发布。
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+
+## [1.4.13] - 2026-08-02 (第二轮修复：预览区体验对齐 + 符号配对 + UI 溢出)
+
+### Fixed
+- **中文单/双引号错配对（BUG-4）**：CodeMirror 6 的 `closeBrackets` 把 `brackets` 视为「连续成对字符串」，原配置是普通数组且按相邻两位强行配对，导致 `(` 闭合到 `[`、`“` 闭合到 `` ` ``、`‘` 闭合到 `（` 等完全错乱——表现为输入 `“` 出现 `“`+`` ` `` 而非 `“”`、重复输入出三个字符。改为唯一事实源 `src/close-brackets-config.js` 的 `BRACKET_PAIRS`（开闭显式成对）派生成 `BRACKETS_STR`，由 `editor.js` 仅消费：`()[]{}<> '' "" \`\` “” ‘’ （）`，ASCII 自配对引号以「同字符连续两次」表达。
+- **「导出探针日志」按钮无文件落地（BUG-1）**：EXE 端旧实现走 `probe_log` 直接写 `%TEMP%/md-editor-probe.log`，但按钮提示说「下载文件」让用户在下载文件夹找不到文件、误以为未导出。改为「Save 对话框 + write_text_file」流程：用户在系统保存对话框自选位置，回调中把实际保存路径附在成功提示里。`src/probe.js` 在 Tauri 路径走 `import('@tauri-apps/plugin-dialog').save()` + `invoke('write_text_file', { path, content })`，失败回退到扩展端的 Blob 下载。`src/editor.html` 按钮处理改为 `async`，正确展示「已保存到 X / 用户取消 / 失败原因」。
+- **显示设置弹窗溢出屏幕（BUG-2）**：`.style-popover` 旧用 `left:0` 锚定到按钮左侧，「显示设置」按钮位于工具栏最右侧时弹窗向左溢出屏幕（截图见 `ScreenShot_2026-08-02_075128_975.jpg`）。CSS 改为 `right:0` 锚到按钮右侧，并加 `max-width: min(280px, calc(100vw - 24px))` 限制最大宽度，同时覆盖颜色/字号/显示设置三个弹层。
+
+### Added
+- **预览区符号自动配对（BUG-3）**：编辑器侧有 CodeMirror `closeBrackets`，预览侧（contentEditable HTML）原无此能力，两侧输入体验不一致。新增 `src/auto-pair.js` 提供 `getAutoPairClose(insertedChar, nextChar)` 纯逻辑——输入开符号时返回对应闭符号、nextChar 是字母/数字则跳过（避免中间输入 `foo|` 变 `foo()|`）、nextChar 已是闭符号则跳过（避免重复插入）。`initPreviewEditing` 在 `input` 事件中调用该函数，在光标位置插入闭符号并把光标移回中间。覆盖 ASCII `()[]{}<>` 与中文 `“”‘’（）`。
+- **配套自动化测试**：新增 `tests/auto-pair.test.js`（7 项，验证各开符号 + 边界场景）与 `tests/close-brackets-config.test.js`（7 项，验证 BRACKETS_STR 满足 CM6 相邻成对解析约束且旧 BUG-4 错配对不再出现）；`node --test` 全量 125 项通过。
+
+### Notes
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- BUG-1 修复仍依赖 `tauri_plugin_dialog::init()`（`desktop/src/lib.rs:92` 已注册）与 capability `dialog:allow-save`、`fs:allow-write-text-file`（`desktop/capabilities/default.json` 已含）。`write_text_file` 为项目自定义 Tauri 命令（`desktop/src/lib.rs:66`），未走 `fs:` 权限范围。
+
+## [1.4.11] - 2026-08-01 (测试与调试探针)
+
+### Added
+- **单元测试覆盖符号配对纯逻辑**：将 `findPairedBracket` / `findSelfPair` / `bracketMatchMap` 等符号配对纯逻辑抽取至 `src/bracket-utils.js`（行为不变），新增 `tests/bracket-utils.test.js` 覆盖 M1 map 构建、`findPairedBracket` 栈匹配、`findSelfPair` 就近匹配，共 14 项用例全部通过（`node --test`），解耦 CodeMirror 依赖以便纯逻辑验证。
+
+### Fixed
+- **`selectedBracketHighlight()` 误调用导致初始化崩溃（critical，预先存在，与探针无关）**：`src/editor.js` 扩展数组中错误地以 `selectedBracketHighlight()`（带括号）方式引用 `ViewPlugin.fromClass(...)` 的返回值。`ViewPlugin.fromClass()` 返回的是扩展实例本身（不可被 `()` 调用），调用它触发 `TypeError: Xet is not a function`，使 `new EditorView(...)` 构造期即崩溃、`init()` 中断。该 bug 自 v1.4.9 引入（`selectedBracketHighlight` 插件加入时即误用），与本次部署的探针毫无关系——即便移除全部探针，应用仍会因该误调用而无法启动。修复：改为 `selectedBracketHighlight`（去掉括号，直接作为扩展使用）。
+- **`languageData.of` 配置格式错误导致初始化崩溃（critical，v1.4.10 引入，与探针无关）**：v1.4.10 为修复中文符号自动配对，写入 `EditorState.languageData.of({ closeBrackets: { brackets: [...] } })`，但该格式错误——`languageData` facet 的每个 provider **必须是返回可迭代对象（数组）的函数**（`languageDataAt` 内部对 `provider(state,pos,side)` 的返回值做 `for...of`）。传入普通对象会使 CM 在读取 `closeBrackets` 配置时（`closeBrackets()` 调用 `state.languageDataAt("closeBrackets", pos)`）抛 `TypeError: s is not a function or its return value is not iterable`，同样在 `new EditorView` 构造/首更新期崩溃。该 bug 亦与探针无关。修复：`EditorState.languageData.of((state, pos) => [{ closeBrackets: { brackets: [...] } }])`。
+- **探针引发的初始化崩溃（critical，探针代码副作用）**：`src/editor.js` 的 `createEditor` 内 `updateListener` 探针代码中错误地使用**全局变量 `editor`** 读取 `editor.scrollDOM`，而 `editor` 在 `new EditorView(...)` 构造完成后才赋值；CodeMirror 在构造期会**同步触发首次 update**，此时全局 `editor` 仍为 `null`，导致 `editor.scrollDOM` 抛 `TypeError`。修复：探针改用回调参数 `update.view.scrollDOM`；并为整个探针区块包裹 `try/catch`，确保今后探针异常不再中断编辑器初始化。
+- **预览 DOM-XSS 风险（medium，预先存在，审计 M1）**：`markdown-it` 以 `html:true` 渲染用户 `.md` 内容后直接 `previewContainer.innerHTML = html`，攻击者可构造含 `<script>`、`onerror=` 等恶意标记的文档触发 DOM-XSS（在 Chrome 扩展 / EXE 中可窃取页面上下文或发起本地文件越权读取）。修复：保留 `html:true`（以维持样式工具栏写入的 `<font>`/`<center>` 标记正常渲染），新增 `sanitizePreviewHtml()` 经 `DOMPurify` 净化后再注入 DOM，并显式放行应用依赖的 `font`/`center` 标记与 `color`/`face`/`size`/`align` 属性；`class`/`id`/`style`/`data-*` 由 DOMPurify 默认策略保留并净化。新增运行时依赖 `dompurify`。
+
+> **根因结论（回应「是否由探针引发」）**：本次构建产物的严重 BUG **并非探针导致**。真正的根因是两个预先存在的 CodeMirror API 误用——`selectedBracketHighlight()` 误调用（v1.4.9）与 `languageData.of` 格式错误（v1.4.10），二者都会在 `new EditorView` 构造期独立致崩，使编辑器实例从未创建，表现为「按键全失效 / 双击 .md 无内容 / 主题切换失效 / 探针无 log」。探针代码仅在 `updateListener` 中额外引入了一处同类崩溃（`editor.scrollDOM`），已一并修复。三者任一存在都会让应用完全不可用；移除探针也无法让应用恢复，必须先修上述两个 API 误用。
+
+### Notes
+- **临时调试探针（S1~S4）**：为「查找 / 替换 / 符号配对 / 相同字符串高亮」四个功能在 `src/probe.js` 基础上部署 7 个运行时针点（S1-A/B 查找、S2-A 替换、S3-A/B/C 符号配对、S4-A 相同字符串高亮），经浏览器/EXE 侧复现后由「导出探针日志」按钮下载 `.log` 分析。该探针为临时调试代码，**修复相关 BUG 后将随 `src/probe.js` 及 editor.js / html-to-markdown.js / editor.html 中的探针调用整体删除，不计入正式发布**。
+- 样式工具栏最高优先级约定未被触碰。
+- 分支：`feat/editor-find-replace-bracket`。
+
+## [1.4.10] - 2026-07-31 (缺陷修复)
+
+### Fixed
+
+- **H1 中文符号自动配对配置无效（核心缺陷）**：v1.4.9 的 `closeBrackets({ brackets })` 传入的配置被忽略（`closeBrackets` 为无参函数，配置经 `EditorState.languageDataAt('closeBrackets')` 读取）。改为通过 `EditorState.languageData.of({ closeBrackets: { brackets: [...] } })` 提供配置，中文引号/全角括号依赖 `closing()` 的「非 ASCII 字符 ch+1」回退（Unicode 连续码点）正确推导闭符号，英文 `()[]{}'"` 与中文符号、反引号均生效。
+- **M1 `bracketMatchMap` 构建缺陷**：原 `SELECTED_BRACKET_PAIRS` 奇数长字符串导致末尾反引号 `other=undefined` 且污染 `undefined` 键；英文引号同字符覆盖使 `dir` 仅剩 -1。改为 `PAIR_GROUPS`（开闭不同、中文按左右字符分组）+ `SELF_PAIRS`（英文引号/反引号自身配对，就近匹配），消除污染。
+- **反引号选中高亮补全**：将反引号纳入 `SELF_PAIRS`，支持选中单个反引号高亮其就近配对的另一个反引号，满足原始需求。
+- **L1 性能优化**：`selectedBracketHighlight` 缓存 `doc.toString()` 结果（`cachedDoc`），`docChanged` 时失效，避免每次光标移动全量重建 O(n)。
+
+### Notes
+
+- 复审报告：`.workbuddy/review-combo-2026-07-31-reaudit-fixed.md`（H1/M1/L1 已修复验证）。
+- 样式工具栏最高优先级约定未被触碰。
+
+## [1.4.9] - 2026-07-31
+
+### Added
+
+- **查找 / 替换面板**：显式注册 `@codemirror/search` 的 `search()` 扩展；工具栏新增「查找」按钮（`btnFind`），点击打开 CodeMirror 原生查找/替换面板（查找输入框、上一个/下一个、区分大小写、正则、整词匹配，覆盖 Notepad4 截图全部查找选项）。
+- **中文与全角符号自动配对（配置在 v1.4.9 实际无效，已于 v1.4.10 修正）**：原方案通过 `closeBrackets({ brackets })` 传入配置，但 `closeBrackets` 为无参函数、配置经 `languageDataAt` 读取，该调用被忽略，中文符号自动配对在 v1.4.9 并未实际生效（仅英文 `()[]{}'"` 为 CodeMirror 默认配对）。正确实现见 v1.4.10。
+- **选中符号高亮配对另一半**：新增 `selectedBracketHighlight` 自定义 `ViewPlugin`（`@codemirror/view` 的 `ViewPlugin.fromClass` + `Decoration.mark`）。当选区恰好落在单个配对符号（含中英文引号/括号/花括号/反引号）上时，自动高亮其对应的另一半，样式为 `.cm-bracket-match-active`（绿色下划 + 半透明背景）。
+
+### Changed
+
+- `src/editor.js` 导入补充 `ViewPlugin`、`Decoration`（来自 `@codemirror/view`）与 `search`、`openSearchPanel`（来自 `@codemirror/search`）；同字符串高亮由内置 `highlightSelectionMatches()` 提供，本次未改动其实现。
+
+### Notes
+
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- 分支：`feat/editor-find-replace-bracket`（基于 `main` @ `5f06e90`）。
+
 ## [1.4.8] - 2026-07-26 (修复发布，已移除全部探针)
 
 ### Fixed

@@ -453,3 +453,23 @@ v1.4.4 合并进 `main` 后，桌面 EXE 在实测中连续出现「双击 .md �
 4. **可靠拖放**：用 `getCurrentWebview().onDragDropEvent()`，不要用 `listen('tauri://drop')`。
 5. **本地无 Rust 工具链**：所有 Rust 编译错误只能靠 `desktop-build.yml`（windows-latest）CI 暴露，提交前严格自审 `desktop/src/lib.rs`（trait 导入、所有权、迭代器 `.cloned()`/`.map()` 适配）。
 
+---
+
+## 2026-08-01 第十阶段：第一批 A 级可吸纳功能（借鉴 MarKing）
+
+### 背景
+复盘 GitHub 仓库 `l06066hb/MarKing` 的可吸纳项评估（只读），确认其公开仓无应用源码（CI 从私有 Gitee 拉取），故基于本地 Chrome-Markdown-Edit 架构自行实现第一批 A 级项：A-3 大纲、A-6 代码块语言补全、A-7 Callout、A-8 专注/打字机、A-9 Base64 折叠、A-10 Mermaid 缩放、A-12 任务面板。
+
+### 实施
+- 7 个独立模块：`src/outline.js` / `codeblock-complete.js` / `callout.js` / `focus-mode.js` / `base64-fold.js` / `mermaid-zoom.js` / `tasklist-panel.js`，经 `src/editor.js` / `src/editor.html` / `src/editor.css` 与 `desktop/src/lib.rs` 集成。
+- 全模块遍布临时探针（`src/probe.js` 增强版）：支持环境快照、自动错误捕获、独立写出 log 文件，可经 `// ===== PROBE START/END =====` 标记彻底回收。
+
+### 验证
+- `vite build` 通过；`npm test` 75/76 通过。唯一失败为 Windows 本机 `tmpdir()` 路径双盘符 `D:\D:\` 的预存在环境问题（`tests/issue-acceptance.test.js`，与 A 级改动无关，CI Linux 应通过）。
+
+### 分支与迁移
+- 实现落于 `feat/batch-a-features`。因上一轮会话误将工作区落在 `feat/editor-find-replace-bracket`，本次通过 `git stash -u` + 切换 batch 分支并快进合并至 bracket 尖端 `33991ce` + `git stash pop` 零冲突迁移回 `feat/batch-a-features`；`feat/editor-find-replace-bracket` 恢复为仅含其自身提交的干净状态。
+
+### 补丁（A-6 探针补齐）
+- 核查发现 A-6（codeblock-complete.js）原仅 `PROBE START/END` 注释占位、无实际 `probe()` 调用，违反「7 功能均遍布探针」硬约束。已补齐三类路径探针（A6_COMPLETE_TRIGGER / A6_COMPLETE_NO_MATCH / A6_COMPLETE_ERR），`vite build` 通过（7.99s）。
+

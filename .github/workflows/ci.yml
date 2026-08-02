@@ -3,12 +3,12 @@ name: CI
 permissions:
   contents: write
 
-# 触发：推送到 main / fix/print-multipage 分支、打 v* 标签、对 main 开 PR 时运行。
+# 触发：推送到 main / fix/print-multipage / feat/editor-find-replace-bracket 分支、打 v* 标签、对 main 开 PR 时运行。
 # 说明：本 fork 此前无 CI 工作流；本文件用于「远端编译」——
 # 在 GitHub 云端跑 npm ci + vite build 产出 dist/，并作为 artifact 上传（不创建 Release）。
 on:
   push:
-    branches: [main, fix/print-multipage]
+    branches: [main, fix/print-multipage, feat/editor-find-replace-bracket]
     tags: ["v*"]
   pull_request:
     branches: [main]

@@ -3,7 +3,7 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.4.8](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.4.8-desktop)**  
+**当前版本：[v1.4.14](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.4.14-desktop)**  
 **下载（Chrome 扩展）：** [chrome-md-editor-v1.4.8.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/chrome-md-editor-v1.4.8.zip)  
 **下载（Windows 独立 EXE）：** [Markdown.Editor_1.4.8_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/Markdown.Editor_1.4.8_portable.exe)  
 **许可：** [MIT](./LICENSE)
@@ -44,7 +44,7 @@
 | 多实例 | 每次点扩展图标新开独立标签；多文件互不抢占 |
 | 项目侧边栏 | 打开文件夹后浏览并切换同目录 Markdown |
 | 分屏预览 | 左编辑 / 右预览；支持仅编辑、仅预览 |
-| 预览区编辑 | 可在渲染结果上直接改字，再同步回源码 |
+| 预览区编辑 | 可在渲染结果上直接改字，再同步回源码（回车新增/删除空段、多段 `>` 引用、滚动位置均正确保持，不会插入多余空行或跳回文件头） |
 | 本地图片 | 相对路径图片可预览；支持粘贴截图（有权限时写入 `images/`） |
 | Mermaid | ` ```mermaid ` 代码块渲染为图 |
 | 主题 | 深色 / 浅色 |
@@ -85,7 +85,7 @@
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.4.8**）。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.4.14**）。
 4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.4.8_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
@@ -186,7 +186,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.4.8**).
+The toolbar should show the release version (currently **v1.4.14**).
 
 ### Features (short)
 
