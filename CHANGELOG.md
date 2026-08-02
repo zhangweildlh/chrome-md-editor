@@ -25,6 +25,20 @@ Project uses Semantic Versioning.
 - 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
 - 分支：`feat/plan-a-a4`（基于 `main` @ `v1.4.14-desktop`，即 `6404b6a`）。
 
+## [1.4.15] - 2026-08-02 (重新发布：修复编辑器版本戳错报 + Vite 注入根治)
+
+### Fixed
+- **编辑器版本戳错报（高）**：`src/editor.html` 第 37 行静态兜底值、`src/editor.js` 的 `APP_VERSION` 原硬编码为 `1.4.8`，导致 v1.4.15 发布后编辑器标题栏/关于信息仍显示 `v1.4.8`，与真实版本（`package.json` / `manifest.json` 的 `1.4.15`）严重不符，误导用户对已装版本的判断。修复：三文件协同根治——① `vite.config.js` 新增 `define: { __APP_VERSION__: JSON.stringify(pkg.version) }`，构建时从 `package.json` 单一事实源注入；② `src/editor.js` 改为 `export const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.4.15"`，读取注入值并保留运行时兜底；③ `src/editor.html` 静态兜底值由 `1.4.8` 更正为 `1.4.15`。版本戳自此由 `package.json` 单一事实源驱动，杜绝手动硬编码漂移。
+
+### Changed
+- `vite.config.js`：引入 `fs.readFileSync` + `import.meta.url` 读取 `package.json` 的 `version`，通过 Vite `define` 注入 `__APP_VERSION__` 编译期常量（构建产物中该常量被静态替换为字符串字面量，无需运行时读取 JSON）。
+
+### Notes
+- 本次为 v1.4.15 的**补发/重新发布**（同一版本号，仅修复版本戳一致性缺陷），不改动任何功能行为。
+- 发布一致性闭环：提交 `b69e2ab` → 推送 `main` → 移动 tag `v1.4.15`（删远端标签 + 重推，合规非强推）→ 重建 `dist/` → 重建 GitHub Release（保留旧桌面 EXE 备份）。产物经核对与源码一致。
+- 关联提交：`b69e2ab` fix: 注入 __APP_VERSION__ 修复版本号错报(1.4.8→1.4.15)。
+- 回归验证：浏览器侧多场景 + 多边界测试 23/23 用例通过（Playwright CDP 端到端套件 `e2e/`，非发布必备，可选纳入 CI 门禁）。
+
 ## [1.4.12] - 2026-08-01 (第一批 A 级可吸纳功能：大纲/代码补全/Callout/专注模式/Base64折叠/Mermaid缩放/任务面板)
 
 ### Added
