@@ -64,6 +64,39 @@ chrome.action.onClicked.addListener(async () => {
 });
 
 // ==========================================
+// 对比合并入口（T1）：右键菜单「打开对比合并」
+// 点击后新开 compare.html 独立实例（沿用 newInstanceId，不复定义）。
+// 用 chrome.contextMenus 存在性守护，避免缺少权限时抛出异常。
+// ==========================================
+if (chrome.contextMenus) {
+  // 菜单创建移到 onInstalled：MV3 service worker 每次唤醒若无条件
+  // create 同 id 会触发 runtime.lastError（菜单已存在）。
+  chrome.runtime.onInstalled.addListener(() => {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create(
+        {
+          id: 'open-compare-merge',
+          title: '打开对比合并',
+          contexts: ['action', 'page'],
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            console.warn('[MD Editor] 创建右键菜单失败:', chrome.runtime.lastError);
+          }
+        }
+      );
+    });
+  });
+
+  chrome.contextMenus.onClicked.addListener((info) => {
+    if (info.menuItemId !== 'open-compare-merge') return;
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('src/compare.html') + '?i=' + newInstanceId(),
+    });
+  });
+}
+
+// ==========================================
 // 方案 B：通过 tabs.onUpdated 拦截 .md 文件
 // 当 content script 不生效时作为备用
 // ==========================================
