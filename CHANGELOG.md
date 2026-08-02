@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.4.15] - 2026-08-01 (方案 A：自绘中文查/替面板 + A-4：粘贴为 Markdown)
+
+### Added
+- **自绘中文查找/替换面板（方案 A）**：新增 `src/search-panel.js`，替代 CodeMirror 6 默认英文 `search` 面板，注入官方 `search({ createPanel })` 钩子实现中文查/替界面——保持官方搜索语义（增量搜索、正则、大小写、全词），新增命中位置计数 `X/Y`、全选匹配（`selectMatches`）、替换下一个（`replaceNext`）/替换全部（`replaceAll`）；`src/editor.js` 第 384 行 `search()` 改为 `search({ createPanel: makeSearchPanel })`，`src/editor.css` 新增 `.md-search-panel` 系列样式（复用明暗主题变量）。
+- **粘贴为 Markdown（A-4）**：改造 `src/editor.js` 的 `initPasteImageSupport`，采用三分支逻辑——① 图片优先（保留原有截图粘贴并写入 `images/` 或内嵌 data URL）；② 富文本 HTML→Markdown（复用 `src/html-to-markdown.js` 的 `htmlToMarkdown` + `FORMATTING_SELECTOR` 启发式判定，仅当转换结果确实比纯文本多了结构化内容时才拦截，避免破坏纯文本粘贴手感）；③ 其余（纯文本等）放行默认粘贴。
+
+### Changed
+- `package.json` / `package-lock.json`：将 `@tauri-apps/api` / `@tauri-apps/plugin-dialog` / `@tauri-apps/plugin-fs` 由 `^2` 精确化为 `^2.11.1` / `^2.7.2` / `^2.5.1`，与桌面版 `main` 既有 Tauri 依赖状态对齐（浏览器侧动态 `import()` 仍受 `__TAURI_INTERNALS__` 守卫，不受影响）。
+
+### Notes
+- 功能开发与验证沿用双端兼容临时探针（浏览器侧写 `chrome.storage.local`、EXE 侧写 `probe-<scope>.log`，均追加不覆盖）；每完成一项功能即部署探针、验证、彻底全量回收，本提交**不含任何探针残留**（`node --test` 全量 124 项通过，`vite build` 成功重新生成无探针 `dist/`）。
+- `src/editor.js` 同步清理了 `updateListener` 内 Task 1 遗留的空注释诊断死代码（`matched`/`inserted`/`occ` 计算后未使用、整段 `try/catch` 包裹），并移除因此死代码衍生的孤立回归测试 C3（`tests/init-regression.test.js`），代码恢复干净。
+- 严格遵循最高优先级约定：**样式工具栏功能（`applyFontStyle` 等）完全保留、未被触碰**。
+- 分支：`feat/plan-a-a4`（基于 `main` @ `v1.4.14-desktop`，即 `6404b6a`）。
+
 ## [1.4.12] - 2026-08-01 (第一批 A 级可吸纳功能：大纲/代码补全/Callout/专注模式/Base64折叠/Mermaid缩放/任务面板)
 
 ### Added

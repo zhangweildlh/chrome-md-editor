@@ -17,7 +17,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { search, searchKeymap, highlightSelectionMatches, openSearchPanel, getSearchQuery } from '@codemirror/search';
+import { search, searchKeymap, highlightSelectionMatches, openSearchPanel, setSearchQuery, closeSearchPanel, replaceNext, replaceAll, selectMatches, SearchQuery } from '@codemirror/search';
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
@@ -36,6 +36,7 @@ import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
+import { makeSearchPanel } from './search-panel.js';
 import { restoreScroll } from './scroll-restore.js';
 import { newInstanceId, pendingFileStorageKey } from './instance-id.js';
 import {
@@ -331,23 +332,6 @@ graph LR
 *开始编辑你的 Markdown 文档吧！*
 `;
 
-  function countMatches(docText, q) {
-    if (!q || !q.search) return 0;
-    try {
-      if (q.regexp) {
-        const re = new RegExp(q.search, q.caseSensitive ? 'g' : 'gi');
-        return (docText.match(re) || []).length;
-      }
-      const target = q.caseSensitive ? q.search : q.search.toLowerCase();
-      const src = q.caseSensitive ? docText : docText.toLowerCase();
-      let cnt = 0, i = 0;
-      while ((i = src.indexOf(target, i)) !== -1) { cnt++; i += target.length; }
-      return cnt;
-    } catch {
-      return -1;
-    }
-  }
-
   const extensions = [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -381,7 +365,7 @@ graph LR
     crosshairCursor(),
     highlightActiveLine(),
     highlightSelectionMatches(),
-    search(),
+    search({ createPanel: makeSearchPanel }),
     selectedBracketHighlight,
     ...initBase64Fold(),
     keymap.of([
@@ -419,54 +403,6 @@ graph LR
       if (update.selectionSet) {
         updateCursorStatus();
         maybeCenterActiveLine(editor);
-      }
-      try {
-      const view = update.view;
-      const state = view.state;
-      const previewEl = document.getElementById('previewContainer');
-      const editorScrollTop = view.scrollDOM ? view.scrollDOM.scrollTop : null;
-      const previewScrollTop = previewEl ? previewEl.scrollTop : null;
-
-      // S1-B / S2-A：search 面板激活（getSearchQuery 非空且有查询串）
-      const sq = getSearchQuery(state);
-      if (sq && sq.search) {
-        const docText = state.doc.toString();
-        const matched = countMatches(docText, sq);
-        if (update.docChanged) {
-          // S2-A：替换导致文档变更（发生在 search 激活态下）
-          
-        } else {
-          // S1-B：查找面板激活（查询串/配置/粗略匹配数/当前位置/滚动）
-          
-        }
-      }
-
-      // S3-C：closeBrackets 自动配对检测（输入单字符后观察是否成对增长）
-      if (update.docChanged) {
-        let inserted = '';
-        update.changes.iterChanges((_fA, _tA, _fB, _tB, ins) => {
-          inserted += ins.toString();
-        });
-        if (inserted.length === 1) {
-          const pos = state.selection.main.head;
-          const around = state.doc.toString().slice(Math.max(0, pos - 3), pos + 3);
-          
-        }
-      }
-
-      // S4-A：选中非空文本 → 相同字符串高亮验证（highlightSelectionMatches）
-      if (update.selectionSet && !state.selection.main.empty) {
-        const sel = state.selection.main;
-        const selText = state.doc.sliceString(sel.from, sel.to);
-        if (selText.length >= 1) {
-          const docText = state.doc.toString();
-          let occ = 0, i = 0;
-          while ((i = docText.indexOf(selText, i)) !== -1) { occ++; i += selText.length; }
-          
-        }
-      }
-      } catch (e) {
-        console.error('[updateListener] 处理异常（已忽略，不影响编辑器）', e);
       }
     }),
   ];
@@ -2285,35 +2221,53 @@ function syncFocusModeButtons() {
   if (t) t.classList.toggle('active', isTypewriter());
   }
 
+const FORMATTING_SELECTOR = [
+  'a[href]', 'img', 'b', 'strong', 'i', 'em', 'code', 'pre', 'blockquote',
+  'ul', 'ol', 'li', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 's', 'del', 'strike',
+].join(',');
+
+function hasRichMarkdownFormatting(html) {
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return !!doc.body.querySelector(FORMATTING_SELECTOR);
+  } catch { return false; }
+}
+
 function initPasteImageSupport() {
   editor.contentDOM.addEventListener('paste', async (event) => {
-    const items = Array.from(event.clipboardData?.items || []);
-    const imageItem = items.find((item) => item.type.startsWith('image/'));
-    
-    if (!imageItem) return;
+    const cd = event.clipboardData;
+    if (!cd) return;
 
-    const file = imageItem.getAsFile();
-    if (!file) return;
-
-    event.preventDefault();
-
-    try {
-      const { imagePath, storageMode } = await persistPastedImage(file);
-      const markdown = buildPastedImageMarkdown({
-        alt: 'pasted-image',
-        imagePath,
-      });
-
-      insertMarkdownSnippet(markdown);
-
-      if (storageMode === 'file') {
-        showToast(`图片已保存并插入: ${imagePath}`, 'success');
-      } else {
-        showToast('图片已以内嵌 data URL 插入 Markdown', 'success');
+    // —— 1) 图片优先（保持原有全部逻辑）——
+    const items = Array.from(cd.items || []);
+    const imageItem = items.find((it) => it.type.startsWith('image/'));
+    if (imageItem) {
+      const file = imageItem.getAsFile();
+      if (file) {
+        event.preventDefault();
+        try {
+          const { imagePath, storageMode } = await persistPastedImage(file);
+          insertMarkdownSnippet(buildPastedImageMarkdown({ alt: 'pasted-image', imagePath }));
+          showToast(storageMode === 'file'
+            ? `图片已保存并插入: ${imagePath}` : '图片已以内嵌 data URL 插入 Markdown', 'success');
+        } catch (err) { showToast('粘贴图片失败: ' + err.message, 'error'); }
       }
-    } catch (err) {
-      showToast('粘贴图片失败: ' + err.message, 'error');
+      return;
     }
+
+    // —— 2) 富文本 HTML → Markdown（A-4 新增）——
+    const html = cd.getData('text/html');
+    if (html && hasRichMarkdownFormatting(html)) {
+      const md = htmlToMarkdown(html);
+      const plain = (cd.getData('text/plain') || '').trim();
+      // 仅当转换结果确实比纯文本多了结构化内容时才拦截，避免破坏纯文本粘贴手感
+      if (md && md.trim() && md.trim() !== plain) {
+        event.preventDefault();
+        insertMarkdownSnippet(md);
+        return;
+      }
+    }
+    // —— 3) 其余（纯文本等）放行默认粘贴 ——
   });
 }
 
