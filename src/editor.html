@@ -463,6 +463,9 @@
           <button class="toolbar-btn" id="btnTasks" title="任务列表面板">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           </button>
+          <button class="toolbar-btn" id="btnSnapshots" title="快照 / 历史版本 (A-5)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+          </button>
           <div class="tb-wrap">
             <button class="toolbar-btn" id="btnDisplaySettings" title="显示设置（字号 / 密度）">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
@@ -673,6 +676,27 @@
       </div>
       <div class="side-panel-body" id="taskList"></div>
     </aside>
+
+    <!-- A-5 快照 / 历史版本对话框（点击工具栏快照按钮展开） -->
+    <div class="modal-overlay" id="snapshotsDialog" hidden>
+      <div
+        class="modal-card modal-card--snapshots"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="snapshotsTitle"
+      >
+        <h2 class="modal-title" id="snapshotsTitle">历史快照</h2>
+        <p class="modal-desc">
+          编辑停顿后自动保存草稿；每隔一段时间或累计一定改动会生成历史快照。可回滚到任意版本（仅恢复编辑区内容，不影响磁盘文件，除非你主动保存）。
+        </p>
+        <div class="snapshots-list" id="snapshotsList"></div>
+        <div class="modal-actions">
+          <button type="button" class="modal-btn modal-btn-secondary" id="snapshotsClose">
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 底部状态栏 -->
     <footer class="statusbar" id="statusbar">

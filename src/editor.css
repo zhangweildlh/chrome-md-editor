@@ -2042,3 +2042,59 @@ body {
 .md-search-panel__btn.is-active:hover {
   background: var(--accent-hover);
 }
+
+/* ===== A-5 快照 / 历史版本对话框 ===== */
+.modal-card--snapshots {
+  max-width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.snapshots-list {
+  margin: 12px 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.snapshots-empty {
+  color: var(--text-muted, #8b949e);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.snapshots-item {
+  border: 1px solid var(--border-primary, #30363d);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated, var(--bg-toolbar, #161b22));
+}
+
+.snapshots-meta {
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+  margin-bottom: 6px;
+}
+
+.snapshots-preview {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #e6edf3);
+  background: var(--bg-input, #0d1117);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 3.2em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin-bottom: 8px;
+}
+
+.snapshots-actions {
+  display: flex;
+  justify-content: flex-end;
+}
