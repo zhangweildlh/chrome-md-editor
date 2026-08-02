@@ -53,8 +53,11 @@ import {
   saveTranslateSettings,
 } from './translate.js';
 
-/** Visible build stamp so we can tell if Chrome reloaded the new package. */
-export const APP_VERSION = '1.4.8';
+/** Visible build stamp so we can tell if Chrome reloaded the new package.
+ *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.4.15"。 */
+export const APP_VERSION =
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.4.15";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
