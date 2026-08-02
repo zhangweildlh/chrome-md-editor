@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         editor: resolve(__dirname, "src/editor.html"),
         index: resolve(__dirname, "src/index.html"),
+        compare: resolve(__dirname, "src/compare.html"),
       },
       output: {
         entryFileNames: "assets/[name].js",
