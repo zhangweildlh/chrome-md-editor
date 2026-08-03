@@ -2,7 +2,7 @@
 //
 // 封装 @codemirror/merge 的 MergeView。
 //
-// 导出（docs/compare-contract.md §1，签名在冻结契约基础上做超集扩展，不破坏既有字段）：
+// 导出（签名在冻结契约基础上做超集扩展，不破坏既有字段）：
 //   createCompareMergeView(opts): CompareMergeInstance
 //
 // 设计要点：
@@ -13,7 +13,7 @@
 //                      把 Yours 的当前块拷入 Result（revertControls: 'a-to-b'）；
 //                      Theirs→Result 通过实例方法 acceptTheirsAt(pos?) 逐块拷贝（基于 Chunk.build 对齐）。
 //
-// 禁用类名闸门（docs/compare-contract.md §4）：
+// 禁用类名闸门：
 //   严禁使用方案列明的禁用类名；自定义按钮仅用 cm-compare-revert。
 //
 // 其余配置（契约超集字段，保持向后兼容旧 {oldContent,newContent,extensions,parent} 形态）：

@@ -11,7 +11,7 @@
 //   4. 模块导出结构：markdownHighlightStyle / mdEditorHighlightExtensions
 //      与 createMarkdownHighlight / mdEscape 完整可用。
 //
-// 设计依据：docs/md-syntax-highlight-plan.md（Phase 2 / Phase 3 / Phase 5）。
+// 设计依据：Markdown 语法高亮（Phase 2 / Phase 3 / Phase 5）。
 // 颜色由 CSS 变量定义，本测试只断言「分类（class）」正确，不绑定具体色值。
 // ============================================================
 import test from 'node:test';

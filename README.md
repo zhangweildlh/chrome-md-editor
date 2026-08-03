@@ -16,23 +16,18 @@
 
 分屏编辑 + 实时预览（深色）：
 
-![编辑器主界面](docs/images/screenshot-editor.png)
 
 阅读翻译：预览区中英对照（不改源码）：
 
-![双语阅读](docs/images/screenshot-bilingual.png)
 
 翻译设置（选预设 + 粘贴 API Key）：
 
-![翻译设置](docs/images/screenshot-translate-settings.png)
 
 浅色主题：
 
-![浅色主题](docs/images/screenshot-light.png)
 
 动图（主界面 → 设置 → 双语）：
 
-![演示 GIF](docs/images/demo.gif)
 
 ---
 
@@ -72,8 +67,7 @@
 - **未签名提示**：未签名版本首次运行可能被 Windows SmartScreen 拦截，点「仍要运行」即可；本机需已安装 WebView2 运行时（Win10/11 通常已自带，否则按提示安装）。
 - **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.4.8-desktop` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
 
-> 桌面端与 Chrome 扩展共用 `src/editor.html/.js/.css`；仅在检测到 Tauri 环境时由 `src/desktop-shims.js` 注入 `chrome` 与 File System Access API 垫片，对扩展零影响。桌面端的具体调试与演进见 [DEVLOG.md](./DEVLOG.md)。
-
+> 桌面端与 Chrome 扩展共用 `src/editor.html/.js/.css`；仅在检测到 Tauri 环境时由 `src/desktop-shims.js` 注入 `chrome` 与 File System Access API 垫片，对扩展零影响。
 ---
 
 ## 文件对照 / 多栏合并（compare 模块）
@@ -117,7 +111,7 @@
 
 ### 折叠未改 / 主题
 
-- 单栏 unified：「展开未改」按钮展开当前光标处的大片未改区域（单栏以展开为主；真正的折叠收起能力见 `docs/compare-progress.md`，不在当前版本承诺）。两栏 / 三栏视图由 `@codemirror/merge` 的 `collapseUnchanged` 配置自动折叠未改区域。
+- 单栏 unified：「展开未改」按钮展开当前光标处的大片未改区域（单栏以展开为主；真正的折叠收起能力不在当前版本承诺）。两栏 / 三栏视图由 `@codemirror/merge` 的 `collapseUnchanged` 配置自动折叠未改区域。
 - 明暗主题：复用编辑器既有 `--bg` / `--fg` / `--accent` / `--border` 等 CSS 变量，`@codemirror/merge` 自带 `&light` / `&dark` 选择器，随主题自动适配，**不新建主题变量**。
 
 ### 桌面端（Tauri 同源）
@@ -194,7 +188,6 @@ npm run dev       # 仅 UI 调试用；无 chrome.* / 文件 API，不能代替�
 相关文档：
 
 - 变更记录：[CHANGELOG.md](./CHANGELOG.md)
-- 开发过程：[DEVLOG.md](./DEVLOG.md)
 
 ---
 
@@ -206,7 +199,6 @@ src/             # 编辑器页面与逻辑（扩展与桌面端共用）
 desktop/         # Tauri v2 桌面壳（Rust + 配置），打包为独立 Windows EXE
 tests/           # node:test 单元测试
 scripts/         # 打包、图标、验收脚本
-docs/images/     # README 截图与演示 GIF
 dist/            # 构建产物（gitignore；Chrome 只加载这里）
 ```
 
@@ -232,7 +224,6 @@ dist/            # 构建产物（gitignore；Chrome 只加载这里）
 No backend.
 No upload for normal editing.
 
-![Editor](docs/images/screenshot-editor.png)
 
 ### Install
 

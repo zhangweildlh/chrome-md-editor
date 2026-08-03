@@ -1,13 +1,13 @@
 // compare-files.js — 文件多选 + 拖拽上传（T3）
 //
-// 契约导出（docs/compare-contract.md §1）：
+// 契约导出：
 //   - pickFiles(accept?: string) => Promise<CompareFile[]>
 //     CompareFile = { name: string; content: string }
 //
 // 复用模式：沿用 editor.js 现有的「<input type="file" multiple> + File.text()」读取方式，
 // 并额外提供拖拽区 / 按钮工厂，供 UI-A（compare.js）直接挂载到 compare.html。
 //
-// 禁用类名闸门（docs/compare-contract.md §4）：
+// 禁用类名闸门：
 //   禁止使用 btnCenterBold / btnCenterBoldRed / styleGroup。
 //   本文件统一使用 compare-filebtn / compare-dropzone 等新类名。
 //

@@ -1,6 +1,6 @@
 // compare-nav.js — 块导航封装（T4 / 增量 B）
 //
-// 契约导出（docs/compare-contract.md §1）：
+// 契约导出：
 //   bindChunkNavigation(view: EditorView) => { next(): void; prev(): void }
 //
 // 直接复用 @codemirror/merge 的 goToNextChunk / goToPreviousChunk（现成 StateCommand，零自研）。

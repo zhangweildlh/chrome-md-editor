@@ -2,7 +2,7 @@
 //
 // 封装 @codemirror/merge 的 unifiedMergeView。
 //
-// 导出（docs/compare-contract.md §1）：
+// 导出：
 //   createCompareUnifiedView(opts): CompareUnifiedInstance
 //
 // 设计要点：
@@ -13,7 +13,7 @@
 //   - 增量 G：mergeControls 自定义中文按钮（类名 cm-compare-chunk-btn，避开禁用类名闸门）。
 //   - 增量 E：expandAt(pos) 用 uncollapseUnchanged 展开被折叠的未改区域。
 //
-// 禁用类名闸门（docs/compare-contract.md §4）：严禁使用方案列明的禁用类名；
+// 禁用类名闸门：严禁使用方案列明的禁用类名；
 // 自定义按钮仅用 cm-compare-chunk-btn。
 
 import {

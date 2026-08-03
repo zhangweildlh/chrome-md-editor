@@ -9,7 +9,7 @@
  * 这些不应误判为实际用法。因此先剥离 JS 行注释 / 块注释 / HTML 注释，再对「实际代码/CSS」
  * 中的禁用类名做整词匹配。
  *
- * 禁用类名清单（docs/compare-contract.md §4）：
+ * 禁用类名清单：
  *   - btnCenterBold
  *   - btnCenterBoldRed
  *   - styleGroup

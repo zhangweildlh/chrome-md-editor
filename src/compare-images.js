@@ -1,6 +1,6 @@
 // compare-images.js — 图片上传区（T5）
 //
-// 契约导出（docs/compare-contract.md §1，严格匹配签名）：
+// 契约导出（严格匹配签名）：
 //   insertImagesAtCursor(files: File[], getCursor: () => number): Promise<void>
 //
 // 复用（零改写，见 src/image-support.js）：
@@ -10,7 +10,7 @@
 // 图片统一转为内嵌 data URL（与 editor.js 的 persistPastedImage 回退分支行为一致），
 // 再在 getCursor() 返回的光标位置插入 Markdown 图片语法。
 //
-// 禁用类名闸门（docs/compare-contract.md §4）：
+// 禁用类名闸门：
 //   禁止使用 btnCenterBold / btnCenterBoldRed / styleGroup。
 //   本文件统一使用 compare-dropzone / compare-fileinput / compare-filebtn 等新类名。
 //
