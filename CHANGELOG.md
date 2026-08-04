@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.7.0] - 2026-08-04 (编辑器增强：markra 移植 — 23 主题 / 斜杠菜单 / 块拖拽 / 视图模式 / 工作区搜索 / == 高亮 ==)
+
+### Added
+- **编辑器主题扩充到 23 套（默认豆沙绿护眼）**：新增「豆沙绿(亮) / 豆沙绿(暗)」护眼主题，**默认豆沙绿(亮)**；工具栏「主题」下拉可在 23 套主题间切换，与深/浅主题、语法高亮配色方案正交独立。模块 `src/theme-presets.js`（`editor.js` 主题装配 + `editor.css` 主题变量），`src/onboarding.js` 速览同步。
+- **斜杠菜单（slash menu）**：编辑区行尾输入 `/` 或中文顿号 `、` 唤起命令面板，可选标题 / 粗体 / 列表 / 代码块 / 引用 / 表格 / 分割线 / 图片 / 链接等；↑↓ 选择、Enter 执行、Esc 关闭。新增 `src/slash-menu.js` + `src/slash-menu-core.js`（命令表 `slashMenuCommands` 14 项）+ CodeMirror 扩展，配套测试 `tests/slash-menu.test.js`。
+- **块拖拽（block drag）**：每个块首行左侧出现拖拽手柄，按住拖动调整块顺序；手柄旁「+」在当前块下方插入新块。新增 `src/block-drag.js`（`parseBlocks` / `blockDragField` / `blockInsertField`），末块延展至文档末尾；配套测试 `tests/block-drag.test.js`（循环 ensure 加固解析）。
+- **视图模式（日常 / 专注 / 沉浸 / 全显）**：工具栏「⊞」循环切换四种布局；专注隐藏侧栏 / 大纲 / 任务 / 状态栏，沉浸进一步隐藏工具栏，全显最大化面板。新增 `src/view-mode.js`（视图状态机 + 持久化）。
+- **工作区搜索**：工具栏「🔍」打开搜索面板，检索当前已打开文件夹内所有 Markdown 文件的命中片段并点击跳转。新增 `src/workspace-search.js`（`initWorkspaceSearchPanel` / `runWorkspaceSearch` + 设值器 `setGlobalDirectoryHandle` 解除与 `editor.js` 的循环依赖）。
+- **行内 `==高亮==` 与 GitHub 风格提示框**：`==文字==` 在预览中高亮（替代旧 `<mark>` 包裹写法，`htmlToMarkdown` 回写约定末尾补 `\n`）；`> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]` 等提示框继续支持。
+
+### Changed
+- `src/editor.html`：新增 `editorThemeSelect`(主题下拉) / `btnChromeMode` ⊞(视图模式) / `btnWorkspaceSearch` 🔍(工作区搜索) / `workspaceSearchModal`(搜索弹窗)；`onboarding` 示例文档「新增功能速览」覆盖 6 大功能。
+- `src/editor.js`：`editorThemeSelect` 绑定并持久化 23 主题；接入斜杠菜单 / 块拖拽 / 视图模式 / 工作区搜索模块；`handleOpenFolder` 与初始化处用 `setGlobalDirectoryHandle` 向工作区搜索注入目录句柄；`==` 高亮解析接入 `htmlToMarkdown`。
+- `src/editor.css`：新增 23 套主题变量、`workspaceSearchModal` 弹窗样式、视图模式相关类。
+- 循环依赖治理：`src/workspace-search.js` 不再反向 import `editor.js`（其顶层 `localStorage.getItem` 在 node 环境崩溃），改用本地变量 + 设值器范式。
+
+### Notes
+- 版本戳：package.json 与 public/manifest.json 同步升至 1.7.0（语义化 minor：向后兼容的新功能集合）。
+- 分支整合：`feat/markra-features` 通过 `--no-ff` 合并入 `main`，其下 9 条并行 feat 分支（a6stub / blockdrag / onboarding / slash / syntax / themes / toolbar-fix / viewmode / workspace-search）均已并入。
+- 测试门禁：`npm test` 全绿、`npm run test:issues` 16/16、`npm run build` 成功。
+
 ## [1.6.0] - 2026-08-04 (编辑器 UI 增强：磁盘自动保存 / 高亮合并 / 翻译合并 / 全按钮提示 / 块导航快捷键)
 
 ### Added

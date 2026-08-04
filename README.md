@@ -3,9 +3,9 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.5.0](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.5.0)**  
-**下载（Chrome 扩展）：** [chrome-md-editor-v1.4.8.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/chrome-md-editor-v1.4.8.zip)  
-**下载（Windows 独立 EXE）：** [Markdown.Editor_1.4.8_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.4.8-desktop/Markdown.Editor_1.4.8_portable.exe)  
+**当前版本：[v1.7.0](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.7.0)**  
+**下载（Chrome 扩展）：** [chrome-md-editor-v1.7.0.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.7.0/chrome-md-editor-v1.7.0.zip)  
+**下载（Windows 独立 EXE）：** [Markdown.Editor_1.7.0_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.7.0/Markdown.Editor_1.7.0_portable.exe)  
 **许可：** [MIT](./LICENSE)
 
 [English](#english)
@@ -47,8 +47,13 @@
 | 磁盘自动保存 | 工具栏「自动保存」开关 + 间隔秒数（默认 30，5–3600）；开启后每 N 秒在**源文件同目录**生成「主文件名_秒级时间戳.md」副本（例：`这是测试文件.md` → `这是测试文件_20260804133025.md`），绝不覆盖源文件。Web 首次需授权目录句柄；Tauri EXE 直接写同目录 |
 | 高亮（编辑区 + 预览区联动） | 选中编辑区或预览区文字，点「高亮」按钮即把源码外包 `<mark>…</mark>` 并同步重渲染预览；再点一次取消。编辑区与预览区行为统一，不再出现「编辑区改了预览不渲染」或反之 |
 | Mermaid | ` ```mermaid ` 代码块渲染为图 |
-| 主题 | 深色 / 浅色 |
+| 主题 | 23 套主题（默认豆沙绿护眼）/ 深色 / 浅色 |
 | 语法高亮 | 编辑区与预览区 Markdown 语法彩色字体 + 标题/引用/代码块行底色；经典 / 护眼（米黄）/ 高对比三套配色方案，与深/浅主题正交独立、可切换并持久化 |
+| 斜杠菜单 | 行尾输入 `/` 或中文顿号 `、` 唤起命令面板，快速插入标题 / 列表 / 代码块等（↑↓ 选择、Enter 执行、Esc 关闭） |
+| 块拖拽 | 每个块首行左侧出现拖拽手柄，按住拖动调整块顺序；手柄旁「+」可在当前块下方插入新块 |
+| 视图模式 | 日常 / 专注 / 沉浸 / 全显 四种布局，点工具栏「⊞」循环切换；专注隐藏侧栏 / 大纲 / 状态栏，沉浸进一步隐藏工具栏 |
+| 工作区搜索 | 点工具栏「🔍」打开搜索面板，检索当前已打开文件夹内所有 Markdown 文件的命中片段 |
+| 行内 == 高亮 == | 用 `==文字==` 语法在预览中高亮；GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` 等继续支持 |
 | 会话恢复 | 再次打开扩展时尽量恢复上次内容与文件名 |
 | 阅读翻译 | 预览区中英对照；**不修改** Markdown 源文件 |
 
@@ -57,19 +62,51 @@
 技术栈：CodeMirror 6 · markdown-it · Vite · Manifest V3。  
 桌面端额外使用 Rust + Tauri v2 打包为独立 Windows EXE。
 
+## 编辑器增强功能（源自 markra 移植）
+
+本版从开源项目 markra 移植并本地化了一批编辑增强，下面逐条说明「在哪点、怎么用」。
+
+### 1. 编辑器主题（23 套）
+新增「豆沙绿(亮) / 豆沙绿(暗)」护眼主题，**默认豆沙绿(亮)**。  
+点工具栏「主题」下拉，即可在 23 套主题之间切换（与既有的深 / 浅主题、语法高亮配色方案正交独立）。
+
+### 2. 斜杠菜单
+在编辑区**行尾**输入 `/` 或中文顿号 `、` 唤起命令面板，可选「标题 / 粗体 / 列表 / 代码块 / 引用 / 表格 / 分割线 / 图片 / 链接」等。  
+`↑` / `↓` 选择、`Enter` 执行、`Esc` 关闭。
+
+### 3. 块拖拽
+每个块首行左侧出现**拖拽手柄**，按住拖动即可调整块顺序；手柄旁的「+」可在当前块下方插入新块。
+
+### 4. 视图模式（日常 / 专注 / 沉浸 / 全显）
+点工具栏「⊞」按钮循环切换。  
+- **日常模式**：常规分屏编辑 + 预览。
+- **专注模式**：隐藏侧栏 / 大纲 / 任务 / 状态栏，聚焦写作。
+- **沉浸模式**：进一步隐藏工具栏，适合纯写作。
+- **全显模式**：最大化利用屏幕，显示所有面板。
+
+### 5. 工作区搜索
+点工具栏「🔍」打开搜索面板，输入关键词后检索**当前已打开文件夹内所有 Markdown 文件**的命中片段，点击即可跳转定位。
+
+### 6. 行内 == 高亮 == 与提示框
+在 `==两个等号之间==` 写文字，即可在预览中高亮。  
+GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]` 等继续支持。
+
+> 工具栏「?」可随时重新打开内置示例说明（onboarding），内含上述功能速览与可直接改写的示例文档。
+
+
 ---
 
 ## 桌面端独立 EXE（Tauri）
 
 除了 Chrome 扩展，本项目还提供一个**独立 Windows 程序**：用 [Tauri](https://tauri.app/) v2 把同一套 Web 编辑器（CodeMirror 6 + markdown-it + Mermaid）打包成绿色免安装的 EXE，**无需浏览器、无需安装、本地零依赖**（仅依赖系统 WebView2 运行时）。
 
-- **下载**：Release `v1.4.8-desktop` 中的 `Markdown.Editor_1.4.8_portable.exe`（便携版，直接拷到任意目录双击运行）。
+- **下载**：Release `v1.7.0` 中的 `Markdown.Editor_1.7.0_portable.exe`（便携版，直接拷到任意目录双击运行）。
 - **双击打开**：把 `.md` 设为默认打开程序后，双击任意 `.md` 文件即由 EXE 直接打开并编辑。
 - **拖入打开**：启动 EXE 后，把 `.md` 文件拖进窗口也能打开。
 - **多实例**：每次双击 / 拖入都启动一个独立 EXE 实例，各自打开对应文件，互不干扰。
 - **保存写回原文件**：底层用 Rust `std::fs` 命令读写（无路径作用域限制），`Ctrl/Cmd+S` 可直接覆盖原文件。
 - **未签名提示**：未签名版本首次运行可能被 Windows SmartScreen 拦截，点「仍要运行」即可；本机需已安装 WebView2 运行时（Win10/11 通常已自带，否则按提示安装）。
-- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.4.8-desktop` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
+- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.7.0` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
 
 > 桌面端与 Chrome 扩展共用 `src/editor.html/.js/.css`；仅在检测到 Tauri 环境时由 `src/desktop-shims.js` 注入 `chrome` 与 File System Access API 垫片，对扩展零影响。
 ---
@@ -140,8 +177,8 @@ compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.5.0**）。
-4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.4.8_portable.exe` 覆盖旧文件即可，无需卸载。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.7.0**）。
+4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.7.0_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
 
@@ -236,7 +273,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.5.0**).
+The toolbar should show the release version (currently **v1.7.0**).
 
 ### Features (short)
 
@@ -244,6 +281,10 @@ The toolbar should show the release version (currently **v1.5.0**).
 - Split / editor / preview layouts, light & dark themes
 - Preview WYSIWYG sync, Mermaid, local images, paste screenshot
 - Optional reading translation (bilingual preview; source file unchanged)
+
+### Editor enhancements (from markra port)
+
+- 23 editor themes (default: Dou Sha Lü eye-care green); slash (`/` or `、`) command menu; block drag-and-drop with insert handle; view modes (Daily / Focus / Immersive / Full) toggled by the `⊞` button; workspace search across the opened folder; inline `==highlight==` and GitHub-style admonitions (`> [!NOTE]` etc.).
 
 ### Develop
 
@@ -260,7 +301,7 @@ Editing stays local unless you enable reading translation, which sends text to t
 
 ### Standalone Windows EXE (Tauri)
 
-A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.4.8_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.4.8-desktop` release.
+A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.7.0_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.7.0` release.
 
 ### License
 
