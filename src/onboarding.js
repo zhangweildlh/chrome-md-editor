@@ -128,7 +128,8 @@ export function showOnboarding(options = {}) {
       <div class="onboarding-footer">
         ${
           isGuide
-            ? `<button type="button" class="onboarding-primary" data-action="close">关闭说明</button>
+            ? `<p class="onboarding-hint">新增功能（主题 / 斜杠菜单 / 块拖拽 / 视图模式 / 工作区搜索 / 高亮）的用法，点「打开示例说明书」查看详情。</p>
+               <button type="button" class="onboarding-primary" data-action="close">关闭说明</button>
                <button type="button" class="onboarding-secondary" data-action="example">打开示例说明书</button>`
             : `<button type="button" class="onboarding-secondary" data-action="guide">只看说明</button>
                <button type="button" class="onboarding-primary" data-action="close-empty">先空白开始</button>`
@@ -244,6 +245,33 @@ graph LR
 
 随时点工具栏右侧 **?** 可重新打开本说明。  
 *这份示例本身就是 Markdown，你可以随意改。*
+
+## 新增功能速览
+
+本版完善了若干编辑增强，下面逐条说明「在哪点、怎么用」。
+
+### 1. 编辑器主题（23 套）
+新增「豆沙绿(亮) / 豆沙绿(暗)」，**默认豆沙绿(亮)**。  
+点工具栏「主题」下拉，即可在 23 套主题间切换。
+
+### 2. 斜杠菜单
+在编辑区**行尾**输入 \`/\` 或中文顿号 \`、\` 唤起命令面板，可选「标题 / 粗体 / 列表 / 代码块 / 引用 / 表格 / 分割线 / 图片 / 链接」等。  
+\`↑\`\`↓\` 选择、\`Enter\` 执行、\`Esc\` 关闭。
+
+### 3. 块拖拽
+每个块首行左侧出现**拖拽手柄**，按住拖动即可调整块顺序；手柄旁的「+」可在当前块下方插入新块。
+
+### 4. 视图模式（日常 / 专注 / 沉浸 / 全显）
+点工具栏「⊞」按钮循环切换。  
+- **专注模式**：隐藏侧栏 / 大纲 / 任务 / 状态栏  
+- **沉浸模式**：进一步隐藏工具栏，适合纯写作
+
+### 5. 工作区搜索
+点工具栏「🔍」打开搜索面板，输入关键词后检索**当前已打开文件夹内所有 Markdown 文件**的命中片段。
+
+### 6. 行内 == 高亮 == 与提示框
+在 \`==两个等号之间==\` 写文字，即可在预览中高亮。  
+GitHub 风格提示框 \`> [!NOTE]\` / \`> [!WARNING]\` 等继续支持。
 `;
 
   document.dispatchEvent(
