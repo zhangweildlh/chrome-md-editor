@@ -403,6 +403,10 @@ graph LR
     search({ createPanel: makeSearchPanel }),
     selectedBracketHighlight,
     ...initBase64Fold(),
+    // === MARKRA_HOOK: SLASH_MENU === 斜杠菜单：在此行之后插入斜杠菜单扩展
+    // === MARKRA_HOOK: BLOCK_DRAG === 块拖拽：在此行之后插入块拖拽扩展
+    // === MARKRA_HOOK: VIEW_MODE === 视图模式：在此行之后插入视图模式扩展
+    // === MARKRA_HOOK: WORKSPACE_SEARCH === 工作区搜索：在此行之后插入工作区搜索扩展
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -1902,6 +1906,7 @@ function toggleTheme() {
     localStorage.setItem('md-editor-theme', currentTheme);
 
   document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
+  // === MARKRA_HOOK: THEMES === 主题预设：在此行之后应用当前编辑器主题预设（data-editor-theme）
 
   editor.dispatch({
     effects: themeCompartment.reconfigure(
@@ -2980,6 +2985,7 @@ function init() {
 
   // 恢复视图模式
   setViewMode(currentViewMode);
+  // === MARKRA_HOOK: INIT === 各功能初始化挂载点（斜杠菜单/块拖拽/视图/搜索/主题等 initXxx 调用）
 
   // 延迟初始化滚动同步(等待 CM 挂载完成)
   setTimeout(initScrollSync, 200);

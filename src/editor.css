@@ -83,6 +83,14 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
+/* === MARKRA_CSS_HOOKS === 各功能 CSS 插入点（每个 Agent 在其专属标记后追加） */
+/* === MARKRA_CSS: THEME_PRESETS === 主题预设：23 套主题 CSS 变量块 */
+/* === MARKRA_CSS: SLASH_MENU === 斜杠菜单浮层样式 */
+/* === MARKRA_CSS: BLOCK_DRAG === 块拖拽手柄/指示器样式 */
+/* === MARKRA_CSS: VIEW_MODE === 视图模式隐藏类 */
+/* === MARKRA_CSS: WORKSPACE_SEARCH === 工作区搜索面板样式 */
+/* === MARKRA_CSS: SYNTAX === 高亮/Callout 语法样式 */
+/* === MARKRA_CSS: TOOLBAR_RESPONSIVE === 工具栏非全屏响应式 */
 
 /* ==========================================
    Reset & Base
