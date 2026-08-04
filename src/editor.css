@@ -90,6 +90,12 @@
 /* === MARKRA_CSS: VIEW_MODE === 视图模式隐藏类 */
 /* === MARKRA_CSS: WORKSPACE_SEARCH === 工作区搜索面板样式 */
 /* === MARKRA_CSS: SYNTAX === 高亮/Callout 语法样式 */
+/* A-8 高亮语法：==文本== 渲染为 <mark>。高亮语义色（黄底）允许直接色值 #fff3a3 */
+mark {
+  background: #fff3a3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
 /* === MARKRA_CSS: TOOLBAR_RESPONSIVE === 工具栏非全屏响应式 */
 
 /* ==========================================
