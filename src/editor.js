@@ -32,12 +32,18 @@ import {
   splitRelativePath,
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
+import { initWorkspaceSearchPanel, runWorkspaceSearch, setGlobalDirectoryHandle } from './workspace-search.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
+import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect } from './theme-presets.js';
 import { initFeedbackButton } from './feedback.js';
+import { highlightPlugin } from './highlight-plugin.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
+import { applyViewMode, getStoredViewMode, setStoredViewMode, nextViewMode, initChromeModeButton } from './view-mode.js';
 import { makeSearchPanel } from './search-panel.js';
+import { markraSlashMenu } from './slash-menu.js';
 import { restoreScroll } from './scroll-restore.js';
+import { codeMirrorBlockDragPlugin } from './block-drag.js';
 import {
   scheduleAutosave,
   initAutosave,
@@ -68,9 +74,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.5.0"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.7.0"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.5.0";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.7.0";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -141,7 +147,7 @@ const md = new MarkdownIt({
 // class/id/style/data-* 由 DOMPurify 默认策略保留并净化。
 function sanitizePreviewHtml(dirty) {
   return DOMPurify.sanitize(dirty, {
-    ADD_TAGS: ['font', 'center'],
+    ADD_TAGS: ['font', 'center', 'mark'],
     ADD_ATTR: ['color', 'face', 'size', 'align'],
   });
 }
@@ -178,6 +184,8 @@ md.use(function taskListPlugin(md) {
 
 // A-7 Callout 提示框（markdown-it 插件；data-callout 属性供预览回写还原）
 md.use(calloutPlugin);
+// A-8 高亮语法（==高亮== → <mark>）；ADD_TAGS 已放行 'mark' 以免被 DOMPurify 剥除
+md.use(highlightPlugin);
 
 // ==========================================
 // 状态管理
@@ -403,6 +411,12 @@ graph LR
     search({ createPanel: makeSearchPanel }),
     selectedBracketHighlight,
     ...initBase64Fold(),
+    // === MARKRA_HOOK: SLASH_MENU === 斜杠菜单：在此行之后插入斜杠菜单扩展
+    markraSlashMenu(),
+    // === MARKRA_HOOK: BLOCK_DRAG === 块拖拽：在此行之后插入块拖拽扩展
+    codeMirrorBlockDragPlugin(),
+    // === MARKRA_HOOK: VIEW_MODE === 视图模式：在此行之后插入视图模式扩展
+    // === MARKRA_HOOK: WORKSPACE_SEARCH === 工作区搜索：在此行之后插入工作区搜索扩展
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -1902,6 +1916,8 @@ function toggleTheme() {
     localStorage.setItem('md-editor-theme', currentTheme);
 
   document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
+  // === MARKRA_HOOK: THEMES === 主题预设：在此行之后应用当前编辑器主题预设（data-editor-theme）
+  applyEditorThemePreset(getStoredEditorTheme());
 
   editor.dispatch({
     effects: themeCompartment.reconfigure(
@@ -2609,12 +2625,13 @@ function blobToDataUrl(blob) {
 // ==========================================
 // 文件浏览器侧边栏
 // ==========================================
-let directoryHandle = null;
+export let directoryHandle = null;
 let isSidebarCollapsed = localStorage.getItem('md-sidebar-collapsed') === 'true';
 
 async function handleOpenFolder() {
     try {
     directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    setGlobalDirectoryHandle(directoryHandle);   // 同步句柄给工作区搜索模块
     await renderFileTree();
         showToast(`已打开文件夹: ${directoryHandle.name}`, 'success');
   } catch (err) {
@@ -2980,6 +2997,15 @@ function init() {
 
   // 恢复视图模式
   setViewMode(currentViewMode);
+  // === MARKRA_HOOK: INIT === 各功能初始化挂载点（斜杠菜单/块拖拽/视图/搜索/主题等 initXxx 调用）
+  // —— markra 移植功能启动接线（集中此处，避免各分支在标记处冲突）——
+  applyEditorThemePreset(getStoredEditorTheme());   // 默认豆沙绿(亮) / 已存主题
+  applyViewMode(getStoredViewMode());               // 视图模式（日常/专注/沉浸/全显）
+  requestAnimationFrame(() => editor.requestMeasure());
+  initThemeSelect();                                 // 主题下拉绑定
+  initChromeModeButton();                            // 视图模式 ⊞ 按钮循环
+  initWorkspaceSearchPanel(directoryHandle, openWithHandle);    // 工作区搜索面板（句柄走全局实时 directoryHandle）
+  setGlobalDirectoryHandle(directoryHandle);                    // 同步当前文件夹句柄给搜索模块
 
   // 延迟初始化滚动同步(等待 CM 挂载完成)
   setTimeout(initScrollSync, 200);

@@ -237,6 +237,9 @@ export function convertNode(node) {
       return childText;
     }
     case 'mark':
+      // 高亮语法可逆 DOM：<mark>x</mark> → ==x==
+      // （数据丢失修复：此前走 raw tag 分支会回写为 <mark> 而非 == 语法）
+      return `==${childText}==`;
     case 'center':
     case 'font':
     case 'span':
