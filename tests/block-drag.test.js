@@ -37,8 +37,14 @@ const SAMPLE = [
 
 function parseBlocks(doc) {
   const state = EditorState.create({ doc, extensions: [markdown()] });
-  // 强制同步完整解析，否则小块可能只解析到视口。
-  ensureSyntaxTree(state, doc.length, 1e9);
+  // 强制同步完整解析，否则并行负载下语法树可能未完全展开（顶部节点缺失）。
+  // 多次 ensure 兜底：确保树覆盖整篇文档后再取块范围。
+  let guard = 0;
+  while (guard < 5) {
+    const tree = ensureSyntaxTree(state, doc.length, 1e9);
+    if (tree && tree.length >= doc.length) break;
+    guard += 1;
+  }
   return readCodeMirrorBlockRanges(state);
 }
 

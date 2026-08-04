@@ -167,7 +167,8 @@ test('Issue #3: editor URL carries instance id', () => {
 
 test('Issue #3: mark / center / font / sup / sub survive html→md round-trip', () => {
   const samples = [
-    ['<p><mark>important</mark></p>', ['<mark>important</mark>']],
+    // 高亮语法新增可逆 DOM：<mark>x</mark> → ==x==（不再保留 <mark> 标签）
+    ['<p><mark>important</mark></p>', ['==important==']],
     // <b> may become **bold** markdown — center tag itself must remain
     ['<p><center><b>title</b></center></p>', ['<center>', 'title', '</center>']],
     ['<p><font color="red">红</font></p>', ['<font color="red">红</font>']],

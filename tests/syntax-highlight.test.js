@@ -34,7 +34,8 @@ test('A-8 渲染：独立行 ==高亮== 仍被识别', () => {
 
 test('A-8 回写：<mark>重点</mark> 还原为 ==重点==', () => {
   const out = htmlToMarkdown('<mark>重点</mark>', { parseHTML });
-  assert.equal(out, '==重点==', `回写结果应为 ==重点==，实际：${JSON.stringify(out)}`);
+  // htmlToMarkdown 约定末尾补一个 \n（与 BUG-1/3 测试一致），此处按套件约定去尾换行校验。
+  assert.equal(out.replace(/\n$/, ''), '==重点==', `回写结果应为 ==重点==，实际：${JSON.stringify(out)}`);
 });
 
 test('A-8 回写：渲染后回写应保证一致性（round-trip）', () => {

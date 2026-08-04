@@ -101,6 +101,12 @@ export function readCodeMirrorBlockRanges(state) {
     runStart = runEnd + 1;
   }
 
+  // 末块延展至文档末尾：吸收文档尾随的纯空白/换行，使「末块覆盖到文档末尾」
+  // 成立（拖拽语义上，尾随换行归属于最后一个真实块，不单独成块）。
+  if (ranges.length > 0 && ranges[ranges.length - 1].to < state.doc.length) {
+    ranges[ranges.length - 1].to = state.doc.length;
+  }
+
   return ranges.sort((left, right) => left.from - right.from || left.to - right.to);
 }
 

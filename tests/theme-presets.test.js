@@ -1,6 +1,6 @@
 // tests/theme-presets.test.js
 // 编辑器主题预设单元测试（不依赖 @codemirror/*，仅用标准 DOM + localStorage 伪造）
-import { JSDOM } from 'jsdom';
+import { parseHTML } from 'linkedom';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -11,12 +11,18 @@ import {
   applyEditorThemePreset,
 } from '../src/theme-presets.js';
 
-// 用 jsdom 提供 document / localStorage，避免依赖真实浏览器或 CM6
-const dom = new JSDOM('<!DOCTYPE html><html><head></head><body></body></html>', {
-  url: 'http://localhost/',
-});
-globalThis.document = dom.window.document;
-globalThis.localStorage = dom.window.localStorage;
+// 用 linkedom 提供 document（与 syntax-highlight.test.js 一致），并注入内存版
+// localStorage，避免依赖未安装的 jsdom / 真实浏览器 / CM6。
+const { document } = parseHTML('<!DOCTYPE html><html><head></head><body></body></html>');
+globalThis.document = document;
+
+const __store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (__store.has(k) ? __store.get(k) : null),
+  setItem: (k, v) => __store.set(k, String(v)),
+  removeItem: (k) => __store.delete(k),
+  clear: () => __store.clear(),
+};
 
 test('EDITOR_THEMES 共 23 项（21 标准 + 豆沙绿亮/暗）', () => {
   assert.strictEqual(EDITOR_THEMES.length, 23);

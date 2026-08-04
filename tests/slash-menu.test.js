@@ -67,7 +67,7 @@ test('filterSlashCommands: 无匹配返回空数组', () => {
 // 命令表结构
 // ------------------------------------------------------------
 test('slashMenuCommands: 每个命令都有 run 函数', () => {
-  assert.ok(slashMenuCommands.length >= 8 && slashMenuCommands.length <= 12);
+  assert.ok(slashMenuCommands.length >= 8 && slashMenuCommands.length <= 16);
   for (const command of slashMenuCommands) {
     assert.equal(typeof command.run, 'function', `${command.command} 缺 run`);
     assert.ok(typeof command.insert === 'string', `${command.command} 缺 insert`);

@@ -1,13 +1,13 @@
 // 弱测试：仅校验 editor.css 在 TOOLBAR_RESPONSIVE 标记之后追加了响应式修复，
 // 即含 flex-wrap 或 overflow-x（不依赖任何外部依赖，node --test 内置运行）。
 // 本功能为纯 CSS，无逻辑可执行，故仅做字符串断言。
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 const CSS = fs.readFileSync(
-  path.join(__dirname, "..", "src", "editor.css"),
+  path.join(import.meta.dirname, "..", "src", "editor.css"),
   "utf8"
 );
 

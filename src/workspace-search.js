@@ -14,7 +14,19 @@ const SEARCH_DEBOUNCE_MS = 200;
 const RECENT_QUERY_KEY = 'cme-workspace-search-query';
 
 // 当前面板使用的目录句柄。优先使用 initWorkspaceSearchPanel 传入的句柄，
-// 否则回退到 editor.js 导出的全局 directoryHandle（始终为最新已打开文件夹）。
+// 否则回退到 editor.js 通过 setGlobalDirectoryHandle 注入的全局 directoryHandle
+// （始终为最新已打开文件夹）。不反向 import editor.js，避免循环依赖 + node 测试环境
+// 触发 editor.js 顶层 localStorage 崩溃。
+let globalDirectoryHandle = null;
+
+/**
+ * 供 editor.js 注入当前已打开文件夹句柄（避免循环依赖）。
+ * @param {FileSystemDirectoryHandle|null} handle
+ */
+export function setGlobalDirectoryHandle(handle) {
+  globalDirectoryHandle = handle || null;
+}
+
 let activeDirectoryHandle = null;
 
 // 路径 -> dirHandle 映射，供点击结果时在编辑器内打开对应文件（FSA 模式下必需）。
@@ -185,6 +197,7 @@ export async function collectMarkdownFiles(directoryHandle, parentPath = '') {
 function resolveDirectoryHandle(handle) {
   if (handle) return handle;
   if (activeDirectoryHandle) return activeDirectoryHandle;
+  if (globalDirectoryHandle) return globalDirectoryHandle;
   return null;
 }
 

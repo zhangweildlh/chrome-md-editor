@@ -32,7 +32,7 @@ import {
   splitRelativePath,
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
-import { initWorkspaceSearchPanel, runWorkspaceSearch } from './workspace-search.js';
+import { initWorkspaceSearchPanel, runWorkspaceSearch, setGlobalDirectoryHandle } from './workspace-search.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect } from './theme-presets.js';
 import { initFeedbackButton } from './feedback.js';
@@ -2625,12 +2625,13 @@ function blobToDataUrl(blob) {
 // ==========================================
 // 文件浏览器侧边栏
 // ==========================================
-let directoryHandle = null;
+export let directoryHandle = null;
 let isSidebarCollapsed = localStorage.getItem('md-sidebar-collapsed') === 'true';
 
 async function handleOpenFolder() {
     try {
     directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    setGlobalDirectoryHandle(directoryHandle);   // 同步句柄给工作区搜索模块
     await renderFileTree();
         showToast(`已打开文件夹: ${directoryHandle.name}`, 'success');
   } catch (err) {
@@ -2997,6 +2998,14 @@ function init() {
   // 恢复视图模式
   setViewMode(currentViewMode);
   // === MARKRA_HOOK: INIT === 各功能初始化挂载点（斜杠菜单/块拖拽/视图/搜索/主题等 initXxx 调用）
+  // —— markra 移植功能启动接线（集中此处，避免各分支在标记处冲突）——
+  applyEditorThemePreset(getStoredEditorTheme());   // 默认豆沙绿(亮) / 已存主题
+  applyViewMode(getStoredViewMode());               // 视图模式（日常/专注/沉浸/全显）
+  requestAnimationFrame(() => editor.requestMeasure());
+  initThemeSelect();                                 // 主题下拉绑定
+  initChromeModeButton();                            // 视图模式 ⊞ 按钮循环
+  initWorkspaceSearchPanel(directoryHandle, openWithHandle);    // 工作区搜索面板（句柄走全局实时 directoryHandle）
+  setGlobalDirectoryHandle(directoryHandle);                    // 同步当前文件夹句柄给搜索模块
 
   // 延迟初始化滚动同步(等待 CM 挂载完成)
   setTimeout(initScrollSync, 200);
