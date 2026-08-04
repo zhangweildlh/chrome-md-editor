@@ -32,3 +32,12 @@ dist-ssr
 
 # Local Playwright profile for extension E2E
 .playwright-chrome-md-editor/
+
+# E2E 测试运行目录：采用「默认拒绝 + 白名单」模型，只放行顶层文档与测试脚本。
+# 原因（重要，勿改回黑名单）：该目录会生成 profile/ 与 profile-<时间戳>/ 等浏览器
+# 用户数据目录，体积约 1.8GB / 39 万文件，且内含 Login Data（密码库）、Cookies、
+# 收藏夹备份等真实隐私数据。黑名单式忽略一旦漏写一种命名，隐私即被推送到公开仓库。
+.test-run/*
+!.test-run/*.md
+!.test-run/*.mjs
+!.test-run/*.png
