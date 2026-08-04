@@ -22,15 +22,15 @@
 
   --accent: #58a6ff;
   --accent-hover: #79c0ff;
-  --accent-glow: rgba(88, 166, 255, 0.15);
+  --accent-glow: rgba(88,166,255,.15);
   --danger: #f85149;
   --success: #3fb950;
   --warning: #d29922;
   --modified: #d29922;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -50,7 +50,7 @@
   /* A-8 显示设置：编辑器 / 预览独立字号 + 界面密度 */
   --editor-font-size: 14px;
   --preview-font-size: 15px;
-  --ui-gap: 8px;
+  --ui-gap: 4px;
 }
 
 [data-theme="light"] {
@@ -73,15 +73,15 @@
 
   --accent: #0969da;
   --accent-hover: #0550ae;
-  --accent-glow: rgba(9, 105, 218, 0.1);
+  --accent-glow: rgba(9,105,218,.1);
   --danger: #cf222e;
   --success: #1a7f37;
   --warning: #9a6700;
   --modified: #9a6700;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
 }
 /* === MARKRA_CSS_HOOKS === 各功能 CSS 插入点（每个 Agent 在其专属标记后追加） */
 /* === MARKRA_CSS: THEME_PRESETS === 主题预设：23 套主题 CSS 变量块 */
@@ -91,6 +91,7 @@
 /* 以下 23 段由 src/theme-presets.js 的 EDITOR_THEMES 生成，勿手动改色值 */
 
 [data-editor-theme="light"] {
+  --accent-glow: rgba(9,105,218,.16);
   --bg-primary: #ffffff;
   --bg-secondary: #f6f8fa;
   --bg-tertiary: #eaeef2;
@@ -110,15 +111,16 @@
   --danger: #cf222e;
   --success: #1a7f37;
   --warning: #9a6700;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="dark"] {
+  --accent-glow: rgba(88,166,255,.18);
   --bg-primary: #0d1117;
   --bg-secondary: #161b22;
   --bg-tertiary: #1c2128;
@@ -138,15 +140,16 @@
   --danger: #f85149;
   --success: #3fb950;
   --warning: #d29922;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="github"] {
+  --accent-glow: rgba(9,105,218,.16);
   --bg-primary: #ffffff;
   --bg-secondary: #f6f8fa;
   --bg-tertiary: #eaeef2;
@@ -166,15 +169,16 @@
   --danger: #cf222e;
   --success: #1a7f37;
   --warning: #9a6700;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="github-dark"] {
+  --accent-glow: rgba(88,166,255,.18);
   --bg-primary: #010409;
   --bg-secondary: #0d1117;
   --bg-tertiary: #161b22;
@@ -194,15 +198,16 @@
   --danger: #f85149;
   --success: #3fb950;
   --warning: #d29922;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="one-dark"] {
+  --accent-glow: rgba(97,175,239,.18);
   --bg-primary: #282c34;
   --bg-secondary: #21252b;
   --bg-tertiary: #2c313a;
@@ -222,15 +227,16 @@
   --danger: #e06c75;
   --success: #98c379;
   --warning: #e5c07b;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="one-light"] {
+  --accent-glow: rgba(64,120,242,.16);
   --bg-primary: #fafafa;
   --bg-secondary: #f0f0f0;
   --bg-tertiary: #e8e8e8;
@@ -250,15 +256,16 @@
   --danger: #e45649;
   --success: #50a14f;
   --warning: #c18401;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="one-dark-pro"] {
+  --accent-glow: rgba(86,182,194,.16);
   --bg-primary: #282c34;
   --bg-secondary: #1e2127;
   --bg-tertiary: #1e2127;
@@ -278,15 +285,16 @@
   --danger: #e06c75;
   --success: #98c379;
   --warning: #e5c07b;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="gothic"] {
+  --accent-glow: rgba(123,104,238,.18);
   --bg-primary: #1a1a2e;
   --bg-secondary: #16213e;
   --bg-tertiary: #0f3460;
@@ -306,15 +314,16 @@
   --danger: #e94560;
   --success: #4ecca3;
   --warning: #f0a500;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="newsprint"] {
+  --accent-glow: rgba(138,109,59,.16);
   --bg-primary: #f4f1ea;
   --bg-secondary: #ece7d9;
   --bg-tertiary: #e3ddca;
@@ -334,15 +343,16 @@
   --danger: #a83232;
   --success: #4a7a3a;
   --warning: #9a6700;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="night"] {
+  --accent-glow: rgba(102,252,241,.16);
   --bg-primary: #0b0c10;
   --bg-secondary: #1f2833;
   --bg-tertiary: #1f2833;
@@ -362,15 +372,16 @@
   --danger: #ff5e5e;
   --success: #45a29e;
   --warning: #f0a500;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="pixyll"] {
+  --accent-glow: rgba(119,181,154,.16);
   --bg-primary: #f9f9f9;
   --bg-secondary: #f0f0f0;
   --bg-tertiary: #e8e8e8;
@@ -390,15 +401,16 @@
   --danger: #cc4b37;
   --success: #4a7a3a;
   --warning: #b58900;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="whitey"] {
+  --accent-glow: rgba(41,128,185,.16);
   --bg-primary: #ffffff;
   --bg-secondary: #fbfbfb;
   --bg-tertiary: #f2f2f2;
@@ -418,15 +430,16 @@
   --danger: #c0392b;
   --success: #27ae60;
   --warning: #f39c12;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="sepia"] {
+  --accent-glow: rgba(160,82,45,.16);
   --bg-primary: #f4ecd8;
   --bg-secondary: #efe3c8;
   --bg-tertiary: #e8d9b8;
@@ -446,15 +459,16 @@
   --danger: #a83232;
   --success: #5a7a3a;
   --warning: #9a6700;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="solarized-light"] {
+  --accent-glow: rgba(38,139,210,.16);
   --bg-primary: #fdf6e3;
   --bg-secondary: #eee8d5;
   --bg-tertiary: #eae3cb;
@@ -474,15 +488,16 @@
   --danger: #dc322f;
   --success: #859900;
   --warning: #b58900;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="solarized-dark"] {
+  --accent-glow: rgba(38,139,210,.18);
   --bg-primary: #002b36;
   --bg-secondary: #073642;
   --bg-tertiary: #073642;
@@ -502,15 +517,16 @@
   --danger: #dc322f;
   --success: #859900;
   --warning: #b58900;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="nord"] {
+  --accent-glow: rgba(136,192,208,.18);
   --bg-primary: #2e3440;
   --bg-secondary: #3b4252;
   --bg-tertiary: #434c5e;
@@ -530,15 +546,16 @@
   --danger: #bf616a;
   --success: #a3be8c;
   --warning: #ebcb8b;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="catppuccin-latte"] {
+  --accent-glow: rgba(30,102,245,.16);
   --bg-primary: #eff1f5;
   --bg-secondary: #e6e9ef;
   --bg-tertiary: #ccd0da;
@@ -558,15 +575,16 @@
   --danger: #d20f39;
   --success: #40a02b;
   --warning: #df8e1d;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="catppuccin-mocha"] {
+  --accent-glow: rgba(137,180,250,.18);
   --bg-primary: #1e1e2e;
   --bg-secondary: #181825;
   --bg-tertiary: #313244;
@@ -586,15 +604,16 @@
   --danger: #f38ba8;
   --success: #a6e3a1;
   --warning: #f9e2af;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="academic"] {
+  --accent-glow: rgba(59,110,165,.16);
   --bg-primary: #fcfcfa;
   --bg-secondary: #f5f5f3;
   --bg-tertiary: #ecece8;
@@ -614,15 +633,16 @@
   --danger: #b03030;
   --success: #3a7a3a;
   --warning: #9a6700;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="minimal"] {
+  --accent-glow: rgba(0,119,204,.16);
   --bg-primary: #ffffff;
   --bg-secondary: #fafafa;
   --bg-tertiary: #f2f2f2;
@@ -642,15 +662,16 @@
   --danger: #cc3333;
   --success: #2e8b57;
   --warning: #b8860b;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="custom"] {
+  --accent-glow: rgba(9,105,218,.16);
   --bg-primary: #ffffff;
   --bg-secondary: #f6f8fa;
   --bg-tertiary: #eaeef2;
@@ -670,15 +691,20 @@
   --danger: #cf222e;
   --success: #1a7f37;
   --warning: #9a6700;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="dou-sha-lv-light"] {
+  --ambient: rgba(46,125,50,.30);
+  --accent-glow: rgba(46,125,50,.16);
+  --btn-top: rgba(255,255,255,.7);
+  --btn-bot: rgba(199,237,204,.6);
+  --edge: rgba(255,255,255,.7);
   --bg-primary: #C7EDCC;
   --bg-secondary: #d6f2d9;
   --bg-tertiary: #cfeccf;
@@ -698,41 +724,63 @@
   --danger: #c62828;
   --success: #2e7d32;
   --warning: #f9a825;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.15);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
 }
 
 [data-editor-theme="dou-sha-lv-dark"] {
-  --bg-primary: #CCE8CF;
-  --bg-secondary: #d8efe0;
-  --bg-tertiary: #d0ebd6;
-  --bg-toolbar: #c4e6cd;
-  --bg-statusbar: #c4e6cd;
-  --bg-panel-header: #d0ebd6;
-  --bg-hover: #bce3c6;
-  --bg-active: #2e7d3233;
-  --border-primary: #aedab8;
-  --border-subtle: #c8e8d0;
-  --text-primary: #16331a;
-  --text-secondary: #2f5233;
-  --text-muted: #446b48;
-  --text-accent: #1f6b3a;
-  --accent: #2e7d32;
-  --accent-hover: #1b5e20;
-  --danger: #b71c1c;
-  --success: #256d2b;
-  --warning: #f57f17;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --bg-primary: #16271c;
+  --bg-secondary: #112017;
+  --bg-tertiary: #1c3326;
+  --bg-toolbar: #112017;
+  --bg-statusbar: #112017;
+  --bg-panel-header: #1c3326;
+  --bg-hover: #234031;
+  --bg-active: rgba(80,200,120,.16);
+  --border-primary: #2e4a3a;
+  --border-subtle: #1c3326;
+  --text-primary: #d6f5dd;
+  --text-secondary: #a9d6b5;
+  --text-muted: #6fae7e;
+  --text-accent: #8be0a0;
+  --accent: #4caf6a;
+  --accent-hover: #6fd089;
+  --danger: #ff6b6b;
+  --success: #4caf6a;
+  --warning: #ffd166;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --ambient: rgba(80,200,120,.22);
+  --accent-glow: rgba(80,200,120,.20);
+  --btn-top: rgba(60,110,80,.5);
+  --btn-bot: rgba(20,40,30,.6);
+  --edge: rgba(120,200,150,.2);
 }
+/* === 新增 4 套主题（玻璃皮肤配套） === */
+[data-editor-theme="glacier"] {
+  --bg-primary:#eaf2f9; --bg-secondary:#dce8f2; --bg-tertiary:#cdddee; --bg-toolbar:#dce8f2; --bg-statusbar:#dce8f2; --bg-panel-header:#cdddee; --bg-hover:#c5d8e8; --bg-active:rgba(31,156,240,.12); --border-primary:#b3c9dc; --border-subtle:#d0e0ec; --text-primary:#16242f; --text-secondary:#33485a; --text-muted:#6b8095; --text-accent:#0a7fc2; --accent:#1f9cf0; --accent-hover:#0a7fc2; --danger:#e5484d; --success:#2e9e5b; --warning:#d99e0b; --shadow-sm:0 1px 2px rgba(0,0,0,.06); --shadow-md:0 4px 12px rgba(0,0,0,.1); --shadow-lg:0 8px 24px rgba(0,0,0,.15); --radius-sm:6px; --radius-md:10px; --radius-lg:14px; --ambient:rgba(120,195,235,.55); --accent-glow:rgba(31,156,240,.18); --btn-top:rgba(255,255,255,.92); --btn-bot:rgba(225,238,248,.72); --edge:rgba(255,255,255,.85);
+}
+
+[data-editor-theme="aurora"] {
+  --bg-primary:#1c1636; --bg-secondary:#15102c; --bg-tertiary:#241a44; --bg-toolbar:#15102c; --bg-statusbar:#15102c; --bg-panel-header:#241a44; --bg-hover:#2c2150; --bg-active:rgba(160,107,255,.16); --border-primary:#3a2d63; --border-subtle:#241a44; --text-primary:#ece8ff; --text-secondary:#c3b8ec; --text-muted:#8e82bd; --text-accent:#c79bff; --accent:#a06bff; --accent-hover:#c79bff; --danger:#ff6b8a; --success:#5be0a0; --warning:#ffd166; --shadow-sm:0 1px 2px rgba(0,0,0,.3); --shadow-md:0 4px 12px rgba(0,0,0,.4); --shadow-lg:0 8px 24px rgba(0,0,0,.5); --radius-sm:6px; --radius-md:10px; --radius-lg:14px; --ambient:rgba(150,105,255,.42); --accent-glow:rgba(160,107,255,.32); --btn-top:rgba(86,64,140,.65); --btn-bot:rgba(40,28,72,.7); --edge:rgba(160,135,255,.22);
+}
+
+[data-editor-theme="fluent"] {
+  --bg-primary:#232327; --bg-secondary:#1b1b1f; --bg-tertiary:#2b2b30; --bg-toolbar:#1b1b1f; --bg-statusbar:#1b1b1f; --bg-panel-header:#2b2b30; --bg-hover:#33333a; --bg-active:rgba(76,194,255,.14); --border-primary:#3a3a40; --border-subtle:#2b2b30; --text-primary:#f3f3f3; --text-secondary:#d6d6d6; --text-muted:#9a9a9a; --text-accent:#7fd4ff; --accent:#4cc2ff; --accent-hover:#7fd4ff; --danger:#ff5f57; --success:#28c840; --warning:#febc2e; --shadow-sm:0 1px 2px rgba(0,0,0,.3); --shadow-md:0 4px 12px rgba(0,0,0,.4); --shadow-lg:0 8px 24px rgba(0,0,0,.5); --radius-sm:6px; --radius-md:10px; --radius-lg:14px; --ambient:rgba(0,120,212,.30); --accent-glow:rgba(76,194,255,.24); --btn-top:rgba(255,255,255,.14); --btn-bot:rgba(255,255,255,.06); --edge:rgba(255,255,255,.14);
+}
+
+[data-editor-theme="macos"] {
+  --bg-primary:#f2f2f7; --bg-secondary:#e7e7ec; --bg-tertiary:#dcdce2; --bg-toolbar:#e7e7ec; --bg-statusbar:#e7e7ec; --bg-panel-header:#dcdce2; --bg-hover:#d2d2da; --bg-active:rgba(10,132,255,.12); --border-primary:#c4c4cc; --border-subtle:#dcdce2; --text-primary:#1d1d1f; --text-secondary:#3a3a3f; --text-muted:#7c7c82; --text-accent:#0066d6; --accent:#0a84ff; --accent-hover:#0066d6; --danger:#ff3b30; --success:#34c759; --warning:#ff9f0a; --shadow-sm:0 1px 2px rgba(0,0,0,.06); --shadow-md:0 4px 12px rgba(0,0,0,.1); --shadow-lg:0 8px 24px rgba(0,0,0,.15); --radius-sm:6px; --radius-md:10px; --radius-lg:14px; --ambient:rgba(120,160,255,.40); --accent-glow:rgba(10,132,255,.18); --btn-top:rgba(255,255,255,.95); --btn-bot:rgba(228,228,234,.75); --edge:rgba(255,255,255,.9);
+}
+
 /* === MARKRA_CSS: THEME_PRESETS:END === */
 
 /* 主题下拉（新增于工具栏，不影响 v1.4.4 的 5 按钮组） */
@@ -808,7 +856,7 @@
 .markra-block-drop-indicator {
   position: fixed;
   height: 0;
-  border-top: 2px dashed var(--markra-block-drop-fg, rgba(80, 120, 220, 0.9));
+  border-top: 2px dashed var(--markra-block-drop-fg, rgba(80,120,220,.9));
   z-index: 999;
   pointer-events: none;
   transform: translateY(-1px);
@@ -1081,7 +1129,7 @@ body {
   opacity: 0.85;
   letter-spacing: 0.02em;
   padding: 1px 5px;
-  border: 1px solid var(--border, rgba(128, 128, 128, 0.25));
+  border: 1px solid var(--border, rgba(128,128,128,.25));
   border-radius: 4px;
   line-height: 1.4;
   user-select: none;
@@ -1281,6 +1329,8 @@ body {
   display: flex;
   overflow: hidden;
   position: relative;
+  padding: 4px;
+  gap: var(--editor-gap, 4px);
 }
 
 /* Panels */
@@ -1357,7 +1407,7 @@ body {
 }
 
 .editor-container .cm-editor .cm-activeLine {
-  background: rgba(88, 166, 255, 0.04);
+  background: rgba(88,166,255,.04);
 }
 
 .editor-container .cm-editor .cm-cursor {
@@ -1366,11 +1416,11 @@ body {
 }
 
 .editor-container .cm-editor .cm-selectionBackground {
-  background: rgba(88, 166, 255, 0.2) !important;
+  background: rgba(88,166,255,.2) !important;
 }
 
 .editor-container .cm-editor.cm-focused .cm-selectionBackground {
-  background: rgba(88, 166, 255, 0.3) !important;
+  background: rgba(88,166,255,.3) !important;
 }
 
 /* Preview Container */
@@ -1385,7 +1435,7 @@ body {
    Resizer
    ========================================== */
 .resizer {
-  width: 5px;
+  width: 4px;
   cursor: col-resize;
   background: transparent;
   position: relative;
@@ -1564,7 +1614,7 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md, 8px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
 }
 
 .preview-context-item {
@@ -1647,7 +1697,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0,0,0,.55);
   backdrop-filter: blur(4px);
 }
 
@@ -1937,12 +1987,12 @@ body {
 
 .toast.success {
   border-color: var(--success);
-  background: rgba(63, 185, 80, 0.1);
+  background: rgba(63,185,80,.1);
 }
 
 .toast.error {
   border-color: var(--danger);
-  background: rgba(248, 81, 73, 0.1);
+  background: rgba(248,81,73,.1);
 }
 
 /* ==========================================
@@ -2002,7 +2052,7 @@ body {
 .mermaid-error {
   padding: 12px 16px;
   margin: 16px 0;
-  background: rgba(248, 81, 73, 0.08);
+  background: rgba(248,81,73,.08);
   border: 1px solid var(--danger);
   border-radius: var(--radius-md);
   color: var(--danger);
@@ -2367,7 +2417,7 @@ body {
   font-size: 10px;
   padding: 1px 4px;
   border-radius: 4px;
-  background: var(--bg-secondary, rgba(127,127,127,0.15));
+  background: var(--bg-secondary, rgba(127,127,127,.15));
 }
 .onboarding-tips-note {
   font-size: 11px;
@@ -2419,7 +2469,7 @@ body {
   font-size: 11px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--bg-secondary, rgba(127,127,127,0.12));
+  background: var(--bg-secondary, rgba(127,127,127,.12));
 }
 .onboarding-section kbd {
   border: 1px solid var(--border-primary);
@@ -2537,7 +2587,7 @@ body {
     --text-muted: #6e7781;
     --text-accent: #0969da;
     --accent: #0969da;
-    --accent-glow: rgba(9, 105, 218, 0.1);
+    --accent-glow: rgba(9,105,218,.1);
     --shadow-sm: none;
     --shadow-md: none;
     --shadow-lg: none;
@@ -2603,7 +2653,7 @@ body {
    选中符号配对高亮（选中配对符号时高亮其另一半）
    ========================================== */
 .cm-bracket-match-active {
-  background: rgba(63, 185, 80, 0.25);
+  background: rgba(63,185,80,.25);
   border-bottom: 2px solid var(--accent, #3cb750);
   border-radius: 2px;
 }
@@ -2619,7 +2669,7 @@ body {
   opacity: 1;
 }
 .focus-mode .cm-editor.cm-focused .cm-activeLine {
-  background: rgba(88, 166, 255, 0.06);
+  background: rgba(88,166,255,.06);
 }
 
 /* ==========================================
@@ -2829,7 +2879,7 @@ body {
   z-index: 3000;
   display: flex;
   flex-direction: column;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(0,0,0,.82);
 }
 .mermaid-zoom-overlay[hidden] {
   display: none !important;
@@ -3162,4 +3212,96 @@ body {
 .preview-container pre.hljs,
 .preview-container pre > code.hljs {
   background: var(--md-fence-bg);
+}
+
+/* ==========================================
+   MARKRA_CSS: SKIN_GLASS — 玻璃材质层（默认 skin）
+   与配色正交：用 [data-skin="glass"]（挂在 <html>）承载厚度/光影。
+   ========================================== */
+:root[data-skin="glass"] {
+  --editor-gap: 4px;
+}
+
+/* 单色相环境光晕背景：需让 body 成为独立层叠上下文，
+   否则 z-index:-1 的 ::before 会被 html/body 背景盖住而不可见 */
+[data-skin="glass"] body {
+  isolation: isolate;
+}
+[data-skin="glass"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(95% 85% at 50% -12%, var(--ambient, var(--accent-glow)) 0%, transparent 58%);
+}
+
+/* 厚度玻璃面板：多层 box-shadow + 顶部斜向高光带 */
+[data-skin="glass"] .editor-panel,
+[data-skin="glass"] .preview-panel,
+[data-skin="glass"] .file-sidebar {
+  position: relative;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.45),
+    inset 0 -1px 3px rgba(0,0,0,.32),
+    0 2px 6px var(--shadow-sm),
+    0 14px 30px var(--shadow-md),
+    0 32px 66px var(--shadow-lg);
+}
+[data-skin="glass"] .editor-panel::before,
+[data-skin="glass"] .preview-panel::before,
+[data-skin="glass"] .file-sidebar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,.14), transparent 40%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* 立体/拟物工具栏按钮：渐变 + 内高光 + 外投影 + 半透明内描边 */
+[data-skin="glass"] .toolbar-btn {
+  background: linear-gradient(180deg, var(--btn-top, rgba(255,255,255,.9)), var(--btn-bot, rgba(225,238,248,.7)));
+  border: 1px solid var(--edge, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -1px 2px rgba(0,0,0,.30),
+    0 2px 5px var(--shadow-sm);
+}
+[data-skin="glass"] .toolbar-btn:hover {
+  transform: translateY(-2px);
+  color: var(--text-primary);
+  background: linear-gradient(180deg, var(--btn-top, rgba(255,255,255,.9)), var(--btn-bot, rgba(225,238,248,.7)));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.5),
+    0 0 16px var(--accent-glow),
+    0 4px 10px var(--shadow-md);
+}
+[data-skin="glass"] .toolbar-btn:active {
+  transform: translateY(0) scale(0.96);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.35);
+}
+/* 保留切换态（功能指示）：用主题色描边 + 激活底色，覆盖默认渐变避免丢失激活反馈 */
+[data-skin="glass"] .toolbar-btn.active {
+  border-color: var(--accent);
+  color: var(--text-accent);
+  background: var(--bg-active);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.5),
+    inset 0 -1px 2px rgba(0,0,0,.30),
+    0 2px 5px var(--shadow-sm);
+}
+[data-skin="glass"] .toolbar-btn.active-translate {
+  background: var(--bg-active);
+  color: var(--accent);
+  border-color: var(--edge, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -1px 2px rgba(0,0,0,.30),
+    0 2px 5px var(--shadow-sm);
 }
