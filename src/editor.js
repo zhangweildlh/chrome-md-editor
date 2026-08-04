@@ -37,6 +37,7 @@ import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { makeSearchPanel } from './search-panel.js';
+import { markraSlashMenu } from './slash-menu.js';
 import { restoreScroll } from './scroll-restore.js';
 import {
   scheduleAutosave,
@@ -404,6 +405,7 @@ graph LR
     selectedBracketHighlight,
     ...initBase64Fold(),
     // === MARKRA_HOOK: SLASH_MENU === 斜杠菜单：在此行之后插入斜杠菜单扩展
+    markraSlashMenu(),
     // === MARKRA_HOOK: BLOCK_DRAG === 块拖拽：在此行之后插入块拖拽扩展
     // === MARKRA_HOOK: VIEW_MODE === 视图模式：在此行之后插入视图模式扩展
     // === MARKRA_HOOK: WORKSPACE_SEARCH === 工作区搜索：在此行之后插入工作区搜索扩展
