@@ -33,6 +33,7 @@ import {
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
+import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect } from './theme-presets.js';
 import { initFeedbackButton } from './feedback.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
@@ -1907,6 +1908,7 @@ function toggleTheme() {
 
   document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
   // === MARKRA_HOOK: THEMES === 主题预设：在此行之后应用当前编辑器主题预设（data-editor-theme）
+  applyEditorThemePreset(getStoredEditorTheme());
 
   editor.dispatch({
     effects: themeCompartment.reconfigure(
