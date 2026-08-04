@@ -801,6 +801,18 @@
   color: var(--text-secondary);
 }
 /* === MARKRA_CSS: BLOCK_DRAG === 块拖拽手柄/指示器样式 */
+/* 全局类：拖拽源半透明 + 落点虚线指示。工具栏/手柄/残影走内联 theme。 */
+.markra-block-drag-source {
+  opacity: 0.4;
+}
+.markra-block-drop-indicator {
+  position: fixed;
+  height: 0;
+  border-top: 2px dashed var(--markra-block-drop-fg, rgba(80, 120, 220, 0.9));
+  z-index: 999;
+  pointer-events: none;
+  transform: translateY(-1px);
+}
 /* === MARKRA_CSS: VIEW_MODE === 视图模式隐藏类 */
 /* === MARKRA_CSS: WORKSPACE_SEARCH === 工作区搜索面板样式 */
 /* === MARKRA_CSS: SYNTAX === 高亮/Callout 语法样式 */
