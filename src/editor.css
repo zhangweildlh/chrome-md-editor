@@ -909,6 +909,12 @@
 }
 
 /* === MARKRA_CSS: SYNTAX === 高亮/Callout 语法样式 */
+/* A-8 高亮语法：==文本== 渲染为 <mark>。高亮语义色（黄底）允许直接色值 #fff3a3 */
+mark {
+  background: #fff3a3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
 /* === MARKRA_CSS: TOOLBAR_RESPONSIVE === 工具栏非全屏响应式 */
 /* 修复：窗口未全屏/扩展弹窗固定窄宽时，.toolbar 内按钮被截断或溢出不可见。
    方案：工具栏容器与各按钮组均允许换行（flex-wrap: wrap），高度自适应，

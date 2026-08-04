@@ -36,6 +36,7 @@ import { initWorkspaceSearchPanel, runWorkspaceSearch } from './workspace-search
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect } from './theme-presets.js';
 import { initFeedbackButton } from './feedback.js';
+import { highlightPlugin } from './highlight-plugin.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { applyViewMode, getStoredViewMode, setStoredViewMode, nextViewMode, initChromeModeButton } from './view-mode.js';
@@ -146,7 +147,7 @@ const md = new MarkdownIt({
 // class/id/style/data-* 由 DOMPurify 默认策略保留并净化。
 function sanitizePreviewHtml(dirty) {
   return DOMPurify.sanitize(dirty, {
-    ADD_TAGS: ['font', 'center'],
+    ADD_TAGS: ['font', 'center', 'mark'],
     ADD_ATTR: ['color', 'face', 'size', 'align'],
   });
 }
@@ -183,6 +184,8 @@ md.use(function taskListPlugin(md) {
 
 // A-7 Callout 提示框（markdown-it 插件；data-callout 属性供预览回写还原）
 md.use(calloutPlugin);
+// A-8 高亮语法（==高亮== → <mark>）；ADD_TAGS 已放行 'mark' 以免被 DOMPurify 剥除
+md.use(highlightPlugin);
 
 // ==========================================
 // 状态管理
