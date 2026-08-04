@@ -91,6 +91,79 @@
 /* === MARKRA_CSS: WORKSPACE_SEARCH === 工作区搜索面板样式 */
 /* === MARKRA_CSS: SYNTAX === 高亮/Callout 语法样式 */
 /* === MARKRA_CSS: TOOLBAR_RESPONSIVE === 工具栏非全屏响应式 */
+/* 修复：窗口未全屏/扩展弹窗固定窄宽时，.toolbar 内按钮被截断或溢出不可见。
+   方案：工具栏容器与各按钮组均允许换行（flex-wrap: wrap），高度自适应，
+   按钮不收缩、尺寸稳定。两端（桌面 EXE 可缩放 webview / 浏览器扩展固定弹窗）通用。
+   仅调整布局行为，不改 v1.4.4 样式工具栏按钮组本身的视觉定义。 */
+.toolbar {
+  flex-wrap: wrap;                       /* 容器允许换行，避免横向截断按钮 */
+  height: auto;                          /* 换行后高度自适应，不再固定 48px 导致溢出 */
+  min-height: var(--toolbar-height);
+  align-content: flex-start;
+  row-gap: 6px;
+  overflow-x: auto;                      /* 极端窄宽兜底：允许横向滚动而非截断 */
+  overflow-y: hidden;
+  scrollbar-width: thin;                 /* 滚动条细、不遮挡内容 */
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+/* WebKit 细滚动条（兜底横向滚动时） */
+.toolbar::-webkit-scrollbar {
+  height: 6px;
+}
+.toolbar::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.toolbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 左/中/右三段均随容器换行，并允许收缩以让出换行空间 */
+.toolbar-left,
+.toolbar-center,
+.toolbar-right {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 中段（含多个 .toolbar-group）本身也要能换行，按钮组不再被强行挤成一行 */
+.toolbar-center {
+  flex: 1 1 auto;
+}
+
+/* 各按钮组自身换行：即便单组按钮多也能在窄宽下折行显示 */
+.toolbar-group {
+  flex-wrap: wrap;
+}
+
+/* 按钮尺寸稳定、不被挤压变形；换行/滚动时保持 32x32 */
+.toolbar-btn {
+  flex: 0 0 auto;
+}
+
+/* 分隔线在换行多行时垂直居中 */
+.toolbar-divider {
+  align-self: center;
+}
+
+/* 窄屏（非全屏 EXE 窗口 / 浏览器扩展固定弹窗）微调：收紧内边距与间距，
+   让换行后的多行工具栏更紧凑、不浪费横向空间。仅改布局量，不动视觉。 */
+@media (max-width: 680px) {
+  .toolbar {
+    padding: 0 8px;
+    row-gap: 4px;
+    column-gap: 4px;
+  }
+  .toolbar-left,
+  .toolbar-center,
+  .toolbar-right {
+    gap: 4px;
+  }
+  .toolbar-group {
+    gap: 2px;
+  }
+}
 
 /* ==========================================
    Reset & Base
