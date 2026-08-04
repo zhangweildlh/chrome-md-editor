@@ -50,6 +50,17 @@ export function convertNode(node) {
     return '';
   }
 
+  // 不可逆渲染节点的源码还原（Critical 数据丢失修复）。
+  // 预览区会把 ```mermaid 代码块替换成 <div class="mermaid-diagram">SVG</div>，
+  // 该 DOM 无法逆向回 Markdown。若不还原，预览区失焦触发的 syncPreviewToEditor
+  // 会用「缺失该块」的结果整体覆盖编辑器全文，导致 Mermaid 源码被永久删除。
+  // 渲染侧（editor.js doUpdatePreview）在替换时把原始 fence 写入 data-md-source，
+  // 此处优先取回，同时天然忽略渲染后追加的 SVG、缩放按钮等噪声内容。
+  const rawSource = node.getAttribute?.('data-md-source');
+  if (rawSource) {
+    return `${rawSource}\n\n`;
+  }
+
   const tag = node.tagName.toLowerCase();
   const children = () => Array.from(node.childNodes).map(convertNode).join('');
   const childText = children();
@@ -213,7 +224,14 @@ export function convertNode(node) {
     case 'input':
       return '';
     case 'div': {
-      if (node.classList.contains('mermaid-diagram')) {
+      // 兜底：缺失 data-md-source 的历史渲染节点无法还原源码，返回空串而非其
+      // 内部文本，至少避免把 SVG 文本 / 「Mermaid 渲染错误: ...」提示混进源码。
+      // mermaid-error 此前走 default 分支返回 childText，会把错误提示写进正文，
+      // 属同一根因下的污染路径，一并封堵。
+      if (
+        node.classList.contains('mermaid-diagram') ||
+        node.classList.contains('mermaid-error')
+      ) {
         return '';
       }
       return childText;

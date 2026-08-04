@@ -38,6 +38,25 @@ function mdEscape(str) {
 }
 
 /**
+ * 语言标识白名单。
+ * markdown-it 会把 fence info 的首段原样传给 highlight 回调，内容完全由文档
+ * 作者控制（例如 ```js" onload="alert(1)）。该值被拼进 class="language-${lang}"
+ * 属性字符串，未经校验会形成 HTML 属性注入面。虽然产物最终仍过 DOMPurify，
+ * 但不应把安全性押在单点防护上——此处按白名单在源头拦截。
+ * 放行常规语言标识字符：字母、数字、下划线、加号、井号、点、连字符，长度 ≤ 32。
+ */
+const LANG_TOKEN_RE = /^[A-Za-z0-9_+#.-]{1,32}$/;
+
+/**
+ * 构造安全的 language-* class 属性片段。
+ * @param {string} lang fence info 首段
+ * @returns {string} 形如 ` class="language-js"`；非法标识返回空串
+ */
+function langClassAttr(lang) {
+  return lang && LANG_TOKEN_RE.test(lang) ? ` class="language-${lang}"` : '';
+}
+
+/**
  * 构造 markdown-it 的 highlight 回调工厂。
  *
  * @param {(dirtyHtml: string) => string} sanitize
@@ -51,18 +70,26 @@ function mdEscape(str) {
 export function createMarkdownHighlight(sanitize) {
   return function (str, lang) {
     let body;
+    let langClass = '';
     if (lang && hljs.getLanguage(lang)) {
       try {
         body = hljs.highlight(str, { language: lang, ignoreIllegals: true }).value;
+        langClass = langClassAttr(lang);
       } catch (e) {
         // hljs 对个别输入抛错时回退为转义原文，避免破坏整页渲染。
         body = mdEscape(str);
+        langClass = langClassAttr(lang);
       }
     } else {
       // 未提供语言或 hljs 不支持该语言：转义原文，至少保证安全且不丢失内容。
+      // 注意 mermaid 走的正是本分支（hljs 不识别 mermaid），其 language-mermaid
+      // class 必须保留，否则 Mermaid 图永不渲染。
       body = mdEscape(str);
+      langClass = langClassAttr(lang);
     }
-    return sanitize('<pre class="hljs"><code>' + body + '</code></pre>');
+    // 保留 language-${lang} class：mermaid 等下游渲染器依赖 code.language-mermaid
+    // 选择器定位目标块，缺失该 class 会导致 Mermaid 图永不渲染（已确认 BUG）。
+    return sanitize(`<pre class="hljs"><code${langClass}>` + body + '</code></pre>');
   };
 }
 

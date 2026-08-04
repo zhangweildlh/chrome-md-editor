@@ -187,9 +187,56 @@ test('预览高亮：识别语言时产出 hljs token（class="hljs-*"）', () =
   const identity = (x) => x; // 测试中不真正净化，仅验证 hljs 输出结构
   const hl = createMarkdownHighlight(identity);
   const out = hl('const x = 1;', 'js');
-  assert.ok(out.startsWith('<pre class="hljs"><code>'), '外层包裹 <pre class="hljs"><code>');
+  // <code> 必须带 language-* class：mermaid 等下游渲染器靠 code.language-xxx
+  // 选择器定位目标块，缺失会导致 Mermaid 图永不渲染（已确认的真实产品 BUG）。
+  assert.ok(
+    out.startsWith('<pre class="hljs"><code class="language-js">'),
+    '外层应为 <pre class="hljs"><code class="language-js">'
+  );
   assert.ok(out.endsWith('</code></pre>'), '应以 </code></pre> 结尾');
   assert.ok(out.includes('hljs-keyword'), 'js 关键字 const 应被 hljs 标记为 hljs-keyword');
+});
+
+test('预览高亮：mermaid 等 hljs 未收录语言仍须保留 language-* class', () => {
+  const hl = createMarkdownHighlight((x) => x);
+  const out = hl('graph TD\n A-->B', 'mermaid');
+  assert.ok(
+    out.includes('<code class="language-mermaid">'),
+    'Mermaid 渲染依赖 code.language-mermaid 选择器，该 class 不可丢失'
+  );
+});
+
+test('预览高亮：非法语言标识不得拼进 class 属性（属性注入防护）', () => {
+  const hl = createMarkdownHighlight((x) => x);
+  // fence info 完全由文档作者控制，可构造成闭合属性再注入事件处理器
+  const payloads = [
+    'js" onload="alert(1)',
+    'js><script>alert(1)</script>',
+    "js' onmouseover='x",
+    'a'.repeat(64), // 超长标识
+    'js x',         // 含空格
+  ];
+  for (const lang of payloads) {
+    const out = hl('const x = 1;', lang);
+    assert.ok(!out.includes('onload'), `不得注入事件处理器: ${lang}`);
+    assert.ok(!out.includes('onmouseover'), `不得注入事件处理器: ${lang}`);
+    assert.ok(!out.includes('<script'), `不得注入脚本标签: ${lang}`);
+    assert.ok(
+      out.startsWith('<pre class="hljs"><code>'),
+      `非法标识应整体丢弃 class 属性: ${lang}`
+    );
+  }
+});
+
+test('预览高亮：合法语言标识（含 c++ / c# / f-sharp 风格）正常放行', () => {
+  const hl = createMarkdownHighlight((x) => x);
+  for (const lang of ['c++', 'c#', 'objective-c', 'asp.net', 'vue_sfc']) {
+    const out = hl('x', lang);
+    assert.ok(
+      out.includes(`<code class="language-${lang}">`),
+      `常规语言标识不应被误杀: ${lang}`
+    );
+  }
 });
 
 test('预览高亮：未识别语言/抛错时回退为转义原文（保持 XSS 防护）', () => {

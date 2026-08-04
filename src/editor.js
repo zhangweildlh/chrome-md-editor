@@ -532,17 +532,28 @@ async function doUpdatePreview() {
   for (const block of mermaidBlocks) {
     const source = block.textContent;
     const pre = block.parentElement;
+    // 记录原始 fence 源码（Critical 数据丢失修复）：
+    // 下面会把 <pre><code> 整块替换成渲染后的 <div>，该 DOM 不可逆向回 Markdown。
+    // 预览区是 contenteditable，失焦会触发 syncPreviewToEditor 用 htmlToMarkdown 的
+    // 结果整体覆盖编辑器全文；若无此属性，Mermaid 源码会被静默永久删除。
+    // html-to-markdown.js convertNode 读取该属性还原代码块。
+    const mermaidSource = `\`\`\`mermaid\n${String(source).replace(/\s+$/, '')}\n\`\`\``;
     try {
       mermaidCounter++;
             const { svg } = await mermaid.render(`mermaid-${mermaidCounter}`, source);
       const div = document.createElement('div');
       div.className = 'mermaid-diagram';
+      div.setAttribute('data-md-source', mermaidSource);
+      // 渲染结果为不可编辑整体：避免用户在预览区误改 SVG 内部结构后回写出脏数据
+      div.setAttribute('contenteditable', 'false');
       div.innerHTML = svg;
       pre.replaceWith(div);
     } catch (err) {
       // 渲染失败时显示错误
             const div = document.createElement('div');
       div.className = 'mermaid-error';
+      div.setAttribute('data-md-source', mermaidSource);
+      div.setAttribute('contenteditable', 'false');
       div.textContent = 'Mermaid 渲染错误: ' + err.message;
       pre.replaceWith(div);
     }
@@ -1898,7 +1909,12 @@ function bindEvents() {
   if (snapshotsClose) snapshotsClose.addEventListener('click', () => { if (snapshotsDialog) snapshotsDialog.hidden = true; });
   if (snapshotsDialog) {
     snapshotsDialog.addEventListener('click', (e) => { if (e.target === snapshotsDialog) snapshotsDialog.hidden = true; });
-    snapshotsDialog.addEventListener('keydown', (e) => { if (e.key === 'Escape') snapshotsDialog.hidden = true; });
+    // 改为 document 级监听：对话框由工具栏按钮打开时焦点停留在按钮（位于遮罩之下），
+    // 原 keydown 绑定在 dialog 元素上无法收到事件，导致 Esc 失效。改为全局监听，
+    // 只要对话框处于打开态，无论焦点在哪都能用 Esc 关闭。
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !snapshotsDialog.hidden) snapshotsDialog.hidden = true;
+    });
   }
 
   // 格式化按钮
@@ -2448,6 +2464,22 @@ async function readDirectoryRecursive(dirHandle, depth = 0, parentPath = '') {
   return entries;
 }
 
+/**
+ * 构造文件树的名称节点（安全注入）。
+ * 文件名/目录名来自用户选择的任意本地目录，可被构造成
+ * `<img src=x onerror=...>.md` 之类的载荷。此前这些名字被直接拼进
+ * innerHTML 模板，会在扩展特权页（可访问 chrome.* API）形成 XSS。
+ * 名称一律经 textContent 注入，从根上消除该注入面。
+ * @param {string} name 原始文件名/目录名
+ * @returns {HTMLSpanElement}
+ */
+function createTreeNameSpan(name) {
+  const span = document.createElement('span');
+  span.className = 'tree-item-name';
+  span.textContent = String(name == null ? '' : name);
+  return span;
+}
+
 async function renderFileTree() {
   const container = document.getElementById('fileTree');
   if (!directoryHandle) return;
@@ -2463,19 +2495,25 @@ async function renderFileTree() {
     rootDiv.className = 'tree-item';
     rootDiv.style.fontWeight = '600';
     rootDiv.style.paddingLeft = '8px';
+    // 图标为静态 SVG 常量，可安全走 innerHTML；目录名单独走 textContent。
     rootDiv.innerHTML = `
       <span class="tree-item-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
       </span>
-      <span class="tree-item-name">${directoryHandle.name}</span>
     `;
+    rootDiv.appendChild(createTreeNameSpan(directoryHandle.name));
     container.appendChild(rootDiv);
 
     renderTreeEntries(container, entries, 1);
   } catch (err) {
-    container.innerHTML = `<div style="padding:12px;color:var(--danger);font-size:12px;">${err.message}</div>`;
+    // 错误信息可能内嵌文件名等外部数据，同样不得进入 innerHTML。
+    container.innerHTML = '';
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'padding:12px;color:var(--danger);font-size:12px;';
+    errDiv.textContent = err && err.message ? err.message : String(err);
+    container.appendChild(errDiv);
   }
 }
 
@@ -2497,7 +2535,9 @@ function renderDirectoryNode(parent, entry, depth) {
   const chevron = `<span class="tree-item-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,6 15,12 9,18"/></svg></span>`;
   const icon = `<span class="tree-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>`;
 
-  itemDiv.innerHTML = `${chevron}${icon}<span class="tree-item-name">${entry.name}</span>`;
+  // chevron / icon 为静态 SVG 常量；目录名走 textContent，防止文件名 XSS。
+  itemDiv.innerHTML = `${chevron}${icon}`;
+  itemDiv.appendChild(createTreeNameSpan(entry.name));
 
   // 子节点容器
   const childrenDiv = document.createElement('div');
@@ -2530,7 +2570,9 @@ function renderFileNode(parent, entry, depth) {
     ? `<span class="tree-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14,2 14,8 20,8"/></svg></span>`
     : `<span class="tree-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/></svg></span>`;
 
-  itemDiv.innerHTML = `${icon}<span class="tree-item-name">${entry.name}</span>`;
+  // icon 由 iconColor（内部常量）拼成，无外部输入；文件名走 textContent。
+  itemDiv.innerHTML = `${icon}`;
+  itemDiv.appendChild(createTreeNameSpan(entry.name));
 
   if (isMarkdown) {
     itemDiv.addEventListener('click', async (e) => {

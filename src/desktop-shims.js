@@ -22,7 +22,16 @@
   //    作用：让 session-restore（恢复上次文件）、translate（翻译设置持久化）
   //          在桌面端也能正常工作。扩展里 chrome 已存在 → 跳过。
   // =========================================================================
-  if (typeof chrome === "undefined") {
+  // 判定改为「能力检测」而非「chrome 是否存在」：
+  // Tauri v2 的 WebView2 会注入一个只含 chrome.webview 的全局 chrome 对象，
+  // 原先 `typeof chrome === "undefined"` 会误判为「已有 chrome」直接跳过垫片，
+  // 导致桌面端 chrome.storage 缺失 —— 会话恢复与翻译设置持久化静默失效。
+  // 同时绝不整体覆盖既有 chrome 对象（那会抹掉 chrome.webview，破坏 Tauri IPC），
+  // 只补齐缺失字段。Chrome 扩展中 chrome.storage.local 原生存在 → 整块跳过，零影响。
+  const existingChrome = typeof chrome !== "undefined" && chrome ? chrome : null;
+  const needsChromeShim =
+    !existingChrome || !existingChrome.storage || !existingChrome.storage.local;
+  if (needsChromeShim) {
     const PREFIX = "chrome-shim:";
     const makeArea = () => ({
       async get(key) {
@@ -66,7 +75,7 @@
         toRemove.forEach((k) => localStorage.removeItem(k));
       },
     });
-    window.chrome = {
+    const shim = {
       storage: { local: makeArea(), sync: makeArea() },
       runtime: {
         id: "",
@@ -79,6 +88,22 @@
           window.open(opts && opts.url, "_blank", "noopener,noreferrer"),
       },
     };
+
+    if (!existingChrome) {
+      window.chrome = shim;
+    } else {
+      // 逐字段补齐，保住 WebView2 注入的 chrome.webview 等既有能力
+      try {
+        if (!existingChrome.storage || !existingChrome.storage.local) {
+          existingChrome.storage = shim.storage;
+        }
+        if (!existingChrome.runtime) existingChrome.runtime = shim.runtime;
+        if (!existingChrome.tabs) existingChrome.tabs = shim.tabs;
+      } catch (e) {
+        // 既有 chrome 对象被冻结/只读时，合并出一个新对象覆盖，仍保留原有字段
+        window.chrome = Object.assign({}, existingChrome, shim);
+      }
+    }
   }
 
   // =========================================================================
@@ -138,20 +163,39 @@
         return {
           write: async (content) => {
             const { invoke } = await setup;
-            let str;
             if (typeof content === "string") {
-              str = content;
-            } else {
-              // 统一以文本写入（编辑器内容为文本）
-              let u8;
-              if (content instanceof Uint8Array) u8 = content;
-              else if (content instanceof ArrayBuffer) u8 = new Uint8Array(content);
-              else if (content && typeof content.arrayBuffer === "function")
-                u8 = new Uint8Array(await content.arrayBuffer());
-              else u8 = new Uint8Array(content);
-              str = new TextDecoder().decode(u8);
+              await invoke("write_text_file", { path: self.path, content });
+              return;
             }
-            await invoke("write_text_file", { path: self.path, content: str });
+
+            // 归一化为字节数组
+            let u8;
+            if (content instanceof Uint8Array) u8 = content;
+            else if (content instanceof ArrayBuffer) u8 = new Uint8Array(content);
+            else if (content && typeof content.arrayBuffer === "function")
+              u8 = new Uint8Array(await content.arrayBuffer());
+            else u8 = new Uint8Array(content);
+
+            // 原实现无条件 TextDecoder().decode(u8) 转字符串再走 write_text_file，
+            // 非 UTF-8 字节会被替换成 U+FFFD —— 粘贴图片（editor.js 直接
+            // writable.write(File)）落盘后必定损坏且不可恢复。
+            // 这里用严格模式试解码：能无损还原为文本才走文本通道，
+            // 否则走 write_binary_file 按原始字节写入。
+            let text = null;
+            try {
+              text = new TextDecoder("utf-8", { fatal: true }).decode(u8);
+            } catch (e) {
+              text = null;
+            }
+
+            if (text !== null) {
+              await invoke("write_text_file", { path: self.path, content: text });
+            } else {
+              await invoke("write_binary_file", {
+                path: self.path,
+                content: Array.from(u8),
+              });
+            }
           },
           close: async () => {},
         };

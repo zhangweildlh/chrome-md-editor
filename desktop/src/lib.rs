@@ -56,15 +56,85 @@ fn debug_args() -> Vec<String> {
     std::env::args().map(|a| normalize_arg(&a)).collect()
 }
 
-// 按绝对路径读取文本文件（Rust 侧，无 scope 限制）
-#[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("读取失败 {}: {}", path, e))
+// ---------------------------------------------------------------------------
+// 路径守卫
+// ---------------------------------------------------------------------------
+// 这些命令刻意绕开了 Tauri fs 插件的 scope 限制（见文件头说明），因此 scope 不再
+// 提供任何保护：webview 里任何能执行 JS 的代码（例如打开一个恶意 Markdown 后
+// 发生渲染逃逸）都能 invoke 这些命令读写磁盘任意文件。
+// 这里补上最小必要的自有守卫：扩展名白名单 + 路径穿越拦截 + 读取体积上限。
+// 目标是把能力面收敛到「编辑器与对比模块真正需要的文本/图片资源」，
+// 同时不影响任何既有功能（.md 打开保存、compare 读多文件、粘贴图片落盘）。
+
+// 文本类：编辑器打开/保存、对比模块读取、导出合并结果
+const ALLOWED_TEXT_EXT: &[&str] = &[
+    ".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".txt", ".text", ".json", ".csv", ".tsv",
+    ".log", ".yml", ".yaml", ".html", ".htm", ".xml", ".svg",
+];
+
+// 二进制类：仅用于粘贴图片落盘（write_binary_file）
+const ALLOWED_BINARY_EXT: &[&str] = &[
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".ico",
+];
+
+// 单文件读取上限，防止误选超大文件把 webview 拖死
+const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
+
+fn has_allowed_ext(path: &str, list: &[&str]) -> bool {
+    let lower = path.to_ascii_lowercase();
+    list.iter().any(|e| lower.ends_with(*e))
 }
 
-// 按绝对路径写入文本文件（Rust 侧，无 scope 限制）
+// 校验路径是否可被这些命令操作。allow_binary 为 true 时额外放行图片扩展名。
+fn validate_path(path: &str, allow_binary: bool) -> Result<(), String> {
+    let p = path.trim();
+    if p.is_empty() {
+        return Err("路径为空".to_string());
+    }
+    // 仅拦截作为「独立路径段」出现的 ".."（真正的目录穿越）。
+    // 不能简单用 contains("..")——那会误杀 `README..md`、`v1..2.md` 这类合法文件名，
+    // 属于过度拦截、破坏既有功能。
+    if p.split(['/', '\\']).any(|seg| seg == "..") {
+        return Err(format!("路径包含非法片段 '..': {}", p));
+    }
+    let allowed = has_allowed_ext(p, ALLOWED_TEXT_EXT)
+        || (allow_binary && has_allowed_ext(p, ALLOWED_BINARY_EXT));
+    if !allowed {
+        return Err(format!("不允许操作该类型文件: {}", p));
+    }
+    Ok(())
+}
+
+// 带守卫的文本读取：校验路径 → 校验体积 → 读取
+fn read_text_guarded(path: &str) -> Result<String, String> {
+    validate_path(path, false)?;
+    let meta = std::fs::metadata(path).map_err(|e| format!("读取失败 {}: {}", path, e))?;
+    if meta.len() > MAX_READ_BYTES {
+        return Err(format!("文件过大（上限 32MB）: {}", path));
+    }
+    std::fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {}", path, e))
+}
+
+// 按绝对路径读取文本文件（Rust 侧，无 scope 限制，走自有路径守卫）
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    read_text_guarded(&path)
+}
+
+// 按绝对路径写入文本文件（Rust 侧，无 scope 限制，走自有路径守卫）
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
+    validate_path(&path, false)?;
+    std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
+}
+
+// 按绝对路径写入二进制文件（粘贴图片落盘专用）。
+// 背景：前端垫片此前把所有非字符串内容用 TextDecoder 解码成字符串再走
+// write_text_file，PNG/JPEG 等二进制会被有损解码为 U+FFFD 替换字符，
+// 落盘图片必定损坏且不可恢复。此命令提供无损的字节写入通道。
+#[tauri::command]
+fn write_binary_file(path: String, content: Vec<u8>) -> Result<(), String> {
+    validate_path(&path, true)?;
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
@@ -83,7 +153,7 @@ struct FileReadResult {
 fn read_multiple_text_files(paths: Vec<String>) -> Vec<FileReadResult> {
     paths
         .into_iter()
-        .map(|p| match std::fs::read_to_string(&p) {
+        .map(|p| match read_text_guarded(&p) {
             Ok(c) => FileReadResult {
                 path: p,
                 content: Some(c),
@@ -92,15 +162,16 @@ fn read_multiple_text_files(paths: Vec<String>) -> Vec<FileReadResult> {
             Err(e) => FileReadResult {
                 path: p,
                 content: None,
-                error: Some(format!("{}", e)),
+                error: Some(e),
             },
         })
         .collect()
 }
 
-// 按绝对路径写入对比合并结果（桌面端导出合并结果专用，无 scope 限制）。
+// 按绝对路径写入对比合并结果（桌面端导出合并结果专用，走自有路径守卫）。
 #[tauri::command]
 fn save_compare_result(path: String, content: String) -> Result<(), String> {
+    validate_path(&path, false)?;
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
@@ -123,6 +194,7 @@ pub fn run() {
             debug_args,
             read_text_file,
             write_text_file,
+            write_binary_file,
             read_multiple_text_files,
             save_compare_result,
         ])

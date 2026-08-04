@@ -15,7 +15,7 @@
 //   - compare-export.js       → exportResult                  （逻辑 Agent 交付）
 //   - compare-diff-export.js  → exportDiffReport              （逻辑 Agent 交付）
 //
-// 禁用类名闸门（docs/compare-contract.md §4）：
+// 禁用类名闸门：
 //   严禁使用方案列明的禁用类名。本文件按钮统一用 compare-toolbar-btn。
 
 import { markdown } from "@codemirror/lang-markdown";
@@ -79,6 +79,12 @@ import { exportDiffReport } from "./compare-diff-export.js";
   const btnAddImages = $("btnAddImages");
   const btnToggleCollapse = $("btnToggleCollapse");
   const btnAcceptTheirs = $("btnAcceptTheirs");
+
+  // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
+  // 运行时兜底 1.5.0（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.5.0";
+  const verEl = $("compareVersion");
+  if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
   const viewButtons = {
     two: btnViewTwo,
