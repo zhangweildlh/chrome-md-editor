@@ -24,7 +24,7 @@ import { EditorView } from "@codemirror/view";
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { createCompareUnifiedView } from "./compare-unified.js";
-import { bindChunkNavigation } from "./compare-nav.js";
+import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
 import { pickFiles } from "./compare-files.js";
 import {
   bindCompareEditorView,
@@ -295,6 +295,9 @@ import { exportDiffReport } from "./compare-diff-export.js";
   if (btnViewSingle) btnViewSingle.addEventListener("click", () => switchMode("single"));
   if (btnPrevChunk) btnPrevChunk.addEventListener("click", navPrev);
   if (btnNextChunk) btnNextChunk.addEventListener("click", navNext);
+
+  // ── 块导航快捷键：复用按钮点击的同一组 navNext / navPrev（B / ] 下一块，Shift+B / [ 上一块） ──
+  bindChunkNavigationKeys({ next: navNext, prev: navPrev });
   if (btnPickFiles) btnPickFiles.addEventListener("click", onPickFiles);
   if (btnExportResult) btnExportResult.addEventListener("click", onExportResult);
   if (btnExportDiff) btnExportDiff.addEventListener("click", onExportDiff);

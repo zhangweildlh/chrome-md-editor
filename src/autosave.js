@@ -136,6 +136,120 @@ export async function getDraft() {
 }
 
 // 启动时若发现比当前文档新的草稿，提示恢复（不静默覆盖磁盘文件）
+// ===========================================================================
+// 定时磁盘自动保存（与上面的「草稿 / 快照环」互相独立）
+//
+// 上面的自动保存只写 chrome.storage.local；这里是用户显式开启的「落盘副本」：
+// 每 N 秒把当前内容写成 <源文件主名>_<秒级时间戳>.md，放在源文件同目录。
+// 永远只新建带时间戳的副本，绝不覆盖源文件。
+//
+// 本模块不直接碰 File System Access API / Tauri，具体写入由 editor.js 通过
+// initDiskAutosave({ writeFile }) 注入，保证这里可在 node 下单测。
+// ===========================================================================
+
+const DEFAULT_DISK_INTERVAL_SEC = 30;
+const MIN_DISK_INTERVAL_SEC = 5;
+const MAX_DISK_INTERVAL_SEC = 3600;
+
+let diskTimer = null;
+let diskIntervalSec = DEFAULT_DISK_INTERVAL_SEC;
+let diskGetContent = null;
+let diskGetSourceName = null;
+let diskWriteFile = null;
+let diskOnSaved = null;
+let diskOnError = null;
+let lastDiskContent = null;
+
+// 把间隔秒数夹到合法区间；非法输入回退默认 30 秒
+export function normalizeIntervalSec(value) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_DISK_INTERVAL_SEC;
+  return Math.min(MAX_DISK_INTERVAL_SEC, Math.max(MIN_DISK_INTERVAL_SEC, n));
+}
+
+// 秒级时间戳：yyyyMMddHHmmss（本地时间，与用户看到的文件时间一致）
+export function formatTimestamp(date = new Date()) {
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return (
+    p(date.getFullYear(), 4) +
+    p(date.getMonth() + 1) +
+    p(date.getDate()) +
+    p(date.getHours()) +
+    p(date.getMinutes()) +
+    p(date.getSeconds())
+  );
+}
+
+// 由源文件名生成落盘副本名：<主名>_<秒级时间戳>.md
+// 例：这是测试文件.md + 20260804133025 → 这是测试文件_20260804133025.md
+export function buildAutosaveFileName(sourceName, date = new Date()) {
+  const raw = (sourceName || '').trim();
+  const fallback = 'untitled';
+  const base = raw && raw !== '未打开文件' ? raw.replace(/\.[^./\\]+$/, '') : fallback;
+  const safeBase = (base || fallback).replace(/[\\/:*?"<>|]/g, '_');
+  return `${safeBase}_${formatTimestamp(date)}.md`;
+}
+
+// 注入落盘自动保存所需的上下文（由 editor.js 在初始化时调用一次）
+//   getContent()    -> string   当前编辑区内容
+//   getSourceName() -> string   当前文件名（含扩展名）
+//   writeFile(name, content) -> Promise<string> 实际落盘，返回可展示的路径/文件名
+export function initDiskAutosave({ getContent, getSourceName, writeFile, onSaved, onError } = {}) {
+  if (typeof getContent === 'function') diskGetContent = getContent;
+  if (typeof getSourceName === 'function') diskGetSourceName = getSourceName;
+  if (typeof writeFile === 'function') diskWriteFile = writeFile;
+  diskOnSaved = typeof onSaved === 'function' ? onSaved : null;
+  diskOnError = typeof onError === 'function' ? onError : null;
+}
+
+// 立即执行一次落盘。内容与上次落盘完全相同时跳过，避免堆出一串一模一样的副本。
+export async function runDiskAutosaveOnce({ force = false } = {}) {
+  if (!diskGetContent || !diskWriteFile) return null;
+  const content = diskGetContent();
+  if (!force && content === lastDiskContent) return null;
+  const name = buildAutosaveFileName(diskGetSourceName ? diskGetSourceName() : '');
+  try {
+    const target = await diskWriteFile(name, content);
+    lastDiskContent = content;
+    if (diskOnSaved) diskOnSaved(target || name);
+    return target || name;
+  } catch (e) {
+    if (diskOnError) diskOnError(e);
+    else console.error('[autosave] 落盘失败', e);
+    return null;
+  }
+}
+
+// 开启定时落盘：每 intervalSec 秒写一份带时间戳的副本。重复调用即按新间隔重启。
+export function autosaveToDisk(intervalSec = DEFAULT_DISK_INTERVAL_SEC) {
+  stopAutosaveToDisk();
+  diskIntervalSec = normalizeIntervalSec(intervalSec);
+  diskTimer = setInterval(() => {
+    runDiskAutosaveOnce();
+  }, diskIntervalSec * 1000);
+  return diskIntervalSec;
+}
+
+export function stopAutosaveToDisk() {
+  if (diskTimer) {
+    clearInterval(diskTimer);
+    diskTimer = null;
+  }
+}
+
+export function isAutosaveToDiskOn() {
+  return diskTimer !== null;
+}
+
+export function getDiskAutosaveIntervalSec() {
+  return diskIntervalSec;
+}
+
+// 切换文件后重置「内容去重」基准，保证新文件第一次到点必定落盘
+export function resetDiskAutosaveBaseline() {
+  lastDiskContent = null;
+}
+
 export async function offerDraftRestore() {
   if (!editorRef) return;
   const key = fileKey();

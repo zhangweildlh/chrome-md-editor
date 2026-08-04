@@ -17,7 +17,12 @@ import { presentableDiff, diff } from '@codemirror/merge';
 import { EditorState } from '@codemirror/state';
 
 import { countChunks } from '../src/compare-merge.js';
-import { bindChunkNavigation } from '../src/compare-nav.js';
+import {
+  bindChunkNavigation,
+  bindChunkNavigationKeys,
+  resolveChunkNavAction,
+  isEditableTarget,
+} from '../src/compare-nav.js';
 import { buildDiffText, exportDiffReport } from '../src/compare-diff-export.js';
 
 // 与 compare-diff-export.js 默认一致的 diff 配置
@@ -172,5 +177,98 @@ test('bindChunkNavigation: 真实 EditorState + mock dispatch 不抛错', () => 
   assert.doesNotThrow(() => {
     nav.next();
     nav.prev();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// E. compare-nav.js 的块导航快捷键（resolveChunkNavAction / bindChunkNavigationKeys）
+// ───────────────────────────────────────────────────────────────────────────
+
+const ev = (over) => ({
+  key: 'b',
+  shiftKey: false,
+  altKey: false,
+  ctrlKey: false,
+  metaKey: false,
+  target: null,
+  ...over,
+});
+
+test('resolveChunkNavAction: B → next，Shift+B → prev', () => {
+  assert.equal(resolveChunkNavAction(ev({ key: 'b' })), 'next');
+  assert.equal(resolveChunkNavAction(ev({ key: 'B', shiftKey: true })), 'prev');
+});
+
+test('resolveChunkNavAction: ] → next，[ → prev', () => {
+  assert.equal(resolveChunkNavAction(ev({ key: ']' })), 'next');
+  assert.equal(resolveChunkNavAction(ev({ key: '[' })), 'prev');
+});
+
+test('resolveChunkNavAction: Ctrl/Cmd 组合与无关按键一律不响应', () => {
+  assert.equal(resolveChunkNavAction(ev({ key: 'b', ctrlKey: true })), null);
+  assert.equal(resolveChunkNavAction(ev({ key: 'b', metaKey: true })), null);
+  assert.equal(resolveChunkNavAction(ev({ key: 'a' })), null);
+  assert.equal(resolveChunkNavAction(null), null);
+});
+
+test('resolveChunkNavAction: 可编辑区域内不劫持 b/[/]，但 Alt 组合仍生效', () => {
+  const editable = { isContentEditable: true };
+  const input = { tagName: 'INPUT' };
+  assert.equal(resolveChunkNavAction(ev({ key: 'b', target: editable })), null);
+  assert.equal(resolveChunkNavAction(ev({ key: ']', target: input })), null);
+  assert.equal(resolveChunkNavAction(ev({ key: 'b', altKey: true, target: editable })), 'next');
+  assert.equal(
+    resolveChunkNavAction(ev({ key: 'B', altKey: true, shiftKey: true, target: editable })),
+    'prev'
+  );
+});
+
+test('isEditableTarget: 识别 input/textarea/select 与 contenteditable', () => {
+  assert.equal(isEditableTarget({ tagName: 'INPUT' }), true);
+  assert.equal(isEditableTarget({ tagName: 'textarea' }), true);
+  assert.equal(isEditableTarget({ tagName: 'SELECT' }), true);
+  assert.equal(isEditableTarget({ isContentEditable: true }), true);
+  assert.equal(isEditableTarget({ tagName: 'DIV' }), false);
+  assert.equal(isEditableTarget(null), false);
+});
+
+test('bindChunkNavigationKeys: 快捷键调用与按钮同一组 next/prev，并可解绑', () => {
+  const calls = [];
+  const listeners = [];
+  const fakeTarget = {
+    addEventListener: (type, fn) => listeners.push({ type, fn }),
+    removeEventListener: (type, fn) => {
+      const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+  };
+
+  const unbind = bindChunkNavigationKeys(
+    { next: () => calls.push('next'), prev: () => calls.push('prev') },
+    { target: fakeTarget }
+  );
+  assert.equal(listeners.length, 1);
+  assert.equal(listeners[0].type, 'keydown');
+
+  let prevented = 0;
+  const fire = (over) =>
+    listeners[0].fn(ev({ ...over, preventDefault: () => prevented++ }));
+
+  fire({ key: 'b' });
+  fire({ key: 'B', shiftKey: true });
+  fire({ key: ']' });
+  fire({ key: '[' });
+  fire({ key: 'z' }); // 无关按键
+  assert.deepEqual(calls, ['next', 'prev', 'next', 'prev']);
+  assert.equal(prevented, 4, '命中的快捷键应阻止默认行为');
+
+  unbind();
+  assert.equal(listeners.length, 0);
+});
+
+test('bindChunkNavigationKeys: 无 handlers / 无 target 时返回安全 no-op', () => {
+  assert.doesNotThrow(() => {
+    bindChunkNavigationKeys(null, { target: null })();
+    bindChunkNavigationKeys({}, { target: null })();
   });
 });

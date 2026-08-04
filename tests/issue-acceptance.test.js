@@ -200,8 +200,13 @@ test('Issue #3: jarring style-preset banned, but clean style toolbar restored', 
     assert.ok(html.includes('id="' + id + '"'), 'clean style toolbar button: ' + id);
   }
   assert.ok(html.includes('style-toolbar-group'), 'style toolbar group container');
-  // Clean highlighter lives with B/I format tools (preview selection, not HTML chip wall)
-  assert.ok(html.includes('id="btnHighlight"'), 'preview highlight control');
+  // v1.5.1：高亮按钮合并为一个（原格式化组的 btnHighlight 已并入样式组 btnStyleHighlight），
+  // 编辑区 / 预览区选中都走同一入口：源码包 <mark> + 预览同步渲染
+  assert.equal(
+    html.includes('id="btnHighlight"'),
+    false,
+    'duplicated highlight button must be merged into btnStyleHighlight'
+  );
   assert.ok(html.includes('id="btnHelp"'), 'help button required for 说明书');
 });
 

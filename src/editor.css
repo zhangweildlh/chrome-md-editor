@@ -272,6 +272,26 @@ body {
   font-size: 13px;
 }
 
+/* 自动保存间隔输入框（工具栏内联，紧跟自动保存开关按钮） */
+.autosave-interval {
+  width: 46px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  text-align: center;
+}
+
+.autosave-interval:focus {
+  outline: none;
+  border-color: var(--text-accent);
+  color: var(--text-primary);
+}
+
 /* 文字型工具栏按钮（居中/高亮/字号）允许自适应宽度 */
 
 /* 样式工具栏：与既有按钮分隔的包裹容器（弹窗定位锚点） */

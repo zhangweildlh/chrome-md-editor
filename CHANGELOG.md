@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.6.0] - 2026-08-04 (编辑器 UI 增强：磁盘自动保存 / 高亮合并 / 翻译合并 / 全按钮提示 / 块导航快捷键)
+
+### Added
+- **磁盘自动保存（工具栏开关 + 间隔秒数）**：工具栏新增「自动保存」开关按钮（`btnAutosaveDisk`）与间隔输入框（5–3600 秒，默认 30；`localStorage` 键 `md-editor-autosave-interval` 持久化）。开启后每 N 秒在**源文件同目录**生成「主文件名_秒级时间戳.md」副本（如 `这是测试文件.md` → `这是测试文件_20260804133025.md`），时间戳格式 `yyyyMMddHHmmss`（本地时间），过滤 Windows 非法字符 `\ / : * ? " < > |`，**永不覆盖源文件**（`filename !== currentFileName` 守卫）。Web 侧首次需授权目录句柄（`showDirectoryPicker` / `getCurrentMarkdownDirectoryHandle`）；Tauri EXE 侧直接写 `currentFileHandle.path` 同级目录，复用既有 `write_text_file` 命令（`.md` 在白名单，不动 `lib.rs`、无 Rust/CI 风险）。新增 `src/autosave.js` 磁盘自动保存 API（`initDiskAutosave` / `autosaveToDisk` / `runDiskAutosaveOnce` / `buildAutosaveFileName` / `formatTimestamp` / `normalizeIntervalSec` 等），配套测试 `tests/autosave.test.js`（文件名/时间戳/间隔夹取/单次落盘/定时器系列）。
+- **高亮按钮合并（编辑区 + 预览区联动）**：原「格式化组 `btnHighlight`」与「样式组 `btnStyleHighlight`」合并为单一「高亮」按钮（`btnStyleHighlight`）。在**编辑区或预览区**选中文字后点击，源码统一外包 `<mark>…</mark>` 并同步重渲染预览；再点一次取消。杜绝「编辑区改了预览不渲染」或「预览渲染了编辑区不外包源码」的分裂行为（`rememberPreviewSelection` 记忆预览选区、`applyPreviewHighlight` 同步重渲染）。
+- **翻译按钮合并**：原独立「翻译设置」按钮（`btnTranslateSettings`）删除；改为**左键**点「译」开关双语对照、**右键**点「译」打开翻译设置（API Key / 模型 / 目标语言）。
+- **所有工具栏按钮鼠标悬停提示**：补齐全部按钮 `title`（含弹窗按钮 `translateSettingsCancel/Save`、`snapshotsClose` 等），悬停即显示功能说明与快捷键。
+- **字号选项 title**：5 个 `fs-option`（小 / 中 / 大 / 特大 / 极大）补齐 `title`，说明插入 `<font size=…>…</font>` 及再点取消。
+
+### Added (compare 模块)
+- **块导航键盘快捷键（修复 Q2 表「快捷键无效」）**：对比页新增 `bindChunkNavigationKeys`，键位 `B` / `]` → 下一块，`Shift+B` / `[` → 上一块；在可编辑区域（CodeMirror / input / textarea）内为不吞掉正常输入，改用 `Alt+B` / `Alt+Shift+B` 在编辑区内也生效（捕获阶段监听 + `isEditableTarget` 守卫）。快捷键与「上一块 / 下一块」按钮复用同一组 `navNext` / `navPrev` 函数，行为一致。新增 `resolveChunkNavAction`（纯函数，可单测）与 `isEditableTarget`；配套测试 `tests/compare-diff.test.js`「E. 块导航快捷键」分组 7 用例。
+
+### Changed
+- `src/editor.html`：新增 `btnAutosaveDisk` + `autosaveIntervalInput`；删除 `btnHighlight`（并入 `btnStyleHighlight`）、删除 `btnTranslateSettings`；为所有缺 `title` 按钮补 `title`；5 个 `fs-option` 补 `title`。
+- `src/editor.css`：新增 `.autosave-interval` 样式。
+- `src/editor.js`：注入 `writeFile` 落盘封装；`resolveAutosaveTarget` / `writeAutosaveCopy`（Tauri 走 `currentFileHandle.path` 同级目录，Web 走目录句柄，守卫不覆盖源文件）；`initAutosaveDiskUI`（开关 + interval 持久化）；高亮合并绑定（`mousedown preventDefault` + `rememberPreviewSelection` + `applyPreviewHighlight`）；翻译合并（右键开设置）。
+- `src/compare.html`：修正上一块 / 下一块按钮 `title` 歧义（原两个都写 "(B)"）。
+- `src/compare.js`：紧邻按钮绑定加 `bindChunkNavigationKeys({ next: navNext, prev: navPrev })`。
+- `src/onboarding.js`：文档一致性（合并高亮说明 + 自动保存说明）。
+- `tests/issue-acceptance.test.js`：断言 `btnHighlight` 已不存在（合并入 `btnStyleHighlight`）。
+
+### Notes
+- 严格保留样式工具栏功能（`applyFontStyle` 等）未触碰。
+- 分支：`feat/editor-ui-enhancements`（基于 `main` @ `466bc8e`）。
+- 验收闸门：`tests/issue-acceptance.test.js` 仍封禁 v1.3.0 的「刺眼 style-preset」原始碎片按钮（`btnCenterBold` / `btnCenterBoldRed` / `styleGroup`）。
+
 ## [1.5.0] - 2026-08-02 (Markdown 语法高亮 + compare 多栏对照模块)
 
 ### Added
