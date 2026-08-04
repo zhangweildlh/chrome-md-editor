@@ -514,6 +514,7 @@
           </svg>
         </button>
         <!-- === MARKRA_HTML: TOOLBAR_BUTTONS === 新工具栏按钮（视图切换/搜索等）插入点 -->
+        <button id="btnWorkspaceSearch" class="toolbar-btn" title="工作区搜索">🔍</button>
       </div>
     </header>
 
@@ -672,6 +673,20 @@
         ></div>
       </div>
       <!-- === MARKRA_HTML: PANELS === 新增浮动面板（工作区搜索等）插入点 -->
+      <div class="modal-overlay" id="workspaceSearchModal" hidden>
+        <div class="modal-card">
+          <h2>工作区搜索</h2>
+          <input
+            id="workspaceSearchInput"
+            class="workspace-search-input"
+            type="search"
+            placeholder="跨已打开文件夹的 .md 全文检索…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="workspaceSearchResults" class="workspace-search-results"></div>
+        </div>
+      </div>
     </main>
 
     <!-- A-3 大纲面板（浮动抽屉，点击工具栏大纲按钮展开） -->
