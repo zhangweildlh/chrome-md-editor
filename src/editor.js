@@ -32,6 +32,7 @@ import {
   splitRelativePath,
 } from './image-support.js';
 import { resolvePreviewLinkClickTarget } from './link-support.js';
+import { initWorkspaceSearchPanel, runWorkspaceSearch } from './workspace-search.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
 import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect } from './theme-presets.js';
 import { initFeedbackButton } from './feedback.js';
