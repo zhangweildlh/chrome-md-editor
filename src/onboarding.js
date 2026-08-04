@@ -119,7 +119,8 @@ export function showOnboarding(options = {}) {
           <h3>5. 进阶（可选）</h3>
           <ul>
             <li>Mermaid：用 <code>\`\`\`mermaid</code> 代码块画流程图</li>
-            <li>高亮：在<strong>右侧预览</strong>选中文字 → 工具栏荧光笔按钮，或右键「高亮」；再点一次可取消。也会写回左侧 <code>&lt;mark&gt;</code></li>
+            <li>高亮：在<strong>左侧编辑区或右侧预览</strong>选中文字 → 点样式工具栏的高亮按钮（<code>A</code>），或在预览区右键「高亮」；两者都会在源码写入 <code>&lt;mark&gt;</code> 并同步预览，再点一次取消</li>
+            <li>自动保存：点工具栏时钟按钮开启，按旁边的秒数（默认 30 秒）在源文件同目录生成「文件名_时间戳.md」副本，不会覆盖源文件</li>
           </ul>
         </section>
       </div>

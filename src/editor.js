@@ -38,7 +38,20 @@ import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { makeSearchPanel } from './search-panel.js';
 import { restoreScroll } from './scroll-restore.js';
-import { scheduleAutosave, initAutosave, listSnapshots, restoreSnapshot, offerDraftRestore, resolveFileKey } from './autosave.js';
+import {
+  scheduleAutosave,
+  initAutosave,
+  listSnapshots,
+  restoreSnapshot,
+  offerDraftRestore,
+  resolveFileKey,
+  initDiskAutosave,
+  autosaveToDisk,
+  stopAutosaveToDisk,
+  isAutosaveToDiskOn,
+  normalizeIntervalSec,
+  resetDiskAutosaveBaseline,
+} from './autosave.js';
 import { newInstanceId, pendingFileStorageKey } from './instance-id.js';
 import {
   selectionInsideRoot,
@@ -1043,6 +1056,9 @@ function rememberPreviewSelection() {
   const previewContainer = document.getElementById('previewContainer');
   const sel = window.getSelection();
   if (!selectionInsideRoot(sel, previewContainer)) {
+    // 当前选区不在预览区（例如用户改在编辑区选中）→ 必须清掉上一次的预览选区，
+    // 否则合并后的高亮按钮会拿陈旧 Range 去高亮预览里早已不相关的文字。
+    savedPreviewRange = null;
     return null;
   }
   try {
@@ -1516,6 +1532,170 @@ async function handleSaveAs() {
   }
 }
 
+// ==========================================
+// 自动保存（定时落盘副本）
+// ==========================================
+// 与 A-5 的「草稿 / 快照环」不同：那套只写 chrome.storage.local，永远不碰磁盘；
+// 这里是用户显式开启的磁盘副本——每 N 秒在源文件同目录写出
+// <主文件名>_<秒级时间戳>.md（例：这是测试文件_20260804133025.md）。
+// 只新建带时间戳的副本，绝不覆盖源文件。
+let autosaveDirHandle = null; // Web 侧用户为自动保存显式授权的目录句柄
+
+// 桌面端（Tauri）的文件句柄自带绝对路径，可直接推导「源文件同目录」
+function tauriSourceFilePath() {
+  const p =
+    currentFileHandle && typeof currentFileHandle.path === 'string'
+      ? currentFileHandle.path
+      : null;
+  return p && typeof window.__tauriFileHandle === 'function' ? p : null;
+}
+
+// 解析落盘目录。interactive=true 时允许弹目录选择器（必须在用户手势中调用）。
+//   桌面端 → { kind: 'tauri', dir }
+//   Web 侧 → { kind: 'handle', handle }
+async function resolveAutosaveTarget({ interactive = false } = {}) {
+  const srcPath = tauriSourceFilePath();
+  if (srcPath) {
+    const idx = Math.max(srcPath.lastIndexOf('/'), srcPath.lastIndexOf('\\'));
+    return { kind: 'tauri', dir: idx > 0 ? srcPath.slice(0, idx) : srcPath };
+  }
+
+  // 已通过「打开文件夹」授权、且当前文件来自该文件树 → 每次现算，保证跟随文件所在子目录
+  if (directoryHandle && currentDirectoryPath !== null) {
+    try {
+      return { kind: 'handle', handle: await getCurrentMarkdownDirectoryHandle() };
+    } catch (err) {
+      console.warn('[autosave] 无法定位当前文件所在目录，改用显式授权目录:', err);
+    }
+  }
+
+  if (autosaveDirHandle) return { kind: 'handle', handle: autosaveDirHandle };
+
+  // 只有 File System Access API 打开的单文件句柄拿不到父目录（规范限制），
+  // 此时请用户授权一次目录（建议就选源文件所在目录）。
+  if (!interactive || typeof window.showDirectoryPicker !== 'function') return null;
+  autosaveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  return { kind: 'handle', handle: autosaveDirHandle };
+}
+
+// 实际落盘一份副本，返回展示用路径。由 autosave.js 的定时器调用。
+async function writeAutosaveCopy(filename, content) {
+  if (!filename || filename === currentFileName) {
+    throw new Error('自动保存副本名非法，已放弃写入以保护源文件');
+  }
+  const target = await resolveAutosaveTarget();
+  if (!target) {
+    throw new Error('没有可写目录，请重新开启自动保存并授权目录');
+  }
+
+  if (target.kind === 'tauri') {
+    const path = `${target.dir}/${filename}`;
+    const handle = window.__tauriFileHandle(path);
+    const writable = await handle.createWritable();
+    await writable.write(content);
+    await writable.close();
+    return path;
+  }
+
+  const hasPermission = await ensureDirectoryPermission(target.handle, 'readwrite');
+  if (!hasPermission) {
+    throw new Error('没有写入所选目录的权限');
+  }
+  const fileHandle = await target.handle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+  return `${target.handle.name}/${filename}`;
+}
+
+function initAutosaveDiskUI() {
+  const btn = document.getElementById('btnAutosaveDisk');
+  const input = document.getElementById('autosaveIntervalInput');
+  if (!btn || !input) return;
+
+  const OFF_TITLE =
+    '自动保存（开关）：每 N 秒在源文件同目录生成「文件名_时间戳.md」副本，不覆盖源文件';
+  let announcedFirstSave = false;
+
+  input.value = String(
+    normalizeIntervalSec(localStorage.getItem('md-editor-autosave-interval') || 30)
+  );
+
+  const syncButton = (lastTarget) => {
+    const on = isAutosaveToDiskOn();
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (!on) {
+      btn.title = OFF_TITLE;
+      return;
+    }
+    const sec = normalizeIntervalSec(input.value);
+    btn.title = lastTarget
+      ? `自动保存已开启（每 ${sec} 秒）：最近副本 ${lastTarget}（点击关闭）`
+      : `自动保存已开启：每 ${sec} 秒在源文件同目录生成「文件名_时间戳.md」副本（点击关闭）`;
+  };
+
+  initDiskAutosave({
+    getContent: () => editor.state.doc.toString(),
+    getSourceName: () => currentFileName,
+    writeFile: writeAutosaveCopy,
+    onSaved: (target) => {
+      syncButton(target);
+      if (!announcedFirstSave) {
+        announcedFirstSave = true;
+        showToast(`已自动保存副本: ${target}`, 'success');
+      }
+    },
+    onError: (err) => {
+      stopAutosaveToDisk();
+      syncButton();
+      showToast('自动保存失败，已关闭: ' + (err && err.message ? err.message : err), 'error');
+    },
+  });
+
+  btn.addEventListener('click', async () => {
+    if (isAutosaveToDiskOn()) {
+      stopAutosaveToDisk();
+      syncButton();
+      showToast('自动保存已关闭', 'success');
+      return;
+    }
+
+    try {
+      // 开启前先确定落盘目录（本次点击是用户手势，可以弹目录选择器）
+      const target = await resolveAutosaveTarget({ interactive: true });
+      if (!target) {
+        showToast('无法确定落盘目录：请先用「打开文件夹」或授权一个目录', 'error');
+        return;
+      }
+      const sec = normalizeIntervalSec(input.value);
+      input.value = String(sec);
+      localStorage.setItem('md-editor-autosave-interval', String(sec));
+      announcedFirstSave = false;
+      resetDiskAutosaveBaseline();
+      autosaveToDisk(sec);
+      syncButton();
+      showToast(`自动保存已开启：每 ${sec} 秒写入一份带时间戳的副本`, 'success');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // 用户取消目录选择
+      showToast('开启自动保存失败: ' + (err && err.message ? err.message : err), 'error');
+    }
+  });
+
+  input.addEventListener('change', () => {
+    const sec = normalizeIntervalSec(input.value);
+    input.value = String(sec);
+    localStorage.setItem('md-editor-autosave-interval', String(sec));
+    if (isAutosaveToDiskOn()) {
+      autosaveToDisk(sec); // 按新间隔重启
+      showToast(`自动保存间隔已改为 ${sec} 秒`, 'success');
+    }
+    syncButton();
+  });
+
+  syncButton();
+}
+
 function handleNew() {
     if (isModified) {
     if (!confirm('当前文件有未保存的更改，确定要新建文件吗？')) {
@@ -1554,6 +1734,10 @@ function updateFilename(name) {
   // Bug #1 修复：记录当前文件名，供 getFileId 在 file://（无句柄）场景下回退使用，
   // 避免所有 file:// 文件共用 'unsaved' 键导致草稿/快照串档。
   currentFileName = name || 'unsaved';
+  // 换文件后，之前为自动保存授权的目录可能已不是新文件所在目录 → 作废，
+  // 避免把副本写进错误的目录；同时重置去重基准，保证新文件首次到点必写。
+  autosaveDirHandle = null;
+  resetDiskAutosaveBaseline();
 }
 
 function markModified() {
@@ -1891,6 +2075,9 @@ function bindEvents() {
   document.getElementById('btnSave').addEventListener('click', handleSave);
   document.getElementById('btnNew').addEventListener('click', handleNew);
 
+  // 自动保存（定时落盘副本）：开关按钮 + 间隔秒数输入框
+  initAutosaveDiskUI();
+
   // 查找 / 替换面板（Ctrl+F 亦可触发）
   const btnFind = document.getElementById('btnFind');
   if (btnFind) btnFind.addEventListener('click', () => {
@@ -1933,8 +2120,20 @@ function bindEvents() {
   const btnStyleBold = document.getElementById('btnStyleBold');
   if (btnStyleBold) btnStyleBold.addEventListener('click', () => {  wrapSelection('<b>', '</b>'); });
 
+  // 高亮（唯一入口，v1.5.1 合并原「格式化组 btnHighlight」与「样式组 btnStyleHighlight」）：
+  // 无论选区在编辑区还是预览区，最终都落到源码的 <mark>…</mark>，并由 updatePreview /
+  // syncPreviewToEditor 同步渲染，行为与加粗/斜体等按钮完全一致。
   const btnStyleHighlight = document.getElementById('btnStyleHighlight');
-  if (btnStyleHighlight) btnStyleHighlight.addEventListener('click', () => {  wrapSelection('<mark>', '</mark>'); });
+  if (btnStyleHighlight) {
+    btnStyleHighlight.addEventListener('mousedown', (e) => {
+      // 避免按钮抢走焦点导致预览选区丢失
+      e.preventDefault();
+      rememberPreviewSelection();
+    });
+    btnStyleHighlight.addEventListener('click', () => {
+      applyPreviewHighlight();
+    });
+  }
 
   // 颜色 / 字号：弹出对应弹窗，点选项即应用 <font color>/<font size>。
   // 关键改进（相对 v1.4.x 初版与 v1.3.0）：重选同一属性时「替换」而非「嵌套」，
@@ -2011,19 +2210,6 @@ function bindEvents() {
     if (e.key === 'Escape') closeStylePopovers();
   });
 
-  // 高亮：优先作用在右侧预览选区；无选区时退回源码选区包 <mark>
-  const btnHighlight = document.getElementById('btnHighlight');
-  if (btnHighlight) {
-    btnHighlight.addEventListener('mousedown', (e) => {
-      // 避免按钮抢走焦点导致预览选区丢失
-      e.preventDefault();
-      rememberPreviewSelection();
-    });
-    btnHighlight.addEventListener('click', () => {
-      applyPreviewHighlight();
-    });
-  }
-
   // 使用说明（重新打开引导说明书）
   const btnHelp = document.getElementById('btnHelp');
   if (btnHelp) {
@@ -2090,9 +2276,8 @@ function bindEvents() {
       openTranslateSettingsModal();
     });
   }
-  document.getElementById('btnTranslateSettings')?.addEventListener('click', () => {
-    openTranslateSettingsModal();
-  });
+  // v1.5.1：原独立的「翻译设置」按钮（btnTranslateSettings）已删除——
+  // 右键 btnTranslate 即可打开设置，无需第二个按钮。
   initTranslateSettingsModal();
 
   // 拦截浏览器默认 Ctrl+S
