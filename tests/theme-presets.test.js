@@ -24,8 +24,20 @@ globalThis.localStorage = {
   clear: () => __store.clear(),
 };
 
-test('EDITOR_THEMES 共 23 项（21 标准 + 豆沙绿亮/暗）', () => {
-  assert.strictEqual(EDITOR_THEMES.length, 23);
+test('EDITOR_THEMES 共 27 项（21 标准 + 豆沙绿亮/暗 + 4 套新增皮肤）', () => {
+  assert.strictEqual(EDITOR_THEMES.length, 27);
+});
+
+test('4 套新增皮肤（glacier/aurora/fluent/macos）均注册且含全部材质键', () => {
+  const materialKeys = ['--ambient', '--accent-glow', '--btn-top', '--btn-bot', '--edge'];
+  for (const id of ['glacier', 'aurora', 'fluent', 'macos']) {
+    const t = EDITOR_THEMES.find((x) => x.id === id);
+    assert.ok(t, `应包含 ${id}`);
+    assert.ok(t.vars['--bg-primary'], `${id} 应定义 --bg-primary`);
+    for (const k of materialKeys) {
+      assert.ok(t.vars[k] !== undefined, `${id} 应定义材质键 ${k}`);
+    }
+  }
 });
 
 test('含豆沙绿(亮) 且 --bg-primary 为 #C7EDCC', () => {
@@ -35,11 +47,11 @@ test('含豆沙绿(亮) 且 --bg-primary 为 #C7EDCC', () => {
   assert.strictEqual(t.kind, 'light');
 });
 
-test('含豆沙绿(暗) 且 --bg-primary 为 #CCE8CF', () => {
+test('含豆沙绿(暗) 且为深墨绿（重做以强化与亮版的区分度）', () => {
   const t = EDITOR_THEMES.find((x) => x.id === 'dou-sha-lv-dark');
   assert.ok(t, '应包含 dou-sha-lv-dark');
-  assert.strictEqual(t.vars['--bg-primary'], '#CCE8CF');
-  assert.strictEqual(t.kind, 'light');
+  assert.strictEqual(t.vars['--bg-primary'], '#16271c');
+  assert.strictEqual(t.kind, 'dark');
 });
 
 test('DEFAULT_EDITOR_THEME 为 dou-sha-lv-light', () => {

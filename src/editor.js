@@ -1919,6 +1919,9 @@ function toggleTheme() {
   // === MARKRA_HOOK: THEMES === 主题预设：在此行之后应用当前编辑器主题预设（data-editor-theme）
   applyEditorThemePreset(getStoredEditorTheme());
 
+  // 玻璃拟态 skin 维度初始化（与主题同时生效）
+  document.documentElement.setAttribute('data-skin', 'glass');
+
   editor.dispatch({
     effects: themeCompartment.reconfigure(
       currentTheme === 'dark' ? oneDark : lightTheme
