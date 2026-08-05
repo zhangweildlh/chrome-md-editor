@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.0] - 2026-08-05 (主题玻璃材质皮肤 + BUG 修复)
+
+### Added
+- **主题玻璃材质层 + 4 套新皮肤并入 27 主题体系**：玻璃材质（厚度面板 / 立体按钮 / 环境光晕）+ 4 套皮肤（glacier / aurora / fluent / macos）+ 豆沙绿暗重做深墨绿 + 21 旧套补 `--accent-glow`；替换 2 个占位图标（⊞→网格 SVG、🔍→放大镜 SVG）。由 PR #7（`feat/theme-glass-skin`）通过 `--no-ff` 合并入 `main`。
+
+### Fixed
+- **BUG1 折叠符号过小**：编辑区最左侧折叠 gutter 符号字号偏低（与 gutter 同为 12px），新增 `.cm-foldGutter span` 专属放大（`font-size:14px`），提升可点性与可读性。
+- **BUG4 视图沉浸模式隐藏工具栏后无法恢复**：`#btnChromeMode`（⊞）随 `#toolbar` 被 `view-hidden` 一起 `display:none`，无恢复入口。修复：`view-mode.js` 进入隐藏工具栏模式时给 `#btnChromeMode` 加 `force-visible`，`editor.css` 用 `position:fixed` 浮层常驻右上角；并防御性让 `#sidebarToggle` 在侧栏被 `view-hidden` 时同样显示，避免侧栏隐藏后无恢复。
+- **BUG6 编辑区背景不随主题变化（双轴错乱）**：`.cm-editor` 背景硬编码白底（CodeMirror `lightTheme` 内联 `backgroundColor:'#fff'`），未接 23 套预设 `--bg-primary`。修复：`theme-presets.js` 的 `applyEditorThemePreset` 据预设 `kind` 自动对齐 `data-theme` 明暗基底，根除双轴错乱；`editor.css` 让 `.cm-editor` 背景由 `var(--bg-primary)` 驱动（覆盖 CM 内联硬编码），切换主题即时跟随。
+
+### Notes
+- BUG1/4/6 修复先于主题玻璃皮肤合并提交，确保两边对 `editor.css` / `theme-presets.js` 的改动均保留。
+- 测试方案：`tests/E2E_TEST_PLAN.md` 多场景全覆盖 + 多边界条件全覆盖（14 组功能矩阵）。
+
 ## [1.7.0] - 2026-08-04 (编辑器增强：markra 移植 — 23 主题 / 斜杠菜单 / 块拖拽 / 视图模式 / 工作区搜索 / == 高亮 ==)
 
 ### Added

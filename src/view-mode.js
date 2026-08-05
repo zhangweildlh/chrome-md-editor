@@ -106,6 +106,25 @@ export function applyViewMode(mode) {
       el.classList.add('view-hidden');
     }
   }
+
+  // 修复 BUG4：沉浸/专注模式会隐藏工具栏(#toolbar)，而 #btnChromeMode(⊞) 位于工具栏内，
+  // 隐藏后随容器一起 display:none，导致无任何入口切回日常/全显。故在工具栏被隐藏时，
+  // 给 #btnChromeMode 加 force-visible，使其以 position:fixed 浮层脱离被隐藏的容器、常驻可见。
+  const chromeBtn = document.getElementById('btnChromeMode');
+  if (chromeBtn) {
+    chromeBtn.classList.toggle('force-visible', matrix.toolbar === false);
+  }
+
+  // 防御性修复（与 BUG4 同类根因）：专注/沉浸模式会隐藏文件栏(#fileSidebar)，
+  // 而侧栏恢复入口 #sidebarToggle 仅在 .collapsed 时置 .visible，不响应 view-hidden。
+  // 当文件栏被视图模式隐藏时，同样点亮恢复入口，避免无恢复路径。
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  if (sidebarToggle) {
+    const fileSidebar = document.getElementById('fileSidebar');
+    const sidebarHidden = fileSidebar ? fileSidebar.classList.contains('view-hidden') : false;
+    const collapsed = fileSidebar ? fileSidebar.classList.contains('collapsed') : false;
+    sidebarToggle.classList.toggle('visible', sidebarHidden || collapsed);
+  }
 }
 
 // daily → focus → immersive → full → daily 循环

@@ -1150,6 +1150,26 @@ body {
   position: relative;
 }
 
+/* 修复 BUG4：工具栏被视图模式(沉浸/专注)隐藏时，#btnChromeMode 随容器 display:none，
+   导致无入口切回日常/全显。force-visible 使其脱离被隐藏的容器，以固定浮层常驻右上角。 */
+#btnChromeMode.force-visible {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 9999;
+  display: flex !important;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary, #2b2f36);
+  color: var(--text-primary, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-primary, #3a3f47);
+}
+#btnChromeMode.force-visible:hover {
+  background: var(--bg-tertiary, #353a42);
+}
+
 .toolbar-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -1329,6 +1349,14 @@ body {
   font-family: var(--font-mono);
   font-size: var(--editor-font-size);
   line-height: 1.6;
+  /* 修复 BUG6：编辑区背景改由 23 套主题预设的 --bg-primary 驱动，
+     覆盖 CodeMirror lightTheme/oneDark 内联硬编码背景(!important 压过内联 style)，
+     使切换主题时编辑区即时跟随。 */
+  background: var(--bg-primary) !important;
+}
+.editor-container .cm-editor .cm-scroller,
+.editor-container .cm-editor .cm-content {
+  background: transparent !important;
 }
 
 .editor-container .cm-editor .cm-scroller {
@@ -1349,6 +1377,26 @@ body {
   border-right: 1px solid var(--border-subtle);
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* 修复 BUG1：折叠符号(gutter 折叠标记)原沿用 12px 且宽度仅 ~9px，偏小而难点。
+   放大折叠标记字号与可点区域，提升可视性与点击命中。 */
+.editor-container .cm-editor .cm-gutters .cm-foldGutter {
+  font-size: 15px;
+  line-height: 1.4;
+}
+.editor-container .cm-editor .cm-gutters .cm-foldGutter span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  min-height: 16px;
+  font-size: 15px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.editor-container .cm-editor .cm-gutters .cm-foldGutter span:hover {
+  color: var(--text-primary);
 }
 
 .editor-container .cm-editor .cm-activeLineGutter {

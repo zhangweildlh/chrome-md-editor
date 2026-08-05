@@ -375,10 +375,16 @@ const EDITOR_THEME_KEY = 'md-editor-editor-theme';
 
 const isKnownTheme = (id) => EDITOR_THEMES.some((t) => t.id === id);
 
-// 应用主题预设：设置 documentElement 的 data-editor-theme；未知用默认
+// 应用主题预设：设置 documentElement 的 data-editor-theme；未知用默认。
+// 修复 BUG6：编辑器明暗基底(data-theme)与所选配色预设(kind)必须一致，否则出现
+// "暗色主题下编辑区仍白底"或双轴错乱。此处按预设 kind 同步 data-theme，
+// 使 CM6 明暗主题(oneDark/lightTheme)与 23 套配色变量对齐。
 export function applyEditorThemePreset(themeId) {
-  const id = isKnownTheme(themeId) ? themeId : DEFAULT_EDITOR_THEME;
+  const theme = EDITOR_THEMES.find((t) => t.id === themeId);
+  const id = theme ? theme.id : DEFAULT_EDITOR_THEME;
+  const kind = theme ? theme.kind : 'light';
   document.documentElement.setAttribute('data-editor-theme', id);
+  document.documentElement.setAttribute('data-theme', kind === 'dark' ? 'dark' : 'light');
   return id;
 }
 

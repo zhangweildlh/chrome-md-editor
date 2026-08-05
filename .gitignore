@@ -41,3 +41,6 @@ dist-ssr
 !.test-run/*.md
 !.test-run/*.mjs
 !.test-run/*.png
+
+# 主题探索临时产物（非源码，不入仓库）
+theme-exploration/
