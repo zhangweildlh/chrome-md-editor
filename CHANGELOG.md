@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.2] - 2026-08-06 (UI 五项改进：所见即所得 / 响应式布局 / 原设计对齐 / 侧栏可调 / 工具栏重排)
+
+> 本轮经 4 Agent 并行开发 + 真机 Playwright 验证，完成用户要求的 5 项 UI/功能改进。
+> 所有改动经单测(249 pass) + E2E(harness 13/13 + harness2 11/11) + 真机 verify-ui 全绿。
+
+### 新增
+- **上传图片按钮**（`#btnImage`）：工具栏「插入元素」组末尾新增图片上传入口
+- **侧栏宽度可拖拽调整**：文件树左侧新增 `#resizerSidebar` 拖拽条，宽度范围 180–500px，
+  localStorage 键 `md-editor-sidebar-width` 持久化，页面加载自动恢复
+- **预览一致性检测**：新增 `checkPreviewConsistency()` 函数，编辑↔预览双向同步后
+  自动校验内容一致性（console.warn 输出差异，不阻断操作）
+- **预览区块保护**：`protectPreviewBlocks()` 对非 mermaid 代码块和表格设
+  `contenteditable="false"`，防止 contenteditable 下误改导致数据损坏
+
+### 改进
+- **所见即所得双向同步增强**：
+  - 编辑→预览：防抖渲染保持实时（80ms）
+  - 预览→编辑：`releasePreviewEditing()` 智能释放替代固定 120ms 延迟
+  - `html-to-markdown.js` 保真度提升：空段落不再累积空行（防数据漂移）；
+    表格单元格用 `convertNode` 还原内联格式（粗体/代码/链接），避免往返丢失
+- **工具栏归类重排**（与原设计对齐）：
+  - toolbar-center: 文件操作 | 格式化(B/I/S/代码/居中/高亮/颜色/字号) | 标题(H1-H3) | 插入元素
+  - toolbar-right: 搜索/帮助 | 视图模式 | 视图增强 | 翻译 | 外观 | 视图切换
+  - 删除重复加粗按钮（原 style-toolbar-group 的 btnStyleBold 合并入格式化组 btnBold）
+- **响应式布局优化**：
+  - ≥1400px: 工具栏强制单行（nowrap）；1000–1399px: 允许两行；<900px: 侧栏覆盖层模式
+  - 三面板弹性化：sidebar min/max 180–500px, editor min 300px, preview min 250px
+- **CSS/JS 单一事实源对齐**：`.file-sidebar` width clamp [180,500] 与 JS `SIDEBAR_MIN/MAX_WIDTH` 完全一致
+
+### Fixed
+- **侧栏拖拽持久化值失真**：`onMouseUp` 存 `offsetWidth` 改为存 `style.width`（目标值），
+  避免 CSS transition 动画期间 offsetWidth 返回中间帧导致持久化值错误
+
+---
+
 ## [1.8.1] - 2026-08-06 (视图恢复 / 工具栏布局 / 会话恢复 回归修复)
 
 > 本轮经 360Chrome 真机 + Playwright 自动化全功能测试，复现并修复 4 项真实缺陷。

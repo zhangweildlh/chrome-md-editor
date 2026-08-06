@@ -74,9 +74,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.1"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.2"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.1";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.2";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -199,6 +199,7 @@ let currentTheme = localStorage.getItem('md-editor-theme') || 'dark';
 let currentViewMode = localStorage.getItem('md-editor-view-mode') || 'split';
 let scrollSyncEnabled = true;
 let isPreviewEditing = false; // 防止预览编辑时循环更新
+let previewEditReleaseTimer = null; // 智能释放 isPreviewEditing 的计时器（替代固定 120ms）
 let mermaidCounter = 0; // mermaid 图表 ID 计数器
 let currentFileUrl = null; // file:// 打开的 Markdown 原始地址
 let currentDirectoryPath = null; // 相对已打开文件夹根目录的当前 Markdown 目录
@@ -593,6 +594,14 @@ async function doUpdatePreview() {
     
   }
 
+  // 不可逆 / 易损渲染块设为不可编辑，避免用户在 contenteditable 预览区误改后，
+  // syncPreviewToEditor 把脏数据回写覆盖源码（与 Mermaid 同理，见下方 protectPreviewBlocks）。
+  try {
+    protectPreviewBlocks(previewContainer);
+  } catch (err) {
+    
+  }
+
   await resolvePreviewImages(previewContainer);
 
   if (translateEnabled) {
@@ -609,6 +618,9 @@ async function doUpdatePreview() {
   } catch (e) {
     
   }
+
+  // 一致性检查（开发调试用，仅 console 输出，不阻塞渲染 / 用户操作）
+  checkPreviewConsistency();
   }
 
 async function getTranslateSettings() {
@@ -1335,8 +1347,9 @@ function syncPreviewToEditor(rerender = false) {
     setEditorContent(markdownContent);
     markModified();
     updateStatus();
-    // 短延迟后解除标记
-    setTimeout(() => { isPreviewEditing = false; }, 120);
+    // 用智能释放替代固定 120ms 延迟（见 releasePreviewEditing）：
+    // 在确认回写写入后再解除标记，并在解除后立即做一次一致性检查。
+    releasePreviewEditing();
   }
 
   // 失焦时：用规范化后的 Markdown 重新渲染预览，保证预览与编辑器一致，
@@ -1344,6 +1357,82 @@ function syncPreviewToEditor(rerender = false) {
   if (rerender) {
     doUpdatePreview();
   }
+
+  // 一致性检查（开发调试用，仅 console 输出，不阻塞用户操作）
+  checkPreviewConsistency();
+}
+
+// 智能释放 isPreviewEditing：替代原来的固定 120ms setTimeout。
+// 回写动作（setEditorContent）是同步完成的，但 contenteditable 的后续 input/blur
+// 事件可能紧随其后；用 200ms 的相对保守窗口避免快速操作竞态，并在解除标记后
+// 立即做一次一致性检查，尽早暴露「编辑器 ≠ 预览渲染」的偏差。
+function releasePreviewEditing() {
+  clearTimeout(previewEditReleaseTimer);
+  previewEditReleaseTimer = setTimeout(() => {
+    isPreviewEditing = false;
+    checkPreviewConsistency(); // 释放后立即检查一致性
+  }, 200);
+}
+
+// 一致性检测：检测「编辑器内容」与「预览渲染结果回写」是否一致（所见即所得）。
+// 仅做规范化比较并 console 输出，不阻塞用户操作，也不做任何自动修正。
+// 规范化规则与回写链路一致：忽略行尾空白差异、把 ≥3 个连续空行压成 2 个
+// （markdown-it 渲染本就会把 2+ 空行折叠为单个段间空行，故此处只比语义差异）。
+function checkPreviewConsistency() {
+  if (!editor) return;
+  const previewContainer = document.getElementById('previewContainer');
+  if (!previewContainer) return;
+
+  const editorText = editor.state.doc.toString();
+  const previewHtml = previewContainer.innerHTML;
+  let roundtrip;
+  try {
+    roundtrip = htmlToMarkdown(previewHtml);
+  } catch (err) {
+    // 回写转换异常不应影响用户，仅记录
+    console.warn('[Preview Consistency] htmlToMarkdown failed', err);
+    return;
+  }
+
+  // 规范化比较（忽略行尾空白差异）
+  const normEditor = editorText.replace(/\s+$/gm, '').replace(/\n{3,}/g, '\n\n');
+  const normRoundtrip = roundtrip.replace(/\s+$/gm, '').replace(/\n{3,}/g, '\n\n');
+
+  if (normEditor !== normRoundtrip) {
+    console.warn('[Preview Consistency] Mismatch detected', {
+      editorLen: normEditor.length,
+      roundtripLen: normRoundtrip.length,
+    });
+    return false;
+  }
+  return true;
+}
+
+// 预览区不可逆 / 易损渲染块保护：设为 contenteditable="false"，
+// 防止用户在 contenteditable 预览区直接误改这些块的内部结构，
+// 进而被 syncPreviewToEditor 当成「新源码」整体覆盖编辑器（导致数据损坏）。
+// 与 Mermaid（doUpdatePreview 内已设）同理。
+function protectPreviewBlocks(container) {
+  if (!container) return;
+
+  // 非 mermaid 的代码块（<pre><code>）：高亮后的代码块内部被包裹大量 <span>，
+  // 用户在预览区手改极易写出脏 HTML；置为不可编辑。
+  container
+    .querySelectorAll('pre:not([data-md-source])')
+    .forEach((pre) => pre.setAttribute('contenteditable', 'false'));
+
+  // 表格：单元格结构较脆，误改容易破坏往返保真（见 html-to-markdown.js 表格分支），
+  // 置为不可编辑防止污染。
+  container
+    .querySelectorAll('table')
+    .forEach((tbl) => tbl.setAttribute('contenteditable', 'false'));
+
+  // 数学公式（KaTeX / MathJax）：若项目接入了对应渲染器，渲染产物会出现
+  // .katex / .mathjax / [data-math]，同样不可逆，置为不可编辑。
+  // 未启用数学渲染时该选择器返回空，无副作用。
+  container
+    .querySelectorAll('.katex, .mathjax, [data-math]')
+    .forEach((el) => el.setAttribute('contenteditable', 'false'));
 }
 
 // HTML→Markdown: see ./html-to-markdown.js (tested for Issue #1 / #3)
@@ -1976,11 +2065,64 @@ function setViewMode(mode) {
 // ==========================================
 // 拖拽分屏调整
 // ==========================================
+const SIDEBAR_WIDTH_KEY = 'md-editor-sidebar-width';
+const SIDEBAR_MIN_WIDTH = 180; // 与 editor.css .file-sidebar min-width 对齐（单一事实源）
+const SIDEBAR_MAX_WIDTH = 500; // 与 editor.css .file-sidebar max-width 对齐
+
 function initResizer() {
   const resizer = document.getElementById('resizer');
   const editorPanel = document.getElementById('editorPanel');
   const previewPanel = document.getElementById('previewPanel');
   const editorMain = document.getElementById('editorMain');
+
+  // 侧栏宽度恢复
+  const sidebar = document.getElementById('fileSidebar');
+  const savedWidth = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY), 10);
+  if (sidebar && !isNaN(savedWidth) && savedWidth >= SIDEBAR_MIN_WIDTH && savedWidth <= SIDEBAR_MAX_WIDTH) {
+    sidebar.style.width = savedWidth + 'px';
+  }
+
+  // 侧栏拖拽分隔条
+  const sidebarResizer = document.getElementById('resizerSidebar');
+  if (sidebarResizer && sidebar) {
+    let isSidebarResizing = false;
+
+    sidebarResizer.addEventListener('mousedown', (e) => {
+      isSidebarResizing = true;
+      sidebarResizer.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const startX = e.clientX;
+      const startSidebarWidth = sidebar.offsetWidth;
+
+      function onMouseMove(e) {
+        if (!isSidebarResizing) return;
+        const dx = e.clientX - startX;
+        let newWidth = startSidebarWidth + dx;
+        if (newWidth < SIDEBAR_MIN_WIDTH) newWidth = SIDEBAR_MIN_WIDTH;
+        if (newWidth > SIDEBAR_MAX_WIDTH) newWidth = SIDEBAR_MAX_WIDTH;
+        sidebar.style.width = newWidth + 'px';
+      }
+
+      function onMouseUp() {
+        isSidebarResizing = false;
+        sidebarResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+
+        // 存内联 style 宽度（目标值），避免 CSS transition 动画期间 offsetWidth 返回中间帧导致持久化失真
+        const savedWidth = sidebar.style.width ? parseInt(sidebar.style.width, 10) : sidebar.offsetWidth;
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, savedWidth);
+        if (editor) editor.requestMeasure();
+      }
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  }
 
   let isResizing = false;
 
@@ -2136,9 +2278,6 @@ function bindEvents() {
   const btnStyleCenter = document.getElementById('btnStyleCenter');
   if (btnStyleCenter) btnStyleCenter.addEventListener('click', () => {  wrapSelection('<center>', '</center>'); });
 
-  const btnStyleBold = document.getElementById('btnStyleBold');
-  if (btnStyleBold) btnStyleBold.addEventListener('click', () => {  wrapSelection('<b>', '</b>'); });
-
   // 高亮（唯一入口，v1.5.1 合并原「格式化组 btnHighlight」与「样式组 btnStyleHighlight」）：
   // 无论选区在编辑区还是预览区，最终都落到源码的 <mark>…</mark>，并由 updatePreview /
   // syncPreviewToEditor 同步渲染，行为与加粗/斜体等按钮完全一致。
@@ -2275,6 +2414,31 @@ function bindEvents() {
 
   // 水平线
   document.getElementById('btnHR').addEventListener('click', () => insertBlock('---'));
+
+  // 上传图片：复用粘贴图片的落盘 / data URL 逻辑，插入到光标处
+  const btnImage = document.getElementById('btnImage');
+  if (btnImage) {
+    btnImage.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.multiple = true;
+      input.addEventListener('change', async () => {
+        const files = Array.from(input.files || []).filter((f) => f.type.startsWith('image/'));
+        if (!files.length) return;
+        try {
+          for (const file of files) {
+            const { imagePath } = await persistPastedImage(file);
+            insertMarkdownSnippet(buildPastedImageMarkdown({ alt: 'image', imagePath }));
+          }
+          showToast(files.length > 1 ? `已插入 ${files.length} 张图片` : '图片已插入', 'success');
+        } catch (err) {
+          showToast('插入图片失败: ' + err.message, 'error');
+        }
+      });
+      input.click();
+    });
+  }
 
   // 视图模式
   document.querySelectorAll('.view-btn').forEach(btn => {
@@ -2836,9 +3000,18 @@ function toggleSidebar(forceState) {
     // 修复 BUG2：恢复侧栏时同时清除 .collapsed 与 .view-hidden（视图模式隐藏也可恢复），
     // 否则仅去 .collapsed 会被 .view-hidden(display:none!important) 继续压制，导致「点恢复无效」。
     sidebar.classList.remove('collapsed', 'view-hidden');
+    // 恢复宽度：清除内联 width 后由 CSS 默认/拖拽持久化值接管
+    const savedWidth = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY), 10);
+    if (!isNaN(savedWidth) && savedWidth >= SIDEBAR_MIN_WIDTH && savedWidth <= SIDEBAR_MAX_WIDTH) {
+      sidebar.style.width = savedWidth + 'px';
+    } else {
+      sidebar.style.width = '';
+    }
     isSidebarCollapsed = false;
   } else {
     sidebar.classList.add('collapsed');
+    // 收起时清除内联宽度，确保 .collapsed { width: 0 } 生效
+    sidebar.style.width = '';
     isSidebarCollapsed = true;
   }
 

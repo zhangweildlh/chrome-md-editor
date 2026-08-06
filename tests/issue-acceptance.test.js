@@ -196,11 +196,15 @@ test('Issue #3: jarring style-preset banned, but clean style toolbar restored', 
   ]) {
     assert.equal(html.includes(`id="${id}"`), false, `style control should be gone: ${id}`);
   }
-  // v1.4.4 以规范图标按钮重建样式工具栏（非原始碎片）
-  for (const id of ['btnStyleCenter','btnStyleBold','btnStyleHighlight','btnColor','btnFontSize']) {
+  // v1.4.4 以规范图标按钮重建样式工具栏；v1.8.2 合并入格式化组消除重复加粗
+  // btnStyleBold 已由格式化组的 btnBold 统一替代（单一事实源）
+  // style-toolbar-group 独立容器已合并入 toolbar-group 格式化组
+  for (const id of ['btnStyleCenter','btnStyleHighlight','btnColor','btnFontSize']) {
     assert.ok(html.includes('id="' + id + '"'), 'clean style toolbar button: ' + id);
   }
-  assert.ok(html.includes('style-toolbar-group'), 'style toolbar group container');
+  // v1.8.2 新增：上传图片按钮 + 侧栏拖拽条
+  assert.ok(html.includes('id="btnImage"'), 'image upload button required');
+  assert.ok(html.includes('id="resizerSidebar"'), 'sidebar resizer required');
   // v1.5.1：高亮按钮合并为一个（原格式化组的 btnHighlight 已并入样式组 btnStyleHighlight），
   // 编辑区 / 预览区选中都走同一入口：源码包 <mark> + 预览同步渲染
   assert.equal(

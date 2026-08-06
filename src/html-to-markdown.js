@@ -82,7 +82,12 @@ export function convertNode(node) {
       // 折叠 <br> 后紧随的字面换行产生的多余空行（<br>\n → 单个软换行），
       // 避免预览回写把软换行误升级为段间空行（BUG-1 / BUG-3）。
       const collapsed = collapseSoftBreaks(childText);
-      const out = `${collapsed.trim()}\n\n`;
+      // 空段落（如 contenteditable 敲回车产生的 <p><br></p>、或清空内容后的 <p></p>）
+      // 不直接产出 \n\n，避免预览回写时往源码里累加无意义空行（数据漂移）。
+      // 非空段落仍按规范以单个段间空行（\n\n）结尾。
+      const trimmed = collapsed.replace(/^\s+|\s+$/g, '');
+      if (trimmed.length === 0) return '';
+      const out = `${trimmed}\n\n`;
       
       return out;
     }
@@ -214,7 +219,15 @@ export function convertNode(node) {
       let result = '';
       rows.forEach((row, idx) => {
         const cells = Array.from(row.querySelectorAll('th, td'));
-        result += '| ' + cells.map((c) => c.textContent.trim()).join(' | ') + ' |\n';
+        // 用 convertNode 还原单元格内联格式（**粗体** / `代码` / [链接] 等），
+        // 比单纯 textContent 保真度更高，避免往返时丢失单元格内的 Markdown 标记。
+        // 单元格内的换行折叠为空格（GFM 表格单元格本就是单行），并 trim 边界空白。
+        result +=
+          '| ' +
+          cells
+            .map((c) => convertNode(c).replace(/\s*\n\s*/g, ' ').trim())
+            .join(' | ') +
+          ' |\n';
         if (idx === 0) {
           result += '| ' + cells.map(() => '------').join(' | ') + ' |\n';
         }

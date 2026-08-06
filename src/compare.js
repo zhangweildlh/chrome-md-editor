@@ -81,8 +81,8 @@ import { exportDiffReport } from "./compare-diff-export.js";
   const btnAcceptTheirs = $("btnAcceptTheirs");
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.8.1（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.1";
+  // 运行时兜底 1.8.2（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.2";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 

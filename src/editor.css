@@ -1037,6 +1037,23 @@ mark {
   }
 }
 
+/* 宽屏（≥1200px，如全屏 / 宽窗口）：强制工具栏单行，分组清晰不换行。
+   按钮保持 flex:0 0 auto，分组与分隔线按基础样式呈现。 */
+@media (min-width: 1200px) {
+  .toolbar,
+  .toolbar-left,
+  .toolbar-center,
+  .toolbar-right,
+  .toolbar-group {
+    flex-wrap: nowrap;
+  }
+  .toolbar {
+    height: var(--toolbar-height);
+    min-height: var(--toolbar-height);
+    overflow: visible;
+  }
+}
+
 /* ==========================================
    Reset & Base
    ========================================== */
@@ -1172,14 +1189,16 @@ body {
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
 }
 
 .toolbar-divider {
   width: 1px;
   height: 20px;
   background: var(--border-primary);
-  margin: 0 4px;
+  margin: 0 8px;
 }
 
 .toolbar-btn {
@@ -1188,6 +1207,7 @@ body {
   justify-content: center;
   width: 32px;
   height: 32px;
+  flex: 0 0 auto;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1366,12 +1386,12 @@ body {
 
 .editor-panel {
   flex: 1;
-  min-width: 200px;
+  min-width: 300px;
 }
 
 .preview-panel {
   flex: 1;
-  min-width: 200px;
+  min-width: 250px;
   border-left: 1px solid var(--border-primary);
 }
 
@@ -1499,6 +1519,25 @@ body {
 
 .resizer:hover,
 .resizer.dragging {
+  background: var(--accent-glow);
+}
+
+/* 侧栏 Resizer */
+.resizer-sidebar {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 5;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast);
+}
+
+.resizer-sidebar:hover,
+.resizer-sidebar.dragging {
   background: var(--accent-glow);
 }
 
@@ -2147,8 +2186,9 @@ body {
    File Browser Sidebar
    ========================================== */
 .file-sidebar {
-  width: 240px;
-  min-width: 0;
+  width: 240px;        /* 初始宽度，可被 JS 覆盖 */
+  min-width: 180px;    /* 最小宽度防止完全压扁；与 editor.js SIDEBAR_MIN_WIDTH 对齐 */
+  max-width: 500px;    /* 最大宽度防止占满整屏；与 editor.js SIDEBAR_MAX_WIDTH 对齐 */
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
@@ -3355,3 +3395,69 @@ body {
     inset 0 -1px 2px rgba(0,0,0,.30),
     0 2px 5px var(--shadow-sm);
 }
+
+/* ============================================================
+   RESPONSIVE LAYOUT (layout-fix)
+   断点式工具栏 + 三面板弹性布局 + 窄屏侧栏覆盖层。
+   协作说明：本段依赖 .toolbar / .toolbar-left / .toolbar-center /
+   .toolbar-right / .toolbar-group / .toolbar-btn / .toolbar-divider 这些
+   class 名。若 toolbar-reorg 重整工具栏 DOM 时调整了这些 class 或层级，
+   请同步更新下方选择器。所有断点放在文件末尾，确保在基础 .toolbar（flex-wrap:
+   wrap）与 glass 皮肤规则之后生效（同特异性下后定义者胜出）。
+   ============================================================ */
+
+/* 超宽屏（≥1400px）：工具栏强制单行，中段横向滚动兜底，高度固定与设计一致（48px） */
+@media (min-width: 1400px) {
+  .toolbar {
+    flex-wrap: nowrap;
+    height: var(--toolbar-height);
+  }
+  /* 三段内部也不再换行，避免中心段自我折行撑高工具栏 */
+  .toolbar-left,
+  .toolbar-center,
+  .toolbar-right {
+    flex-wrap: nowrap;
+  }
+  .toolbar-center {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+/* 中等屏幕（1000–1399px）：允许换行，但限制在约两行高度内、纵向滚动 */
+@media (min-width: 1000px) and (max-width: 1399px) {
+  .toolbar {
+    flex-wrap: wrap;
+    max-height: 96px;          /* 约两行（48px/行 + 间距） */
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .toolbar-center {
+    overflow: visible;
+  }
+}
+
+/* 窄屏（<1000px）：沿用基础 .toolbar 的 flex-wrap: wrap，工具栏完全换行，无需额外规则。 */
+
+/* 三面板布局：窄屏（<900px）把文件侧栏改为覆盖层，避免挤压编辑/预览区 */
+@media (max-width: 900px) {
+  .file-sidebar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: 240px;
+    max-width: 80vw;
+    min-width: 200px;
+    box-shadow: var(--shadow-lg);
+  }
+  /* 折叠态仍由 .file-sidebar.collapsed（width:0）隐藏；展开时覆盖在编辑区之上。
+     JS 会在折叠态给 .sidebar-toggle 加 .visible，用于重新唤出侧栏，确保其置顶可点。 */
+  .editor-main .sidebar-toggle.visible {
+    display: flex;
+    z-index: 51;
+  }
+}
+
+/* 极窄屏（<680px）的工具栏内边距/间距收紧已在上方 @media (max-width: 680px) 处理。 */
