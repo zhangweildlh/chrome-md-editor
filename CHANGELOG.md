@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.1] - 2026-08-06 (视图恢复 / 工具栏布局 / 会话恢复 回归修复)
+
+> 本轮经 360Chrome 真机 + Playwright 自动化全功能测试，复现并修复 4 项真实缺陷。
+> 其中"视图沉浸模式工具栏恢复"在 1.8.0 的 `force-visible`+`position:fixed` 修法**实测无效**
+> （`position:fixed` 无法逃逸 `display:none!important` 祖先），本轮以"脱离隐藏容器"方案根治。
+
+### Fixed
+- **BUG1 视图沉浸/专注模式隐藏工具栏后无法恢复（1.8.0 修法无效，本轮根治）**：
+  `#btnChromeMode`（⊞）位于 `#toolbar` 内，工具栏被 `view-hidden`(`display:none!important`) 隐藏时按钮随之不可见，无恢复入口。修复：`view-mode.js` 在工具栏隐藏时把该按钮**脱离 `#toolbar` 挂到 `body`**（`placeChromeModeButton`，记录原父/兄弟以便恢复时精确插回），成为 `position:fixed` 浮层，无论祖先是否隐藏均真实可见可点；工具栏恢复时挂回原位。
+- **BUG2 专注/沉浸模式隐藏文件侧栏后无法恢复**：`toggleSidebar` 仅切换 `.collapsed`，永不移除视图模式加的 `.view-hidden`，导致点击恢复条无效。修复：`toggleSidebar` 恢复时同时清除 `.collapsed` 与 `.view-hidden`；并修复初始化顺序（持久化为 focus/immersive 时首屏即点亮恢复条 `#sidebarToggle`），避免首屏无恢复入口。
+- **BUG3 中等宽度下工具栏右侧按钮被裁掉不可见**：两条同级 `.toolbar` 规则中后定义的 base 规则把 `height` 钉死为 `var(--toolbar-height)`(48px)，覆盖了响应式块的 `height:auto`；配合 `overflow-y:hidden`，换行后的右段（⊞/主题/搜索）被裁剪。修复：base 规则改 `min-height`+`height:auto`，响应式块 `overflow:visible`，换行多行工具栏完整可见。
+- **BUG4 新建文件后输入、重载/崩溃导致内容丢失（会话恢复数据丢失）**：`handleNew` 把内部文件名改为 UI 标签 `'未打开文件'`，而自动保存草稿键由 `resolveFileKey(文件名)` 生成 → 草稿存到 `draft::未打开文件`；重载后新会话 `currentFileName` 为 `'unsaved'`(`draft::unsaved`)，键不一致使草稿孤儿化、输入丢失。修复：`autosave.js` 的 `resolveFileKey` 将 `'未打开文件'/'untitled.md'/'unsaved'/空` 等未保存标签统一归并到稳定键 `'unsaved'`，草稿键跨会话一致（真实文件各有文件名不受影响）。
+
+### Tests
+- 新增 Playwright + 360Chrome 自动化测试骨架 `.test-run/harness.mjs`（核心回归 13 项：工具栏/侧栏恢复、视图循环、分屏、主题、对比页）与 `.test-run/harness2.mjs`（扩展 10 项：专注/打字机/大纲/任务/显示设置/新建/会话恢复/主题预设/Mermaid/快照）。两轮全绿。
+- 既有 `node --test` 单元测试 254/0 通过（无回归）。
+- 测试方案 `tests/E2E_TEST_PLAN.md` 已就绪（多场景 + 多边界全覆盖）。
+
 ## [1.8.0] - 2026-08-05 (主题玻璃材质皮肤 + BUG 修复)
 
 ### Added

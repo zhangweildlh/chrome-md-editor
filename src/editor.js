@@ -74,9 +74,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.0"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.1"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.0";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.1";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -1919,8 +1919,8 @@ function toggleTheme() {
   // === MARKRA_HOOK: THEMES === 主题预设：在此行之后应用当前编辑器主题预设（data-editor-theme）
   applyEditorThemePreset(getStoredEditorTheme());
 
-  // 玻璃拟态 skin 维度初始化（与主题同时生效）
-  document.documentElement.setAttribute('data-skin', 'glass');
+  // 玻璃拟态 skin 维度（data-skin="glass"）已由 applyEditorThemePreset 统一设置，
+  // 此处不再重复，保持单一事实源。
 
   editor.dispatch({
     effects: themeCompartment.reconfigure(
@@ -2824,17 +2824,28 @@ function toggleSidebar(forceState) {
   const sidebar = document.getElementById('fileSidebar');
   const toggleBtn = document.getElementById('sidebarToggle');
 
+  // 显示目标：显式指定时取反；未指定时「当前隐藏（手动收起或视图模式隐藏）则显示，否则隐藏」。
+  let show;
   if (forceState !== undefined) {
-    isSidebarCollapsed = forceState;
+    show = !forceState;
   } else {
-    isSidebarCollapsed = !isSidebarCollapsed;
+    show = sidebar.classList.contains('collapsed') || sidebar.classList.contains('view-hidden');
+  }
+
+  if (show) {
+    // 修复 BUG2：恢复侧栏时同时清除 .collapsed 与 .view-hidden（视图模式隐藏也可恢复），
+    // 否则仅去 .collapsed 会被 .view-hidden(display:none!important) 继续压制，导致「点恢复无效」。
+    sidebar.classList.remove('collapsed', 'view-hidden');
+    isSidebarCollapsed = false;
+  } else {
+    sidebar.classList.add('collapsed');
+    isSidebarCollapsed = true;
   }
 
   localStorage.setItem('md-sidebar-collapsed', isSidebarCollapsed);
-  sidebar.classList.toggle('collapsed', isSidebarCollapsed);
 
   if (toggleBtn) {
-    toggleBtn.classList.toggle('visible', isSidebarCollapsed);
+    toggleBtn.classList.toggle('visible', !show);
   }
 
   // 刷新编辑器布局
@@ -2874,6 +2885,13 @@ function initFileSidebar() {
   if (isSidebarCollapsed) {
     toggleSidebar(true);
   }
+
+  // 修复 BUG2 初始化顺序：applyViewMode 可能早于 initFileSidebar 执行，
+  // 导致首屏若持久化为 focus/immersive，#sidebarToggle 尚未创建、未被点亮。
+  // 此处补一次可见性同步：侧栏被视图隐藏(.view-hidden)或手动收起(.collapsed)时点亮恢复条。
+  const __sb = document.getElementById('fileSidebar');
+  const __hidden = __sb && (__sb.classList.contains('collapsed') || __sb.classList.contains('view-hidden'));
+  toggleBtn.classList.toggle('visible', !!__hidden);
 }
 
 // A-5：打开快照 / 历史版本对话框，列出当前文件的快照环，支持回滚

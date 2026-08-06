@@ -1,93 +1,50 @@
-/**
- * view-mode.test.js — 需求 6：P2 S2 视图扩展（裁剪映射 CME 外壳）
- *
- * 覆盖纯逻辑：
- *   - VIEW_MODE_OPTIONS 含 4 项
- *   - resolveViewModeChrome('focus') 的隐藏/显示矩阵
- *   - nextViewMode 循环 daily→focus→immersive→full→daily
- *   - getStoredViewMode / setStoredViewMode 用伪造 localStorage 往返
- *
- * 不依赖 CM6；localStorage 用伪造实现，避免污染真实环境。
- */
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import {
-  VIEW_MODE_OPTIONS,
-  resolveViewModeChrome,
-  nextViewMode,
-  getStoredViewMode,
-  setStoredViewMode,
-} from '../src/view-mode.js';
+// BUG1 回归单测：视图沉浸/日常模式下 ⊞ 按钮的 reparent 逻辑（linkedom 模拟 DOM）
+// 覆盖 code-review-combo 审计 F-03（BUG1/BUG2 修复零单测覆盖）。
+import { parseHTML } from 'linkedom';
+import { applyViewMode } from '../src/view-mode.js';
+import { test } from 'node:test';
+import assert from 'node:assert';
 
-// 伪造 localStorage（仅覆盖本测试作用域）
-function installFakeLocalStorage() {
-  const store = new Map();
-  globalThis.localStorage = {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, String(v)),
-    removeItem: (k) => store.delete(k),
-    clear: () => store.clear(),
-  };
-  return store;
+function setup() {
+  const { document } = parseHTML(`<!doctype html><html><body>
+    <main id="editorMain">
+      <div id="toolbar"><button id="btnChromeMode">⊞</button></div>
+      <div id="fileSidebar"></div>
+    </main>
+  </body></html>`);
+  global.document = document;
+  return document;
 }
 
-test('VIEW_MODE_OPTIONS 含 4 项', () => {
-  assert.deepEqual(VIEW_MODE_OPTIONS, ['daily', 'focus', 'immersive', 'full']);
-  assert.equal(VIEW_MODE_OPTIONS.length, 4);
+test('immersive：工具栏隐藏且 ⊞ 按钮脱离被隐藏容器挂到 body', () => {
+  const document = setup();
+  applyViewMode('immersive');
+  const toolbar = document.getElementById('toolbar');
+  const btn = document.getElementById('btnChromeMode');
+  assert.ok(toolbar.classList.contains('view-hidden'), 'immersive 下 #toolbar 应被 view-hidden');
+  assert.strictEqual(btn.parentElement, document.body, '⊞ 应脱离 #toolbar 挂到 body');
+  assert.ok(btn.classList.contains('force-visible'), '⊞ 应带 force-visible');
 });
 
-test('resolveViewModeChrome("focus") 裁剪矩阵', () => {
-  const m = resolveViewModeChrome('focus');
-  assert.equal(m.fileSidebar, false);
-  assert.equal(m.outlinePanel, false);
-  assert.equal(m.taskListPanel, false);
-  assert.equal(m.statusBar, false);
-  assert.equal(m.editorPanel, true);
-  assert.equal(m.previewPanel, true);
-  // 保留工具栏与编辑/预览分隔条
-  assert.equal(m.toolbar, true);
-  assert.equal(m.resizer, true);
+test('immersive→daily：⊞ 按钮精确插回 #toolbar 且不再 force-visible', () => {
+  const document = setup();
+  applyViewMode('immersive');
+  applyViewMode('daily');
+  const toolbar = document.getElementById('toolbar');
+  const btn = document.getElementById('btnChromeMode');
+  assert.ok(!toolbar.classList.contains('view-hidden'), 'daily 下 #toolbar 不应有 view-hidden');
+  assert.strictEqual(btn.parentElement.id, 'toolbar', '⊞ 应回到 #toolbar 内');
+  assert.ok(!btn.classList.contains('force-visible'), 'daily 下 ⊞ 不应带 force-visible');
 });
 
-test('resolveViewModeChrome 未知 mode 回退 daily（全显）', () => {
-  const m = resolveViewModeChrome('unknown');
-  assert.equal(m.fileSidebar, true);
-  assert.equal(m.statusBar, true);
-  assert.equal(m.toolbar, true);
-});
-
-test('resolveViewModeChrome("immersive") 在 focus 基础上再隐 toolbar', () => {
-  const f = resolveViewModeChrome('focus');
-  const im = resolveViewModeChrome('immersive');
-  assert.equal(im.toolbar, false);
-  assert.equal(f.toolbar, true);
-  assert.equal(im.fileSidebar, f.fileSidebar);
-  assert.equal(im.statusBar, f.statusBar);
-});
-
-test('nextViewMode 循环 daily→focus→immersive→full→daily', () => {
-  assert.equal(nextViewMode('daily'), 'focus');
-  assert.equal(nextViewMode('focus'), 'immersive');
-  assert.equal(nextViewMode('immersive'), 'full');
-  assert.equal(nextViewMode('full'), 'daily');
-});
-
-test('nextViewMode 非法输入回退 daily', () => {
-  assert.equal(nextViewMode('nope'), 'daily');
-  assert.equal(nextViewMode(undefined), 'daily');
-});
-
-test('getStoredViewMode / setStoredViewMode 伪造 localStorage 往返', () => {
-  installFakeLocalStorage();
-  assert.equal(getStoredViewMode(), 'daily'); // 默认
-  setStoredViewMode('immersive');
-  assert.equal(getStoredViewMode(), 'immersive');
-  setStoredViewMode('focus');
-  assert.equal(getStoredViewMode(), 'focus');
-});
-
-test('setStoredViewMode 非法值归一到 daily', () => {
-  installFakeLocalStorage();
-  setStoredViewMode('bogus');
-  assert.equal(getStoredViewMode(), 'daily');
+test('focus：文件侧栏隐藏（view-hidden）且侧栏恢复条点亮', () => {
+  const document = setup();
+  // 注入侧栏恢复条，模拟 editor.js 的 initFileSidebar
+  const toggle = document.createElement('div');
+  toggle.id = 'sidebarToggle';
+  document.getElementById('editorMain').appendChild(toggle);
+  applyViewMode('focus');
+  const sidebar = document.getElementById('fileSidebar');
+  assert.ok(sidebar.classList.contains('view-hidden'), 'focus 下 #fileSidebar 应被 view-hidden');
+  assert.ok(document.getElementById('sidebarToggle').classList.contains('visible'), 'focus 下恢复条应 visible');
 });

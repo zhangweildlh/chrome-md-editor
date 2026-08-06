@@ -974,9 +974,8 @@ mark {
   min-height: var(--toolbar-height);
   align-content: flex-start;
   row-gap: 6px;
-  overflow-x: auto;                      /* 极端窄宽兜底：允许横向滚动而非截断 */
-  overflow-y: hidden;
-  scrollbar-width: thin;                 /* 滚动条细、不遮挡内容 */
+  overflow: visible;                      /* 换行后多行可见，不再裁掉右段按钮 */
+  scrollbar-width: thin;                 /* 滚动条细、不遮挡内容（保留声明，无横向滚动时无害） */
   scrollbar-color: var(--border-subtle) transparent;
 }
 
@@ -1073,7 +1072,10 @@ body {
    Toolbar
    ========================================== */
 .toolbar {
-  height: var(--toolbar-height);
+  /* 高度可随换行撑开（min-height 保底，height:auto 允许多行工具栏），
+     避免被 48px 钉死导致换行的右段按钮被 overflow 裁掉不可见。 */
+  min-height: var(--toolbar-height);
+  height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;

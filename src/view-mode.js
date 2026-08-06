@@ -107,23 +107,50 @@ export function applyViewMode(mode) {
     }
   }
 
-  // 修复 BUG4：沉浸/专注模式会隐藏工具栏(#toolbar)，而 #btnChromeMode(⊞) 位于工具栏内，
-  // 隐藏后随容器一起 display:none，导致无任何入口切回日常/全显。故在工具栏被隐藏时，
-  // 给 #btnChromeMode 加 force-visible，使其以 position:fixed 浮层脱离被隐藏的容器、常驻可见。
-  const chromeBtn = document.getElementById('btnChromeMode');
-  if (chromeBtn) {
-    chromeBtn.classList.toggle('force-visible', matrix.toolbar === false);
-  }
+  // 修复 BUG1/BUG4：工具栏被视图模式隐藏时，#btnChromeMode(⊞) 是其后代，
+  // 会随祖先 display:none!important 一起不可见，导致无法切回日常/全显。
+  // 故在工具栏隐藏时把该按钮「脱离 #toolbar」挂到 body 成为固定浮层（position:fixed 不再被祖先隐藏）；
+  // 工具栏恢复时再挂回原容器。这样无论祖先是否隐藏，按钮都真实可见、可点击。
+  placeChromeModeButton(matrix.toolbar === false);
 
-  // 防御性修复（与 BUG4 同类根因）：专注/沉浸模式会隐藏文件栏(#fileSidebar)，
-  // 而侧栏恢复入口 #sidebarToggle 仅在 .collapsed 时置 .visible，不响应 view-hidden。
-  // 当文件栏被视图模式隐藏时，同样点亮恢复入口，避免无恢复路径。
+  // 侧栏恢复条：文件栏被视图隐藏(.view-hidden)或手动收起(.collapsed)时点亮（实际恢复逻辑在 editor.js toggleSidebar）
   const sidebarToggle = document.getElementById('sidebarToggle');
   if (sidebarToggle) {
     const fileSidebar = document.getElementById('fileSidebar');
-    const sidebarHidden = fileSidebar ? fileSidebar.classList.contains('view-hidden') : false;
-    const collapsed = fileSidebar ? fileSidebar.classList.contains('collapsed') : false;
-    sidebarToggle.classList.toggle('visible', sidebarHidden || collapsed);
+    const hidden = fileSidebar ? (fileSidebar.classList.contains('view-hidden') || fileSidebar.classList.contains('collapsed')) : false;
+    sidebarToggle.classList.toggle('visible', hidden);
+  }
+}
+
+// 把 #btnChromeMode 在「#toolbar 内」与「body 浮层」之间迁移，避免被祖先 display:none 隐藏。
+// 记录首次脱离时的原父节点与相邻兄弟，恢复时精确插回原位（不破坏工具栏按钮顺序）。
+let chromeBtnOrigParent = null;
+let chromeBtnOrigNext = null;
+function placeChromeModeButton(toolbarHidden) {
+  const btn = document.getElementById('btnChromeMode');
+  if (!btn) return;
+  if (toolbarHidden) {
+    if (!chromeBtnOrigParent) {
+      chromeBtnOrigParent = btn.parentElement;
+      chromeBtnOrigNext = btn.nextElementSibling;
+    }
+    if (btn.parentElement !== document.body) document.body.appendChild(btn);
+    btn.classList.add('force-visible');
+  } else {
+    if (chromeBtnOrigParent && btn.parentElement === document.body) {
+      // 防御（审计 F-02）：若记录的原始父节点已被移除（如响应式工具栏重渲染导致引用游离），
+      // 回退挂到 #toolbar，避免插入到已脱离文档的节点而丢失按钮。
+      if (document.contains(chromeBtnOrigParent)) {
+        chromeBtnOrigParent.insertBefore(
+          btn,
+          chromeBtnOrigNext && document.contains(chromeBtnOrigNext) ? chromeBtnOrigNext : null
+        );
+      } else {
+        const tb = document.getElementById('toolbar');
+        if (tb) tb.appendChild(btn);
+      }
+    }
+    btn.classList.remove('force-visible');
   }
 }
 

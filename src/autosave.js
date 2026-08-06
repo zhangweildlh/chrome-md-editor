@@ -50,8 +50,16 @@ export function debounce(fn, delay) {
 // 关键修复（Bug #1）：file:// 打开的文件没有 FileHandle（currentFileHandle 为 null），
 // 必须回退到「已加载文件名」，否则所有 file:// 文件会共用 'unsaved' 键，导致不同文件的
 // 草稿（draft::）与历史快照（snapshots::）互相覆盖、互相串档。
+// 关键修复（BUG4）：'未打开文件' / 'untitled.md' / 'unsaved' / 空 等「未保存」显示标签
+// 一律归并到稳定键 'unsaved'。否则 handleNew 会把键变成 draft::未打开文件，
+// 而全新会话的 currentFileName 为 'unsaved'（draft::unsaved），两者不一致导致
+// 新建后输入的草稿在重载时被孤儿化、无法恢复（数据丢失）。真实文件各有文件名，不受影响。
 export function resolveFileKey(handleName, fileName) {
-  return handleName || fileName || 'unsaved';
+  const key = handleName || fileName || 'unsaved';
+  if (key === '未打开文件' || key === 'untitled.md' || key === 'unsaved' || key.trim() === '') {
+    return 'unsaved';
+  }
+  return key;
 }
 
 // 文件唯一键：优先用句柄名（含扩展名与文件名，区分不同文件），均无则 'unsaved'

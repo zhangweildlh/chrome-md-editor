@@ -458,6 +458,9 @@ export function applyEditorThemePreset(themeId) {
   const kind = theme ? theme.kind : 'light';
   document.documentElement.setAttribute('data-editor-theme', id);
   document.documentElement.setAttribute('data-theme', kind === 'dark' ? 'dark' : 'light');
+  // 玻璃拟态 skin 维度（默认玻璃，与主题正交）：在此统一设置，使首屏与切换主题时
+  // 均挂载 [data-skin="glass"]，避免 init 遗漏导致玻璃皮肤旗舰特性首屏不生效（审计 F-01）。
+  document.documentElement.setAttribute('data-skin', 'glass');
   return id;
 }
 
