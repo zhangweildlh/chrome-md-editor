@@ -74,9 +74,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.2"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.3"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.2";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.3";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -541,16 +541,30 @@ function buildEnvSnapshot() {
   return snap;
 }
 
+// 预览区上一帧渲染内容的哈希（用于跳过无变化渲染，消除闪烁）
+let lastRenderedHash = '';
+
 async function doUpdatePreview() {
   const previewContainer = document.getElementById('previewContainer');
+  if (!previewContainer) return;
   const content = editor.state.doc.toString();
     let html = sanitizePreviewHtml(md.render(content));
+
+  // 防闪烁优化：如果渲染结果与上帧完全相同，跳过 DOM 替换（消除视觉闪烁）
+  // 使用简单哈希（长度+首尾字符）避免大字符串全量比较的开销
+  const quickHash = html.length + ':' + html.slice(0, 50) + ':' + html.slice(-50);
+  if (quickHash === lastRenderedHash && lastRenderedHash !== '') {
+    return; // 内容未变，跳过渲染
+  }
 
   // 渲染 Mermaid 图表
   // markdown-it 会把 ```mermaid 渲染成 <pre><code class="language-mermaid">...</code></pre>
   cleanupPreviewObjectUrls();
   const previewScrollTopBefore = previewContainer.scrollTop;
   const previewScrollHeightBefore = previewContainer.scrollHeight;
+
+  // 使用淡入过渡减少替换时的视觉闪烁
+  previewContainer.style.opacity = '0';
   previewContainer.innerHTML = html;
   const previewScrollTopAfter = previewContainer.scrollTop;
   
@@ -621,7 +635,13 @@ async function doUpdatePreview() {
 
   // 一致性检查（开发调试用，仅 console 输出，不阻塞渲染 / 用户操作）
   checkPreviewConsistency();
-  }
+
+  // 防闪烁：淡入恢复 + 记录当前帧哈希
+  requestAnimationFrame(() => {
+    if (previewContainer) previewContainer.style.opacity = '';
+  });
+  lastRenderedHash = quickHash;
+}
 
 async function getTranslateSettings() {
   if (translateSettingsCache) return translateSettingsCache;
@@ -1223,16 +1243,26 @@ function initPreviewEditing() {
     syncPreviewToEditor(true);
   });
 
-  // 实时同步：每次输入后短延迟同步
+  // 实时同步 + 实时 Markdown 渲染：每次输入后短延迟处理
   let syncTimer = null;
+  let previewRenderTimer = null;
   previewContainer.addEventListener('input', (e) => {
     clearTimeout(syncTimer);
-    const prevHTML = previewContainer.innerHTML;
-    const prevBlocks = previewContainer.children.length;
     syncTimer = setTimeout(() => {
-      
       syncPreviewToEditor();
     }, 500);
+
+    // 预览区实时 Markdown 渲染（问题 4 修复）：
+    // 用户在 contenteditable 预览区输入 Markdown 语法（如 **粗体**、`代码`、# 标题等）时，
+    // 实时将输入内容通过 markdown-it 渲染为富文本，实现"所见即所得"预览体验。
+    // 仅在预览编辑模式下生效，且不与编辑→预览的更新冲突。
+    if (!isPreviewEditing) return;
+    clearTimeout(previewRenderTimer);
+    previewRenderTimer = setTimeout(() => {
+      try { renderLivePreviewMarkdown(); } catch (err) {
+        console.warn('[Live Preview] render error', err);
+      }
+    }, 150); // 150ms 防抖：平衡响应速度与性能
   });
 
   // 符号自动配对：与编辑器侧 closeBrackets 行为对齐。
@@ -1433,6 +1463,145 @@ function protectPreviewBlocks(container) {
   container
     .querySelectorAll('.katex, .mathjax, [data-math]')
     .forEach((el) => el.setAttribute('contenteditable', 'false'));
+}
+
+// ==========================================
+// 预览区实时 Markdown 渲染（问题 4 修复）
+// ==========================================
+
+// 检测文本中是否含有尚未被渲染的 Markdown 内联/块级语法。
+// 用于决定是否需要对预览区做实时渲染：纯文本则不打扰光标（原生 caret 保留）。
+// 注意：采用「过包含」策略——只要疑似含语法就触发，因为渲染本身经过往返（htmlToMarkdown→md.render）
+// 是幂等的，真正无变化的渲染会被下方的 normalizeHtml 比较跳过。
+const MD_SYNTAX_RE =
+  /\*\*|\b__|\b(?:^|\n)#{1,6}\s|`[^`]+`|~~[^~]+~~|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|^\s*[-*+]\s|^\s*>\s|^\s*\d+\.\s/m;
+
+// 计算 caret 在元素 textContent 中的字符偏移
+function getCaretCharacterOffsetWithin(element) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  const preCaretRange = range.cloneRange();
+  preCaretRange.selectNodeContents(element);
+  preCaretRange.setEnd(range.endContainer, range.endOffset);
+  return preCaretRange.toString().length;
+}
+
+// 将 caret 设置到元素 textContent 的指定字符偏移处
+function setCaretCharacterOffsetWithin(element, offset) {
+  if (offset == null || offset < 0) return;
+  const range = document.createRange();
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let remaining = offset;
+  let lastNode = null;
+  let node;
+  while ((node = walker.nextNode())) {
+    const len = node.textContent.length;
+    if (remaining <= len) {
+      range.setStart(node, remaining);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+    remaining -= len;
+    lastNode = node;
+  }
+  // 偏移超出文本总长：落在最后一个文本节点末尾
+  if (lastNode) {
+    range.setStart(lastNode, lastNode.textContent.length);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
+// 将「含标记的原始文本」偏移映射到「标记被剥离后的渲染文本」偏移：
+// 统计 rawOffset 之前被 markdown-it 渲染时剥离的标记字符数，做减法。
+function mapRawToRenderedOffset(text, rawOffset) {
+  let count = 0;
+  let i = 0;
+  while (i < rawOffset) {
+    if (text[i] === '*' && text[i + 1] === '*') {
+      count += 2;
+      i += 2;
+      while (i < rawOffset && !(text[i] === '*' && text[i + 1] === '*')) i++;
+      if (i < rawOffset && text[i] === '*' && text[i + 1] === '*') { count += 2; i += 2; }
+      continue;
+    }
+    if (text[i] === '`') {
+      count += 1; i += 1;
+      while (i < rawOffset && text[i] !== '`') i++;
+      if (i < rawOffset && text[i] === '`') { count += 1; i += 1; }
+      continue;
+    }
+    if (text[i] === '~' && text[i + 1] === '~') {
+      count += 2; i += 2;
+      while (i < rawOffset && !(text[i] === '~' && text[i + 1] === '~')) i++;
+      if (i < rawOffset && text[i] === '~' && text[i + 1] === '~') { count += 2; i += 2; }
+      continue;
+    }
+    if (text[i] === '*') { count += 1; i += 1; continue; }
+    i += 1;
+  }
+  return Math.max(0, rawOffset - count);
+}
+
+// 归一化 HTML（去标签间空白与多余空白），用于判断「渲染后内容是否真的变化」
+function normalizeHtml(html) {
+  return html.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
+}
+
+// 预览区实时 Markdown 渲染（问题 4 核心）：
+// 用户在 contenteditable 预览区直接输入 Markdown 语法（如 **粗体**、`代码`、# 标题）时，
+// 实时将其渲染为富文本，并把含语法的内容同步回编辑器（经 syncPreviewToEditor 既有链路）。
+// 采用「往返渲染」策略：先 htmlToMarkdown(当前预览) 还原为源码，再 md.render 重新渲染。
+// 这样既能渲染新输入的语法，又能保留已渲染块（如已存在的 <strong>）——往返对 markdown 是保真的。
+function renderLivePreviewMarkdown() {
+  const previewContainer = document.getElementById('previewContainer');
+  if (!previewContainer || !isPreviewEditing) return;
+
+  const text = previewContainer.textContent || '';
+  // 纯文本（不含任何疑似 Markdown 语法）不渲染，避免打断原生光标
+  if (!MD_SYNTAX_RE.test(text)) return;
+
+  // 记录光标在「原始文本」中的偏移，渲染后用映射还原
+  const rawCaret = getCaretCharacterOffsetWithin(previewContainer);
+  const atEnd = rawCaret === null ? true : rawCaret >= text.length;
+
+  const oldHtml = previewContainer.innerHTML;
+  let source;
+  let newHtml;
+  try {
+    // 往返：把当前预览（可能已含渲染块）还原为源码，再渲染，保证已渲染格式不丢
+    source = htmlToMarkdown(oldHtml);
+    newHtml = sanitizePreviewHtml(md.render(source));
+  } catch (err) {
+    console.warn('[Live Preview] markdown render failed', err);
+    return;
+  }
+
+  // 真正无变化（如文本含 * 但未被渲染为 emphasis）则不替换 DOM，避免无谓光标丢失。
+  // 注意：必须在赋值 innerHTML【之前】用 oldHtml 比较，否则比较对象恒等于自身。
+  if (normalizeHtml(newHtml) === normalizeHtml(oldHtml)) return;
+
+  previewContainer.innerHTML = newHtml;
+
+  // 还原光标（独立容错：即使还原失败也不影响编辑器同步）
+  try {
+    if (atEnd) {
+      setCaretCharacterOffsetWithin(previewContainer, previewContainer.textContent.length);
+    } else {
+      setCaretCharacterOffsetWithin(previewContainer, mapRawToRenderedOffset(text, rawCaret));
+    }
+  } catch (err) {
+    console.warn('[Live Preview] caret restore skipped', err);
+  }
+
+  // 同步含语法的内容到编辑器（htmlToMarkdown 会把 <strong> 还原为 **...**）
+  syncPreviewToEditor();
 }
 
 // HTML→Markdown: see ./html-to-markdown.js (tested for Issue #1 / #3)
@@ -2462,6 +2631,15 @@ function bindEvents() {
   // v1.5.1：原独立的「翻译设置」按钮（btnTranslateSettings）已删除——
   // 右键 btnTranslate 即可打开设置，无需第二个按钮。
   initTranslateSettingsModal();
+
+  // 对比/合并视图入口
+  const btnCompare = document.getElementById('btnCompare');
+  if (btnCompare) {
+    btnCompare.addEventListener('click', () => {
+      // 在新标签页打开 compare.html（Chrome 扩展中为同源页面）
+      window.open('compare.html', '_blank');
+    });
+  }
 
   // 拦截浏览器默认 Ctrl+S
   document.addEventListener('keydown', (e) => {

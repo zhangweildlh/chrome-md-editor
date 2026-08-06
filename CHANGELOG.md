@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.3] - 2026-08-06（针对 v1.8.2 用户反馈的 5 项缺陷修复）
+
+> 经真机 Playwright(360Chrome) E2E 验证 11/11 全绿 + 单测 253 pass。
+> 覆盖工具栏对比入口 / 全屏对齐 / 响应式单行 / 预览区实时渲染同步 / 编辑器→预览防闪烁。
+
+### 修复
+- **问题1 · 对比/合并入口**：工具栏「视图切换组」新增 `#btnCompare` 按钮，
+  点击在独立标签页打开 `compare.html`（多栏/差异对比视图）。
+- **问题2 · 全屏对齐**：`.toolbar` 统一为固定高度 48px + `align-items: center` + 三段
+  `align-self: center`，消除全屏时按钮高低错落（之前中段因内部 overflow 滚动槽被撑高 6px）。
+- **问题3 · 响应式单行**：放弃 `flex-wrap: wrap` 换行模式，改为整条工具栏 `flex-wrap: nowrap`
+  + `overflow-x: auto` 横向滚动；窄窗不再纵向堆叠/裁切按钮，所有窗口尺寸保持单行对齐。
+- **问题4 · 预览区实时 Markdown 渲染**：新增 `renderLivePreviewMarkdown()`——
+  预览区(contenteditable)输入 `**粗体**`、`\`代码\``、`# 标题` 等语法时，经「htmlToMarkdown→
+  markdown-it」往返渲染为富文本并实时同步回编辑器（编辑器得到含 `**` 语法的源码）。
+  纯净文本不触发渲染以保留原生光标；已渲染块经往返保真不被破坏。
+- **问题5 · 编辑器→预览防闪烁**：`doUpdatePreview()` 增加内容哈希跳过（相同内容不替换 DOM）
+  + `opacity` 淡入过渡，消除每次按键整段重渲染导致的视觉闪烁。
+
 ## [1.8.2] - 2026-08-06 (UI 五项改进：所见即所得 / 响应式布局 / 原设计对齐 / 侧栏可调 / 工具栏重排)
 
 > 本轮经 4 Agent 并行开发 + 真机 Playwright 验证，完成用户要求的 5 项 UI/功能改进。

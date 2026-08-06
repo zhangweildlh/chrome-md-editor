@@ -963,25 +963,25 @@ mark {
   padding: 0 2px;
   border-radius: 2px;
 }
-/* === MARKRA_CSS: TOOLBAR_RESPONSIVE === 工具栏非全屏响应式 */
-/* 修复：窗口未全屏/扩展弹窗固定窄宽时，.toolbar 内按钮被截断或溢出不可见。
-   方案：工具栏容器与各按钮组均允许换行（flex-wrap: wrap），高度自适应，
-   按钮不收缩、尺寸稳定。两端（桌面 EXE 可缩放 webview / 浏览器扩展固定弹窗）通用。
-   仅调整布局行为，不改 v1.4.4 样式工具栏按钮组本身的视觉定义。 */
+/* === MARKRA_CSS: TOOLBAR_RESPONSIVE === 工具栏响应式（v1.8.2 修复：单行+横向滚动模式） */
+/* 设计目标：所有窗口尺寸下工具栏保持单行固定高度(48px)，按钮溢出时横向滚动（类似 VS Code）。
+   不再使用 flex-wrap: wrap 换行模式（导致非全屏时 3–4 行混乱布局）。
+   三段(left/center/right)均 nowrap，center 段可横向滚动容纳更多按钮。 */
+
 .toolbar {
-  flex-wrap: wrap;                       /* 容器允许换行，避免横向截断按钮 */
-  height: auto;                          /* 换行后高度自适应，不再固定 48px 导致溢出 */
+  flex-wrap: nowrap;                      /* 单行，不换行 */
+  height: var(--toolbar-height);          /* 固定 48px 高度 */
   min-height: var(--toolbar-height);
-  align-content: flex-start;
-  row-gap: 6px;
-  overflow: visible;                      /* 换行后多行可见，不再裁掉右段按钮 */
-  scrollbar-width: thin;                 /* 滚动条细、不遮挡内容（保留声明，无横向滚动时无害） */
+  align-items: center;                   /* 所有子元素垂直居中（修复全屏不对齐） */
+  overflow-x: auto;                       /* 横向滚动（按钮过多时出现滚动条） */
+  overflow-y: hidden;                     /* 无纵向内容 */
+  scrollbar-width: thin;
   scrollbar-color: var(--border-subtle) transparent;
 }
 
-/* WebKit 细滚动条（兜底横向滚动时） */
+/* WebKit 细滚动条（横向） */
 .toolbar::-webkit-scrollbar {
-  height: 6px;
+  height: 5px;
 }
 .toolbar::-webkit-scrollbar-thumb {
   background: var(--border-subtle);
@@ -991,41 +991,45 @@ mark {
   background: transparent;
 }
 
-/* 左/中/右三段均随容器换行，并允许收缩以让出换行空间 */
+/* 左/右两段：不换行，不收缩 */
 .toolbar-left,
-.toolbar-center,
 .toolbar-right {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   min-width: 0;
 }
 
-/* 中段（含多个 .toolbar-group）本身也要能换行，按钮组不再被强行挤成一行 */
+/* 中段：不换行，占据剩余空间。注意：不再对 .toolbar-center 单独设 overflow-x，
+   否则其底部会出现横向滚动条槽（约 6px），使中段高度(54)高于左右段(36)造成高低错落。
+   整条工具栏统一由 .toolbar 的 overflow-x:auto 处理横向滚动。 */
 .toolbar-center {
   flex: 1 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
-/* 各按钮组自身换行：即便单组按钮多也能在窄宽下折行显示 */
+/* 按钮组：不换行，且不被压缩（保证按钮溢出时由工具栏整体横向滚动而非被挤变形） */
 .toolbar-group {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
-/* 按钮尺寸稳定、不被挤压变形；换行/滚动时保持 32x32 */
+/* 按钮尺寸稳定 */
 .toolbar-btn {
   flex: 0 0 auto;
 }
 
-/* 分隔线在换行多行时垂直居中 */
+/* 分隔线垂直居中 */
 .toolbar-divider {
   align-self: center;
+  flex-shrink: 0;
 }
 
-/* 窄屏（非全屏 EXE 窗口 / 浏览器扩展固定弹窗）微调：收紧内边距与间距，
-   让换行后的多行工具栏更紧凑、不浪费横向空间。仅改布局量，不动视觉。 */
-@media (max-width: 680px) {
+/* 窄屏微调：收紧间距 */
+@media (max-width: 900px) {
   .toolbar {
     padding: 0 8px;
-    row-gap: 4px;
-    column-gap: 4px;
+    gap: 4px;
   }
   .toolbar-left,
   .toolbar-center,
@@ -1034,23 +1038,6 @@ mark {
   }
   .toolbar-group {
     gap: 2px;
-  }
-}
-
-/* 宽屏（≥1200px，如全屏 / 宽窗口）：强制工具栏单行，分组清晰不换行。
-   按钮保持 flex:0 0 auto，分组与分隔线按基础样式呈现。 */
-@media (min-width: 1200px) {
-  .toolbar,
-  .toolbar-left,
-  .toolbar-center,
-  .toolbar-right,
-  .toolbar-group {
-    flex-wrap: nowrap;
-  }
-  .toolbar {
-    height: var(--toolbar-height);
-    min-height: var(--toolbar-height);
-    overflow: visible;
   }
 }
 
@@ -1089,10 +1076,11 @@ body {
    Toolbar
    ========================================== */
 .toolbar {
-  /* 高度可随换行撑开（min-height 保底，height:auto 允许多行工具栏），
-     避免被 48px 钉死导致换行的右段按钮被 overflow 裁掉不可见。 */
+  /* 单行固定高度(48px) + 横向滚动（v1.8.2/1.8.3 修复：不再换行撑高或偏移）。
+     作为 .toolbar 的权威容器规则（位于 TOOLBAR_RESPONSIVE 补丁之后，确保覆盖其 height:auto 等遗留值）。 */
   min-height: var(--toolbar-height);
-  height: auto;
+  height: var(--toolbar-height);
+  flex-wrap: nowrap;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1101,6 +1089,8 @@ body {
   border-bottom: 1px solid var(--border-primary);
   gap: var(--ui-gap);
   flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
   user-select: none;
   z-index: 10;
 }
@@ -1110,11 +1100,12 @@ body {
 .toolbar-right {
   display: flex;
   align-items: center;
+  align-self: center;
   gap: 6px;
 }
 
 .toolbar-center {
-  flex: 1;
+  flex: 1 1 auto;
   justify-content: center;
 }
 
@@ -3397,47 +3388,10 @@ body {
 }
 
 /* ============================================================
-   RESPONSIVE LAYOUT (layout-fix)
-   断点式工具栏 + 三面板弹性布局 + 窄屏侧栏覆盖层。
-   协作说明：本段依赖 .toolbar / .toolbar-left / .toolbar-center /
-   .toolbar-right / .toolbar-group / .toolbar-btn / .toolbar-divider 这些
-   class 名。若 toolbar-reorg 重整工具栏 DOM 时调整了这些 class 或层级，
-   请同步更新下方选择器。所有断点放在文件末尾，确保在基础 .toolbar（flex-wrap:
-   wrap）与 glass 皮肤规则之后生效（同特异性下后定义者胜出）。
+   RESPONSIVE LAYOUT (layout-fix) — v1.8.2 修订
+   工具栏已统一为「单行+横向滚动」模式（见上方 TOOLBAR_RESPONSIVE 段），
+   此处仅保留三面板弹性布局与窄屏侧栏覆盖层规则。
    ============================================================ */
-
-/* 超宽屏（≥1400px）：工具栏强制单行，中段横向滚动兜底，高度固定与设计一致（48px） */
-@media (min-width: 1400px) {
-  .toolbar {
-    flex-wrap: nowrap;
-    height: var(--toolbar-height);
-  }
-  /* 三段内部也不再换行，避免中心段自我折行撑高工具栏 */
-  .toolbar-left,
-  .toolbar-center,
-  .toolbar-right {
-    flex-wrap: nowrap;
-  }
-  .toolbar-center {
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-}
-
-/* 中等屏幕（1000–1399px）：允许换行，但限制在约两行高度内、纵向滚动 */
-@media (min-width: 1000px) and (max-width: 1399px) {
-  .toolbar {
-    flex-wrap: wrap;
-    max-height: 96px;          /* 约两行（48px/行 + 间距） */
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .toolbar-center {
-    overflow: visible;
-  }
-}
-
-/* 窄屏（<1000px）：沿用基础 .toolbar 的 flex-wrap: wrap，工具栏完全换行，无需额外规则。 */
 
 /* 三面板布局：窄屏（<900px）把文件侧栏改为覆盖层，避免挤压编辑/预览区 */
 @media (max-width: 900px) {
@@ -3452,12 +3406,8 @@ body {
     min-width: 200px;
     box-shadow: var(--shadow-lg);
   }
-  /* 折叠态仍由 .file-sidebar.collapsed（width:0）隐藏；展开时覆盖在编辑区之上。
-     JS 会在折叠态给 .sidebar-toggle 加 .visible，用于重新唤出侧栏，确保其置顶可点。 */
   .editor-main .sidebar-toggle.visible {
     display: flex;
     z-index: 51;
   }
 }
-
-/* 极窄屏（<680px）的工具栏内边距/间距收紧已在上方 @media (max-width: 680px) 处理。 */

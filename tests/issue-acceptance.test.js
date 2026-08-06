@@ -205,6 +205,15 @@ test('Issue #3: jarring style-preset banned, but clean style toolbar restored', 
   // v1.8.2 新增：上传图片按钮 + 侧栏拖拽条
   assert.ok(html.includes('id="btnImage"'), 'image upload button required');
   assert.ok(html.includes('id="resizerSidebar"'), 'sidebar resizer required');
+  // v1.8.3 新增：多栏/对比合并入口按钮（问题 1 修复）
+  assert.ok(html.includes('id="btnCompare"'), 'compare/multi-column entry button required');
+  // 对比按钮须位于视图切换组（view-switch-group），与 Chrome 模式 / 工作区搜索并列
+  const viewGroupIdx = html.indexOf('view-switch-group');
+  const compareIdx = html.indexOf('id="btnCompare"');
+  assert.ok(
+    viewGroupIdx !== -1 && compareIdx !== -1 && compareIdx > viewGroupIdx,
+    'btnCompare must live inside the view-switch-group'
+  );
   // v1.5.1：高亮按钮合并为一个（原格式化组的 btnHighlight 已并入样式组 btnStyleHighlight），
   // 编辑区 / 预览区选中都走同一入口：源码包 <mark> + 预览同步渲染
   assert.equal(
@@ -231,4 +240,29 @@ test('Issue #3: onboarding is a real user manual, not tip crumbs', () => {
   assert.match(ob, /多标签|多窗口/);
   assert.match(ob, /允许访问文件网址/);
   assert.match(ob, /loadExampleFile/);
+});
+
+// ─── Issue #4 (v1.8.3): 预览区实时 Markdown 渲染 → 编辑器同步往返 ────────────
+// 核心契约：用户在预览区输入含语法的字符串（如 **粗体**，显示），
+// 预览区渲染为富文本（<strong>），编辑器须同步回含语法的源码（**粗体**，显示）。
+// 本测试锁定「渲染产物 → htmlToMarkdown → 编辑器源码」这一回写链路的正确性。
+
+test('Issue #4: 渲染后的 <strong> 回写为 **语法**，且保留后续纯文本', () => {
+  const rendered = '<p><strong>这是测试文字</strong>，显示</p>';
+  const md = toMd(rendered);
+  assert.ok(md.includes('**这是测试文字**'), `应含 **这是测试文字**，实际: ${md}`);
+  assert.ok(md.includes('，显示'), `应保留「，显示」，实际: ${md}`);
+});
+
+test('Issue #4: 行内代码 `code` 渲染产物回写为 `code` 源码', () => {
+  const rendered = '<p>命令 <code>git status</code> 查看状态</p>';
+  const md = toMd(rendered);
+  assert.ok(md.includes('`git status`'), `应含 \`git status\`，实际: ${md}`);
+  assert.ok(md.includes('查看状态'), `应保留「查看状态」，实际: ${md}`);
+});
+
+test('Issue #4: 标题渲染产物回写为 # 标题源码', () => {
+  const rendered = '<h1>同步测试标题</h1>';
+  const md = toMd(rendered);
+  assert.match(md, /#\s+同步测试标题/);
 });
