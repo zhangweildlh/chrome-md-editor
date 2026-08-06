@@ -20,6 +20,7 @@
 
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorView } from "@codemirror/view";
+import { oneDark } from "@codemirror/theme-one-dark";
 
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
@@ -32,6 +33,10 @@ import {
 } from "./compare-images.js";
 import { exportResult } from "./compare-export.js";
 import { exportDiffReport } from "./compare-diff-export.js";
+// 主题同步复用主编辑器的权威函数，保证对比页 data-theme/data-editor-theme/data-skin
+// 与「编辑器主题预设 kind」完全一致（而非 light/dark 开关键），缺省回退默认预设/经典配色。
+import { applyEditorThemePreset, getStoredEditorTheme } from "./theme-presets.js";
+import { getColorScheme } from "./md-theme-tokens.js";
 
 (function bootstrapCompare() {
   // 挂载点直接取自 compare.html 中定义的 DOM 节点（不再依赖 window.__compareMount，
@@ -61,9 +66,32 @@ import { exportDiffReport } from "./compare-diff-export.js";
   // 图片插入 / 光标坐标所用的活动编辑器视图（与 bindCompareEditorView 绑定的视图同源）
   let activeView = null;
 
+  // ── 主题同步：复用主编辑器的权威主题应用函数，使对比页与主 UI 主题/配色/皮肤完全一致（修复已知问题4）──
+  // 关键事实：主编辑器 data-theme 由「编辑器主题预设的 kind」决定（editor.js:2178 → applyEditorThemePreset，
+  // 其内部 data-theme = kind==='dark'?'dark':'light'），而非 light/dark 开关键；且 data-editor-theme /
+  // data-color-scheme 在缺省时用默认预设/经典配色。直接复用同一组函数，可保证默认配置与暗色预设下均一致。
+  let currentTheme = 'light';
+  function applyCompareTheme() {
+    const t = localStorage.getItem('md-editor-theme') || 'light';
+    currentTheme = t;                       // 供 baseExtensions() 决定 CM6 oneDark 轴（与主编辑器同一开关键）
+    applyEditorThemePreset(getStoredEditorTheme());   // data-theme(预设kind) / data-editor-theme / data-skin=glass
+    document.documentElement.setAttribute('data-color-scheme', getColorScheme());  // 与主编辑器同一读取键，缺省 classic
+    return t;
+  }
+  applyCompareTheme();
+  // 主 UI 切换主题后（同源 localStorage 变更）实时同步对比页
+  window.addEventListener('storage', (e) => {
+    if (e.key && /md-editor-(theme|editor-theme|color-scheme|skin)/.test(e.key)) {
+      applyCompareTheme();
+      try { render(); } catch (_) {}
+    }
+  });
+
   // 公共扩展：markdown 语法高亮 + 行号差异标记
   function baseExtensions() {
-    return [markdown(), EditorView.lineWrapping, applyCompareLineMarkers()];
+    const ext = [markdown(), EditorView.lineWrapping, applyCompareLineMarkers()];
+    if (currentTheme === 'dark') ext.push(oneDark);
+    return ext;
   }
 
   // ── DOM 查询 ──
@@ -81,8 +109,8 @@ import { exportDiffReport } from "./compare-diff-export.js";
   const btnAcceptTheirs = $("btnAcceptTheirs");
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.8.3（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.3";
+  // 运行时兜底 1.8.4（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.4";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 

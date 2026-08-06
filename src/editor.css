@@ -1012,6 +1012,7 @@ mark {
 .toolbar-group {
   flex-wrap: nowrap;
   flex-shrink: 0;
+  flex: 0 0 auto;
 }
 
 /* 按钮尺寸稳定 */
@@ -1083,7 +1084,7 @@ body {
   flex-wrap: nowrap;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 0 12px;
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border-primary);
@@ -1101,12 +1102,19 @@ body {
   display: flex;
   align-items: center;
   align-self: center;
-  gap: 6px;
+  gap: 4px;
+}
+
+/* 右段不强制推到最右：与中段/左段统一按 flex-start 紧凑排列，富余空间留在最右空白区。
+   移除此前的 margin-left:auto —— 在内容未溢出（宽视口）时会把右段整体右推，
+   导致右段前出现过大空白间隙（已知问题2：隔断符/按钮间距过大）。溢出时由 .toolbar 横向滚动。 */
+.toolbar-right {
+  flex: 0 0 auto;
 }
 
 .toolbar-center {
-  flex: 1 1 auto;
-  justify-content: center;
+  flex: 0 0 auto;
+  justify-content: flex-start;
 }
 
 .logo {
@@ -1181,7 +1189,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
+  padding: 2px 4px;
   border-radius: var(--radius-sm);
 }
 
@@ -1189,7 +1197,7 @@ body {
   width: 1px;
   height: 20px;
   background: var(--border-primary);
-  margin: 0 8px;
+  margin: 0 3px;
 }
 
 .toolbar-btn {

@@ -155,6 +155,7 @@ GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]
 
 - 单栏 unified：「展开未改」按钮展开当前光标处的大片未改区域（单栏以展开为主；真正的折叠收起能力不在当前版本承诺）。两栏 / 三栏视图由 `@codemirror/merge` 的 `collapseUnchanged` 配置自动折叠未改区域。
 - 明暗主题：复用编辑器既有 `--bg` / `--fg` / `--accent` / `--border` 等 CSS 变量，`@codemirror/merge` 自带 `&light` / `&dark` 选择器，随主题自动适配，**不新建主题变量**。
+- **对比页主题与主 UI 完全一致**：对比页通过复用主编辑器的权威主题应用函数（`applyEditorThemePreset` / `getColorScheme`），使其 `data-theme`（由主题预设的明暗 kind 决定，含 23 套主题中的暗色预设）、`data-editor-theme`（配色预设）、`data-color-scheme`（语法配色方案）与 `data-skin`（玻璃皮肤）实时跟随主编辑器——默认配置与任意暗色预设下均对齐；主编辑器切换主题/预设时经同源 `localStorage` 变更事件实时同步对比页。
 
 ### 桌面端（Tauri 同源）
 

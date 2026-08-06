@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.4] - 2026-08-06（code-review-combo 审计收敛：对比页主题同步 + 工具栏隔断符间距）
+
+> 经 code-review-combo 全量审计 → 修复 High 级主题同步缺陷 → 真机 Playwright(360Chrome) E2E 36/36 全绿 + 单测 253 pass。
+> 覆盖：对比页主题/配色预设/皮肤与主 UI 真正一致（含暗色预设场景）；工具栏隔断符/按钮间距收紧至紧凑布局。
+
+### 修复
+- **审计 F1 · 对比页主题同步源错误（已知问题4 真修复）**：`compare.js applyCompareTheme` 原用 light/dark 开关键推导
+  `data-theme` 且暗色写成空串，导致暗色预设下对比页仍亮色、默认配置下缺配色预设。改为复用主编辑器权威函数
+  `applyEditorThemePreset(getStoredEditorTheme())` + `getColorScheme()`，对比页 `data-theme`/`data-editor-theme`/`data-color-scheme`
+  与主 UI 完全一致（含暗色预设与默认配置）。
+- **审计 F3 · 主题一致性测试补强**：T6.15 改断言三属性齐全；新增 T6.15b（暗色预设回归）；L7.7 补断言；新增 L7.7b（storage 实时同步）。
+- **已知问题2 · 工具栏隔断符间距过大**：`.toolbar` 三段由 `space-between`/`flex:1 1 auto`/`margin-left:auto`
+  改为 `flex-start` + `flex:0 0 auto`，并收紧段 `gap`(6→4)、组 `padding`(6→4)、隔断符 `margin`(8→3)，间距收敛至约 11–22px。
+
 ## [1.8.3] - 2026-08-06（针对 v1.8.2 用户反馈的 5 项缺陷修复）
 
 > 经真机 Playwright(360Chrome) E2E 验证 11/11 全绿 + 单测 253 pass。
