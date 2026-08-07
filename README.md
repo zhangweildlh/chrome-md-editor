@@ -52,6 +52,7 @@
 | 斜杠菜单 | 行尾输入 `/` 或中文顿号 `、` 唤起命令面板，快速插入标题 / 列表 / 代码块等（↑↓ 选择、Enter 执行、Esc 关闭） |
 | 块拖拽 | 每个块首行左侧出现拖拽手柄，按住拖动调整块顺序；手柄旁「+」可在当前块下方插入新块 |
 | 视图模式 | 日常 / 专注 / 沉浸 / 全显 四种布局，点工具栏「⊞」循环切换；专注隐藏侧栏 / 大纲 / 状态栏，沉浸进一步隐藏工具栏 |
+| 工具栏溢出滚动 | 按钮总宽超出可视宽度时，工具栏左 / 右侧自动出现 `‹` / `›` 滚动按钮，窄窗口 / 全屏下所有按钮仍可达 |
 | 工作区搜索 | 点工具栏「🔍」打开搜索面板，检索当前已打开文件夹内所有 Markdown 文件的命中片段 |
 | 行内 == 高亮 == | 用 `==文字==` 语法在预览中高亮；GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` 等继续支持 |
 | 会话恢复 | 再次打开扩展时尽量恢复上次内容与文件名 |
@@ -274,7 +275,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.7.0**).
+The toolbar should show the release version (currently **v1.8.5**).
 
 ### Features (short)
 

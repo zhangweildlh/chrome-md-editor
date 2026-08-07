@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.5] - 2026-08-06（工具栏横向溢出滚动 + 侧栏收起 + 隔断符间距收敛）
+
+> 经全场景 Playwright(360Chrome) E2E 实测（先假设全功能有 BUG、用事实证伪/证真）坐实 3 类已知问题 + 对比页同源缺陷，定位根因并修复，构建后回归验证全绿。
+
+### 修复
+- **已知问题1 · 工具栏隔断符/按钮间距过大（BUG-A）**：`.toolbar-left/.toolbar-center/.toolbar-right` 段 `gap` 由 4px 收敛至 2px；`.toolbar-group` 横向 `padding` 由 `2px 4px` 收敛至 `2px 0`，消除三层间距（段 gap + 组 padding + 隔断符 margin）叠加导致的 11–15px 过大间隙。
+- **已知问题2 · 文件树/工区收起后未真正隐藏（BUG-B）**：`.file-sidebar.collapsed` 原 `width:0` 被 `.file-sidebar` 的 `min-width:180px` 压制，收起后实际仍占 180px。新增 `min-width:0` 压制，收起后真正脱离布局、不占空间。
+- **已知问题3 · 工具栏按钮超出可视边界且用户不可达（BUG-C/D）**：新增 `src/toolbar-scroll.js` 共享模块，用 `.toolbar-wrap` 包裹 `#toolbar`/`#compareToolbar` 滚动容器，在最左/最右按需显示 `‹`/`›` chevron（`scrollLeft` 实时显隐、点击平滑滚动），保证 320px 极端窄宽下全部按钮可达；主编辑器与对比页同源接入。
+
 ## [1.8.4] - 2026-08-06（code-review-combo 审计收敛：对比页主题同步 + 工具栏隔断符间距）
 
 > 经 code-review-combo 全量审计 → 修复 High 级主题同步缺陷 → 真机 Playwright(360Chrome) E2E 36/36 全绿 + 单测 253 pass。

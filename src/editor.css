@@ -1035,7 +1035,7 @@ mark {
   .toolbar-left,
   .toolbar-center,
   .toolbar-right {
-    gap: 4px;
+    gap: 2px;
   }
   .toolbar-group {
     gap: 2px;
@@ -1102,7 +1102,7 @@ body {
   display: flex;
   align-items: center;
   align-self: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 /* 右段不强制推到最右：与中段/左段统一按 flex-start 紧凑排列，富余空间留在最右空白区。
@@ -1189,7 +1189,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 4px;
+  padding: 2px 0;
   border-radius: var(--radius-sm);
 }
 
@@ -1198,6 +1198,54 @@ body {
   height: 20px;
   background: var(--border-primary);
   margin: 0 3px;
+}
+
+/* v1.8.5：工具栏横向溢出滚动（已知问题3） */
+.toolbar-wrap {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  position: relative;
+}
+#toolbar,
+.compare-toolbar {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.toolbar-scroll-btn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--bg-toolbar);
+  color: var(--text-secondary);
+  cursor: pointer;
+  z-index: 12;
+  font-size: 18px;
+  line-height: 1;
+  user-select: none;
+}
+.toolbar-scroll-btn[hidden] {
+  display: none;
+}
+.toolbar-scroll-left {
+  left: 0;
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: 6px 0 8px -5px rgba(0, 0, 0, 0.3);
+}
+.toolbar-scroll-right {
+  right: 0;
+  border-left: 1px solid var(--border-subtle);
+  box-shadow: -6px 0 8px -5px rgba(0, 0, 0, 0.3);
+}
+.toolbar-scroll-btn:hover {
+  color: var(--text-accent);
+  background: var(--bg-tertiary);
 }
 
 .toolbar-btn {
@@ -2199,6 +2247,7 @@ body {
 
 .file-sidebar.collapsed {
   width: 0;
+  min-width: 0;
   border-right: none;
   opacity: 0;
   pointer-events: none;

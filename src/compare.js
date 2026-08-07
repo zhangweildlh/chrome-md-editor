@@ -37,6 +37,7 @@ import { exportDiffReport } from "./compare-diff-export.js";
 // 与「编辑器主题预设 kind」完全一致（而非 light/dark 开关键），缺省回退默认预设/经典配色。
 import { applyEditorThemePreset, getStoredEditorTheme } from "./theme-presets.js";
 import { getColorScheme } from "./md-theme-tokens.js";
+import { initToolbarScroll } from "./toolbar-scroll.js";
 
 (function bootstrapCompare() {
   // 挂载点直接取自 compare.html 中定义的 DOM 节点（不再依赖 window.__compareMount，
@@ -109,8 +110,8 @@ import { getColorScheme } from "./md-theme-tokens.js";
   const btnAcceptTheirs = $("btnAcceptTheirs");
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.8.4（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.4";
+  // 运行时兜底 1.8.5（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.5";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -331,6 +332,9 @@ import { getColorScheme } from "./md-theme-tokens.js";
   if (btnExportDiff) btnExportDiff.addEventListener("click", onExportDiff);
   if (btnToggleCollapse) btnToggleCollapse.addEventListener("click", onToggleCollapse);
   if (btnAcceptTheirs) btnAcceptTheirs.addEventListener("click", onAcceptTheirs);
+
+  // v1.8.5：工具栏横向溢出滚动按钮（已知问题3，对比页同源）
+  initToolbarScroll("#compareToolbar");
 
   // ── 图片插入（T5）：绑定「图片」按钮到当前活动编辑器 ──
   if (btnAddImages) {

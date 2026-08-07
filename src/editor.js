@@ -38,6 +38,7 @@ import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, ini
 import { initFeedbackButton } from './feedback.js';
 import { highlightPlugin } from './highlight-plugin.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
+import { initToolbarScroll } from './toolbar-scroll.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { applyViewMode, getStoredViewMode, setStoredViewMode, nextViewMode, initChromeModeButton } from './view-mode.js';
 import { makeSearchPanel } from './search-panel.js';
@@ -74,9 +75,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.4"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.5"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.4";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.5";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -3339,6 +3340,9 @@ function init() {
 
   // 初始化分屏拖拽
   initResizer();
+
+  // v1.8.5：工具栏横向溢出滚动按钮（已知问题3）
+  initToolbarScroll('#toolbar');
 
   // 初始化预览区可编辑
   initPreviewEditing();
