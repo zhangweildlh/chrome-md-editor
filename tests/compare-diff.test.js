@@ -13,8 +13,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { presentableDiff, diff } from '@codemirror/merge';
-import { EditorState } from '@codemirror/state';
+import { presentableDiff, diff, Chunk } from '@codemirror/merge';
+import { EditorState, Text } from '@codemirror/state';
 
 import { countChunks } from '../src/compare-merge.js';
 import {
@@ -93,7 +93,7 @@ test('diff(): 同样返回 Change[] 结构化结果', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// B. compare-diff-export.js 的 buildDiffText 渲染层（消费 Change[] → git 风格文本）
+// B. compare-diff-export.js 的 buildDiffText 渲染层（行级：消费 Chunk.build → git 风格文本）
 // ───────────────────────────────────────────────────────────────────────────
 
 test('buildDiffText: 无差异时返回空串', () => {
@@ -111,18 +111,31 @@ test('buildDiffText: 单块渲染为 git 风格并锁格式', () => {
   assert.ok(out.endsWith('\n'), '应以换行结尾');
 });
 
-test('buildDiffText: 多块拼接——hunk 数 == chunk 数，且每块 -/+ 内容齐全', () => {
+test('buildDiffText: 多块拼接——hunk 数 == Chunk.build 行级块数，且每块 -/+ 内容齐全', () => {
   const a = 'A1\nA2\nA3\nA4\nA5';
   const b = 'B1\nA2\nA3\nB4\nA5';
-  const changes = presentableDiff(a, b, CFG);
+  const ta = Text.of(a.split('\n'));
+  const tb = Text.of(b.split('\n'));
+  // buildDiffText 内部使用 Chunk.build 做行级对齐，预期 hunk 数与之同源
+  const expectedChunks = Chunk.build(ta, tb, CFG);
   const out = buildDiffText(a, b, CFG);
   const hunkCount = (out.match(/^@@ /gm) || []).length;
-  assert.equal(hunkCount, changes.length, 'hunk 头数量应等于 chunk 数');
-  for (const c of changes) {
-    const removed = a.slice(c.fromA, c.toA);
-    const added = b.slice(c.fromB, c.toB);
-    for (const l of removed.split('\n')) if (l !== '') assert.ok(out.includes('- ' + l));
-    for (const l of added.split('\n')) if (l !== '') assert.ok(out.includes('+ ' + l));
+  assert.equal(hunkCount, expectedChunks.length, 'hunk 头数量应等于行级 chunk 数');
+  for (const c of expectedChunks) {
+    const oldLines = [];
+    const newLines = [];
+    for (let pos = c.fromA; pos < c.toA; ) {
+      const line = ta.lineAt(pos);
+      oldLines.push(line.text);
+      pos = line.to + 1;
+    }
+    for (let pos = c.fromB; pos < c.toB; ) {
+      const line = tb.lineAt(pos);
+      newLines.push(line.text);
+      pos = line.to + 1;
+    }
+    for (const l of oldLines) if (l !== '') assert.ok(out.includes('- ' + l), `应包含删除行: ${l}`);
+    for (const l of newLines) if (l !== '') assert.ok(out.includes('+ ' + l), `应包含新增行: ${l}`);
   }
 });
 

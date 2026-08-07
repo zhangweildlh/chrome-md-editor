@@ -14,7 +14,7 @@
 //   禁止使用 btnCenterBold / btnCenterBoldRed / styleGroup。
 //   本文件统一使用 compare-dropzone / compare-fileinput / compare-filebtn 等新类名。
 //
-// 插入目标：需要某个 CodeMirror EditorView 才能落字。UI-A 在创建 MergeView / 单栏视图后，
+// 插入目标：需要某个 CodeMirror EditorView 才能落字。UI-A 在创建 MergeView（两栏/三栏）后，
 // 通过 bindCompareEditorView(view) 注册「当前活动编辑器」；若未注册，则降级派发
 // CustomEvent('compare-image-insert', { detail: { pos, markdown } }) 交由宿主页面处理。
 
@@ -28,7 +28,7 @@ import {
 let activeEditorView = null;
 
 /**
- * 注册当前活动编辑器视图（三栏的 Result 面板 / 单栏 unified 视图）。
+ * 注册当前活动编辑器视图（两栏/三栏的可编辑面板）。
  * @param {import('@codemirror/view').EditorView | null} view
  */
 export function bindCompareEditorView(view) {
@@ -207,10 +207,10 @@ export function bindImageToolbarButton(button, { getCursor, onInserted } = {}) {
 // ───────────────────────────────────────────────────────────────────────────
 // 对接提示（给 UI-A / compare.js 整合用）：
 //
-// 1) 在创建好 MergeView（三栏 Result 面板）或 unifiedMergeView（单栏视图）后，
+// 1) 在创建好 MergeView（两栏/三栏）后，
 //    注册活动编辑器，使 insertImagesAtCursor 知道往哪插：
 //      import { bindCompareEditorView } from './compare-images.js';
-//      bindCompareEditorView(resultPaneView);   // 或 singleView
+//      bindCompareEditorView(resultPaneView);
 //
 // 2) 工具栏「图片」按钮（#btnAddImages）：
 //      import { bindImageToolbarButton } from './compare-images.js';

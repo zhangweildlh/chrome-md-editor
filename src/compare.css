@@ -99,13 +99,6 @@
   height: 100%;
 }
 
-/* 单栏 unified 视图 */
-.compare-view-single .cm-editor {
-  height: 100%;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-}
-
 /* ── 文件选择区 ── */
 .compare-files {
   display: flex;
@@ -189,40 +182,6 @@
 }
 .cm-compare-revert:hover {
   background: var(--accent);
-  color: #fff;
-}
-
-/* ── 单栏 unified 的逐块 接受/拒绝 按钮（mergeControls，增量 G） ── */
-.cm-compare-chunk-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1px solid var(--border-primary);
-  transition: all var(--transition-fast);
-}
-.cm-compare-chunk-btn:hover {
-  filter: brightness(1.08);
-}
-.cm-compare-chunk-btn:not(:last-child) {
-  margin-right: 4px;
-}
-/* 接受 = 强调色，拒绝 = 次级色 */
-.cm-compare-chunk-btn {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-.cm-compare-chunk-btn[data-accept],
-.cm-compare-chunk-btn:first-child {
-  /* unified mergeControls 先 accept 后 reject */
-  background: var(--accent);
-  border-color: transparent;
   color: #fff;
 }
 

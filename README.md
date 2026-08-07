@@ -162,7 +162,7 @@ GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]
 
 compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果保存复用桌面端既有的 Tauri 文件访问能力（`showOpenFilePicker` / `showSaveFilePicker` 垫片 → `read_text_file` / `write_text_file`）。Rust 侧另已实现并注册 `read_multiple_text_files` / `save_compare_result` 命令（`desktop/src/lib.rs`），作为对比批处理读写的专用通道；对应桥接模块 `src/compare-shims.js` 提供浏览器 / 桌面统一的文件读写签名。
 
-> 模块文件：`src/compare.js`（页面控制器）、`src/compare-merge.js`、`src/compare-unified.js`、`src/compare-nav.js`、`src/compare-line-markers.js`、`src/compare-files.js`、`src/compare-images.js`、`src/compare-export.js`、`src/compare-diff-export.js`、`src/compare-shims.js`；新增 `src/compare.html` 与 `vite.config.js` 多入口 `compare`、manifest `web_accessible_resources` + `contextMenus` 权限。
+> 模块文件：`src/compare.js`（页面控制器）、`src/compare-merge.js`、`src/compare-nav.js`、`src/compare-line-markers.js`、`src/compare-files.js`、`src/compare-images.js`、`src/compare-export.js`、`src/compare-diff-export.js`、`src/compare-shims.js`；新增 `src/compare.html` 与 `vite.config.js` 多入口 `compare`、manifest `web_accessible_resources` + `contextMenus` 权限。
 
 ---
 

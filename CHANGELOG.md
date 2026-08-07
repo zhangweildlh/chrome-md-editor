@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.6] - 2026-08-06（对比/合并 功能 6 步循环：clobber 回归修复 + 导航/折叠 + 单栏 unified 移除）
+
+> 站在用户视角编写对比/合并全覆盖测试方案（两栏/三栏，全部对比/编辑/合并，无预览栏），多场景+多边界；4+1 轮子 Agent 用 Playwright(360Chrome) 真机实测（先假设全功能有 BUG、用事实证伪/证真），经 code-review-combo 全量审计迭代，重测收敛至「无 BUG」。
+
+### 修复
+- **clobber 关键回归（compare.js）**：`render()` 顶部 `saveCurrentEdit` 用陈旧/空 doc 覆盖刚载入的文件内容，导致所有编辑器恒空、差异/导航/折叠/三栏全部失效；引入 `skipSaveOnNextRender` 标志（仅 `onPickFiles`/拖拽置位）跳过当次回写。
+- **导航环绕（compare-nav.js F1）**：`move()` 末块之后跳到第 1 块而非环绕第 0 块，重写为严格边界 `from>head`(next)/`to<=head`(prev)+环绕。
+- **顺序步进卡死（compare-nav.js）**：光标精确落在块 `from` 边界时连续「下一块」卡同一块，改用严格边界+环绕，复测 `23→44→65` 循环正确。
+- **折叠时机（compare-merge.js F2）**：`render()` 同步调 `setCollapse` 时 diff 未完成导致折叠永久关闭；改为 rAF 轮询（120 帧上限、视图销毁即停）待 diff 落定按真实 chunks 校正折叠，同时保留「相同文件全可见」。
+- **三栏/接受块/保留结果/行级 diff（#103-#108）**：三栏导航基于 `getChunks`；`acceptTheirsAt` 用 `Chunk.build` 反推插入（修复空文档 RangeError）；`resultInitial` 保留上次结果；`compare-diff-export.js` 行级 diff 整行输出 `@@ ... @@` 不再字符截断。
+- **移除单栏 unified 视图**：删除 `compare-unified.js` 并清理连带注释/CSS（`.compare-view-single`/`.cm-compare-chunk-btn`），审计「单栏移除」判误报排除；grep 确认无残留引用。
+
 ## [1.8.5] - 2026-08-06（工具栏横向溢出滚动 + 侧栏收起 + 隔断符间距收敛）
 
 > 经全场景 Playwright(360Chrome) E2E 实测（先假设全功能有 BUG、用事实证伪/证真）坐实 3 类已知问题 + 对比页同源缺陷，定位根因并修复，构建后回归验证全绿。

@@ -33,6 +33,23 @@ import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 /**
+ * 计算 collapseUnchanged 重配置参数。
+ * 修复 A6：当两文件完全相同（无任何差异块）时，不折叠——否则整篇文档会被折叠成单个占位，
+ * 导致内容不可见（误判为「渲染为空」）。
+ * @param {boolean} collapsed
+ * @param {{margin?:number,minSize?:number}} collapseConf
+ * @param {import('@codemirror/view').EditorView} viewA
+ * @returns {undefined|{margin?:number,minSize?:number}}
+ */
+function resolveCollapse(collapsed, collapseConf, viewA) {
+  if (collapsed) {
+    const chunks = getChunks(viewA.state);
+    if (!chunks || !chunks.chunks.length) return undefined; // 无差异：不折叠
+  }
+  return collapsed ? collapseConf : undefined;
+}
+
+/**
  * @typedef {Object} CompareFile
  * @property {string} name
  * @property {string} content
@@ -90,7 +107,8 @@ export function createCompareMergeView(opts) {
     // ── 三栏合并：左 Yours(只读) / 中 Result(可编辑) / 右 Theirs(只读) ──
     // 左 + 中 用 MergeView 承载 diff 与「接受此块(Yours→Result)」；右 Theirs 为独立只读编辑器。
     const theirsInitial = bFile.content;
-    const resultInitial = ""; // 结果从空开始，由用户接受 Yours / Theirs 块逐步合并
+    // 结果从（上次保留的）内容开始，由用户接受 Yours / Theirs 块逐步合并（修复 E1：模式切换不丢编辑）
+    const resultInitial = opts.result || "";
 
     const readOnlyYours = [
       EditorState.readOnly.of(true),
@@ -135,7 +153,14 @@ export function createCompareMergeView(opts) {
 
     /**
      * 把光标（或指定位置）所在块从 Theirs 拷入 Result（b 面板）。
-     * 基于 Chunk.build(theirs, result) 对齐两侧块边界。
+     *
+     * 三栏合并模型：左 Yours(a) / 中 Result(b, 可编辑, 逐步建成) / 右 Theirs(独立只读)。
+     * 用户光标在 Result(b) 中；需要把「与光标对应的 Theirs 块」插入 Result。
+     * 对齐策略：
+     *   1) 用 a↔b(当前 Result) 的差异块，把光标在 b 中的位置反推回 Yours(a) 的对应位置 aPos；
+     *   2) 用 a↔Theirs 的差异块，找到包含 aPos 的块，取其 Theirs 侧文本；
+     *   3) 将 Theirs 文本【插入】Result 光标处（用 insert，避免空文档上替换区间越界 RangeError）。
+     *
      * @param {number} [pos]
      * @returns {boolean}
      */
@@ -144,35 +169,47 @@ export function createCompareMergeView(opts) {
         const resultState = mv.b.state;
         const cursor =
           typeof pos === "number" ? pos : resultState.selection.main.head;
-        const theirsText = Text.of(theirsView.state.doc.toString().split("\n"));
-        const resultText = Text.of(resultState.doc.toString().split("\n"));
-        const chunks = Chunk.build(theirsText, resultText, diffConfig);
-        if (!chunks.length) return false;
-        // 找到包含 cursor 的块
+        const aText = Text.of(aFile.content.split("\n"));
+        const theirsDoc = theirsView.state.doc;
+
+        // 1) 光标在 Result(b) 的位置 → 反推其在 Yours(a) 的对应位置
+        const abChunks = Chunk.build(aText, resultState.doc, diffConfig);
+        let aPos = cursor;
+        for (const c of abChunks) {
+          if (cursor >= c.fromB && cursor <= c.toB) {
+            aPos = c.fromA;
+            break;
+          }
+        }
+
+        // 2) 找到 (Yours, Theirs) 差异块中包含 aPos 的块
+        const atChunks = Chunk.build(aText, theirsDoc, diffConfig);
         let target = null;
-        for (const c of chunks) {
-          if (cursor >= c.fromB && cursor <= c.endB) {
+        for (const c of atChunks) {
+          if (aPos >= c.fromA && aPos <= c.toA) {
             target = c;
             break;
           }
         }
-        // 命中不到光标块：选择离光标最近的块（避免无感知改写 chunks[0]）
+        // 命中不到光标块：选择离 aPos 最近的块
         if (!target) {
           let best = null;
           let bestDist = Infinity;
-          for (const c of chunks) {
-            const d = Math.abs(cursor - c.fromB);
+          for (const c of atChunks) {
+            const d = Math.abs(aPos - c.fromA);
             if (d < bestDist) {
               bestDist = d;
               best = c;
             }
           }
-          if (!best) return false;
           target = best;
         }
-        const insertText = theirsText.sliceString(target.fromA, target.toA);
+        if (!target) return false; // a 与 Theirs 完全相同，无内容可采纳
+
+        // 3) 将 Theirs 对应块内容【插入】Result 光标处（插入而非替换，避免空文档越界）
+        const insertText = theirsDoc.sliceString(target.fromB, target.toB);
         mv.b.dispatch({
-          changes: { from: target.fromB, to: target.toB, insert: insertText },
+          changes: { from: cursor, to: cursor, insert: insertText },
         });
         return true;
       } catch (err) {
@@ -206,9 +243,34 @@ export function createCompareMergeView(opts) {
       },
       /** 展开/折叠未改区域（T2 增量 E） */
       setCollapse(collapsed) {
-        mv.reconfigure({
-          collapseUnchanged: collapsed ? collapse : undefined,
-        });
+        const apply = () =>
+          mv.reconfigure({
+            collapseUnchanged: resolveCollapse(collapsed, collapse, mv.a),
+          });
+        apply();
+        // diff 异步完成：构造后 / 同步调用时 chunks 尚未就绪，resolveCollapse 会回
+        // undefined 而误关折叠。等待 diff 落定后按真实 chunks 校正一次（有差异→折叠
+        // 生效；相同文件→保持不折叠）。仅当 collapsed 为真且当前无 chunks 时轮询，
+        // 帧上限避免「相同文件 chunks 恒为 0」导致的无限轮询；视图销毁即停止。
+        if (collapsed && getChunks(mv.a.state).chunks.length === 0) {
+          if (typeof requestAnimationFrame !== "function") return;
+          let frames = 0;
+          const MAX = 120; // ~2s 上限
+          const tick = () => {
+            try {
+              if (!mv.a || mv.a.dom === null) return; // 已销毁
+              const chunks = getChunks(mv.a.state).chunks;
+              if (chunks.length > 0) {
+                apply(); // diff 完成：按真实 chunks 校正
+                return;
+              }
+              if (++frames < MAX) requestAnimationFrame(tick);
+            } catch (_) {
+              /* 视图已销毁，忽略 */
+            }
+          };
+          requestAnimationFrame(tick);
+        }
       },
       acceptTheirsAt,
       destroy() {
@@ -260,9 +322,31 @@ export function createCompareMergeView(opts) {
       return mv.b.state.doc.toString();
     },
     setCollapse(collapsed) {
-      mv.reconfigure({
-        collapseUnchanged: collapsed ? collapse : undefined,
-      });
+      const apply = () =>
+        mv.reconfigure({
+          collapseUnchanged: resolveCollapse(collapsed, collapse, mv.a),
+        });
+      apply();
+      // 与三栏一致：diff 异步落定后校正折叠（避免同步调用时 chunks 未就绪误关折叠）。
+      if (collapsed && getChunks(mv.a.state).chunks.length === 0) {
+        if (typeof requestAnimationFrame !== "function") return;
+        let frames = 0;
+        const MAX = 120;
+        const tick = () => {
+          try {
+            if (!mv.a || mv.a.dom === null) return;
+            const chunks = getChunks(mv.a.state).chunks;
+            if (chunks.length > 0) {
+              apply();
+              return;
+            }
+            if (++frames < MAX) requestAnimationFrame(tick);
+          } catch (_) {
+            /* 视图已销毁，忽略 */
+          }
+        };
+        requestAnimationFrame(tick);
+      }
     },
     acceptTheirsAt() {
       return false;

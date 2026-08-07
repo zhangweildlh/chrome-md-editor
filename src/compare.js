@@ -2,13 +2,12 @@
 //
 // 职责：
 //   1. 读取 window.__compareMount 提供的挂载约定（root / mountPoints / fileSlots / imageDrop）。
-//   2. 根据工具栏按钮切换「两栏 / 三栏 / 单栏 unified」三种视图。
+//   2. 根据工具栏按钮切换「两栏 / 三栏」两种视图（对比/合并必为两栏或三栏，无单栏）。
 //   3. 绑定文件选择、块导航、图片插入、导出结果 / 导出 diff 报告。
 //
 // 模块契约（静态 import，文件名固定，由对应 Agent 交付；统一 build 由测试 Agent 执行）：
 //   - compare-merge.js        → createCompareMergeView        （本文件新建）
 //   - compare-line-markers.js → applyCompareLineMarkers       （本文件新建）
-//   - compare-unified.js      → createCompareUnifiedView      （本文件新建）
 //   - compare-nav.js          → bindChunkNavigation           （本文件新建）
 //   - compare-files.js        → pickFiles                     （UI-B 交付）
 //   - compare-images.js       → insertImagesAtCursor / bindCompareEditorView / bindImageToolbarButton （UI-B 交付）
@@ -24,9 +23,8 @@ import { oneDark } from "@codemirror/theme-one-dark";
 
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
-import { createCompareUnifiedView } from "./compare-unified.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
-import { pickFiles } from "./compare-files.js";
+import { pickFiles, enableFileDropZone } from "./compare-files.js";
 import {
   bindCompareEditorView,
   bindImageToolbarButton,
@@ -46,24 +44,27 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const mountPoints = {
     two: document.getElementById("viewTwo"),
     three: document.getElementById("viewThree"),
-    single: document.getElementById("viewSingle"),
   };
   const fileSlots = {
     a: document.getElementById("fileSlotA"),
     b: document.getElementById("fileSlotB"),
   };
-  if (!root || !mountPoints.two || !mountPoints.three || !mountPoints.single) {
+  if (!root || !mountPoints.two || !mountPoints.three) {
     console.error(
-      "[compare] 未找到必要的挂载节点（#compareRoot / #viewTwo / #viewThree / #viewSingle）"
+      "[compare] 未找到必要的挂载节点（#compareRoot / #viewTwo / #viewThree）"
     );
     return;
   }
 
   // ── 运行时状态 ──
-  /** @type {{a:?{name:string,content:string}, b:?{name:string,content:string}}} */
-  const files = { a: null, b: null };
-  let mode = "two"; // 'two' | 'three' | 'single'
+  /** @type {{a:?{name:string,content:string}, b:?{name:string,content:string}, result?:?string}} */
+  const files = { a: null, b: null, result: null };
+  let mode = "two"; // 'two' | 'three'
   let instance = null; // 当前视图实例
+  // 跳过下一次 render 的「编辑回写」：仅在「重新载入文件（onPickFiles / 拖拽）」时置位，
+  // 避免 render() 顶部的 saveCurrentEdit 用陈旧/空的编辑器文档覆盖刚载入的文件内容
+  // （否则两栏/三栏编辑器恒为空，差异高亮/导航/折叠/接受块全部失效）。
+  let skipSaveOnNextRender = false;
   // 图片插入 / 光标坐标所用的活动编辑器视图（与 bindCompareEditorView 绑定的视图同源）
   let activeView = null;
 
@@ -99,7 +100,6 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const $ = (id) => document.getElementById(id);
   const btnViewTwo = $("btnViewTwo");
   const btnViewThree = $("btnViewThree");
-  const btnViewSingle = $("btnViewSingle");
   const btnPrevChunk = $("btnPrevChunk");
   const btnNextChunk = $("btnNextChunk");
   const btnPickFiles = $("btnPickFiles");
@@ -110,20 +110,18 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const btnAcceptTheirs = $("btnAcceptTheirs");
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.8.5（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.5";
+  // 运行时兜底 1.8.6（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.6";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
   const viewButtons = {
     two: btnViewTwo,
     three: btnViewThree,
-    single: btnViewSingle,
   };
   const viewEls = {
     two: mountPoints.two,
     three: mountPoints.three,
-    single: mountPoints.single,
   };
 
   // ── 文件槽 UI 更新 ──
@@ -160,6 +158,36 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 
   // ── 渲染当前模式 ──
   function render() {
+    // 保存当前编辑内容，避免模式切换 / 重渲染丢失（修复 E1-01/02：无声数据丢失）
+    // 但「重新载入文件」场景（onPickFiles / 拖拽）会先置 skipSaveOnNextRender，
+    // 跳过本次回写，否则会用陈旧编辑器文档覆盖刚载入的文件内容。
+    if (!skipSaveOnNextRender && instance) {
+      try {
+        if (mode === "two") {
+          if (instance.a)
+            files.a = files.a
+              ? { ...files.a, content: instance.a.state.doc.toString() }
+              : { name: "Yours", content: instance.a.state.doc.toString() };
+          if (instance.b)
+            files.b = files.b
+              ? { ...files.b, content: instance.b.state.doc.toString() }
+              : { name: "Theirs", content: instance.b.state.doc.toString() };
+        } else if (mode === "three") {
+          if (instance.a)
+            files.a = files.a
+              ? { ...files.a, content: instance.a.state.doc.toString() }
+              : { name: "Yours", content: instance.a.state.doc.toString() };
+          files.result = instance.b ? instance.b.state.doc.toString() : ""; // 中间结果可编辑，必须回写
+          if (instance.theirsView)
+            files.b = files.b
+              ? { ...files.b, content: instance.theirsView.state.doc.toString() }
+              : { name: "Theirs", content: instance.theirsView.state.doc.toString() };
+        }
+      } catch (e) {
+        console.error("[compare] 保存编辑内容失败:", e);
+      }
+    }
+    skipSaveOnNextRender = false; // 一次性跳过已消费，后续 render（模式切换等）恢复回写
     teardown();
     const aFile = files.a || { name: "Yours", content: "" };
     const bFile = files.b || { name: "Theirs", content: "" };
@@ -176,30 +204,21 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
           extensions: baseExtensions(),
           parent: target,
         });
-        // 两栏的可编辑目标面板 = MergeView 的 b 面板（与三栏/单栏一致）
+        // 两栏的可编辑目标面板 = MergeView 的 b 面板（与三栏一致）
         bindCompareEditorView(instance.b);
         activeView = instance.b;
       } else if (mode === "three") {
         instance = createCompareMergeView({
           layout: "three",
           a: aFile,
-          b: bFile, // 作为 Theirs 参考；Result 由 MergeView 生成（空，逐步合并）
+          b: bFile, // 作为 Theirs 参考；Result 由 MergeView 生成（空/上次保留，逐步合并）
+          result: files.result,
           extensions: baseExtensions(),
           parent: target,
         });
         // 三栏的可编辑结果面板 = MergeView 的 b 面板
         bindCompareEditorView(instance.b);
         activeView = instance.b;
-      } else {
-        // 单栏 unified：original = Yours(A)，当前文档 = Theirs(B)
-        instance = createCompareUnifiedView({
-          original: aFile.content,
-          doc: bFile.content,
-          extensions: baseExtensions(),
-          parent: target,
-        });
-        bindCompareEditorView(instance.view);
-        activeView = instance.view;
       }
     } catch (e) {
       console.error("[compare] 渲染视图失败:", e);
@@ -224,7 +243,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       btnToggleCollapse.textContent = collapsed ? "展开未改" : "折叠未改";
     }
 
-    // M3：「接受 Theirs 块」仅在三栏模式可用（两栏实例返回 false、单栏无该字段）
+    // M3：「接受 Theirs 块」仅在三栏模式可用（两栏实例返回 false）
     if (btnAcceptTheirs) {
       btnAcceptTheirs.disabled = mode !== "three";
       btnAcceptTheirs.classList.toggle("disabled", mode !== "three");
@@ -256,8 +275,10 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       if (!picked || !picked.length) return;
       files.a = picked[0] || null;
       files.b = picked[1] || null;
+      files.result = null; // 新选文件 → 重置合并结果
       setSlotText(fileSlots.a, files.a);
       setSlotText(fileSlots.b, files.b);
+      skipSaveOnNextRender = true; // 重新载入：跳过 render 的编辑回写，保留刚载入的文件内容
       render();
     } catch (e) {
       // 用户取消选择：忽略 AbortError
@@ -302,9 +323,6 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     if (!instance) return;
     if (typeof instance.setCollapse === "function") {
       instance.setCollapse(collapsed);
-    } else if (typeof instance.expandAt === "function") {
-      // 单栏 unified：展开当前光标处
-      instance.expandAt();
     }
     if (btnToggleCollapse) {
       btnToggleCollapse.textContent = collapsed ? "展开未改" : "折叠未改";
@@ -321,7 +339,6 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   // ── 绑定工具栏按钮 ──
   if (btnViewTwo) btnViewTwo.addEventListener("click", () => switchMode("two"));
   if (btnViewThree) btnViewThree.addEventListener("click", () => switchMode("three"));
-  if (btnViewSingle) btnViewSingle.addEventListener("click", () => switchMode("single"));
   if (btnPrevChunk) btnPrevChunk.addEventListener("click", navPrev);
   if (btnNextChunk) btnNextChunk.addEventListener("click", navNext);
 
@@ -347,6 +364,41 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         return 0;
       },
     });
+  }
+
+  // ── 文件拖拽（E4-01）：拖入文件区即载入为 Yours / Theirs，无需走文件框 ──
+  const dropZone = document.getElementById("compareFiles");
+  if (dropZone) {
+    enableFileDropZone(dropZone, {
+      accept: ".md,.markdown,.mdown,.mkd,.mkdn,.txt",
+      onFiles: (dropped) => {
+        if (!dropped || !dropped.length) return;
+        files.a = dropped[0] || files.a;
+        files.b = dropped[1] || files.b;
+        files.result = null; // 新载入 → 重置合并结果
+        setSlotText(fileSlots.a, files.a);
+        setSlotText(fileSlots.b, files.b);
+        skipSaveOnNextRender = true; // 拖入新文件：跳过 render 编辑回写，保留刚拖入的文件内容
+        render();
+      },
+    });
+  }
+
+  // ── 调试钩子（仅当 cmp-debug=1 时暴露，生产默认不暴露，便于自动化探针读取真实状态） ──
+  if (localStorage.getItem("cmp-debug") === "1") {
+    window.__cmp = {
+      get instance() {
+        return instance;
+      },
+      get files() {
+        return files;
+      },
+      get mode() {
+        return mode;
+      },
+      render,
+      switchMode,
+    };
   }
 
   // 默认渲染两栏（空文档），保证页面有可见内容

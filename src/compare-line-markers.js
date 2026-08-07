@@ -4,12 +4,10 @@
 //   用 getChunks(state) 计算差异块，给差异块覆盖的行追加行级高亮类
 //   （cm-compare-line-removed / cm-compare-line-added），并在自定义 gutter 上标记「− / +」。
 //
-// 兼容 MergeView 的 a / b 面板（side='a'|'b'）与单栏 unified 视图（side='b'）：
+// 兼容 MergeView 的 a / b 面板（side='a'|'b'）：
 //   - side='a' 面板：差异行标记为「删除（相对 b）」，整行高亮 REMOVED_CLASS；不标新增。
-//   - side='b' 面板：差异行标记为「新增（相对 a）」，整行高亮 ADDED_CLASS；不标删除（b 面板无 A 内容）。
-//   - side='b'（unified）：unifiedMergeView 内部注入 mergeConfig.of({ side:'b' })，文档为 B；
-//     新增行高亮 ADDED_CLASS 照常（[fromB,toB)），删除内容由 CM 自带 deletedChunks widget 显示
-//     （syntaxHighlightDeletions:true 已在 compare-unified.js 开启），无需自研整行高亮。
+//   - side='b' 面板（两栏/三栏的 Theirs）：差异行标记为「新增（相对 a）」，整行高亮 ADDED_CLASS；不标删除（b 面板无 A 内容）。
+//   - side='b'：文档为 B，新增行高亮 ADDED_CLASS 照常（[fromB,toB)），删除内容由 CM 自带 deletedChunks widget 显示，无需自研整行高亮。
 //
 // 导出：
 //   applyCompareLineMarkers() -> Extension[]   （工厂，便于调用方注入 extensions）
@@ -61,10 +59,10 @@ export function computeChunkDecorations(view) {
   const side = res.side;
   for (const chunk of res.chunks) {
     // 删除行整行高亮：仅 a 面板（side==='a'，文档为 A）对 [fromA,toA) 打 REMOVED_CLASS。
-    // side==='b'（b 面板 / unified）文档为 B，[fromA,toA) 无法映射到 B 文档，
+    // side==='b'（b 面板，即两栏/三栏的 Theirs）文档为 B，[fromA,toA) 无法映射到 B 文档，
     // 且删除内容已由 CM 自带 deletedChunks widget 显示，故此处不打整行高亮。
     if (side === "a") markRangeLines(view, chunk.fromA, chunk.toA, REMOVED_CLASS, builder);
-    // 当前侧（B）行：标记为新增（a 面板 side==='a' 不打，b 面板 / unified 打）
+    // 当前侧（B）行：标记为新增（a 面板 side==='a' 不打，b 面板打）
     if (side !== "a") markRangeLines(view, chunk.fromB, chunk.toB, ADDED_CLASS, builder);
   }
   return builder.finish();
@@ -130,7 +128,7 @@ const compareChunkGutter = gutter({
       }
       return null;
     }
-    // 其余（side==='b' 或 undefined，即 b 面板 / unified 视图）：行位置是 B 坐标，比对 fromB/toB。
+    // 其余（side==='b' 或 undefined，即 b 面板）：行位置是 B 坐标，比对 fromB/toB。
     for (const chunk of res.chunks) {
       const fromA = chunk.fromA;
       const toA = chunk.toA;
@@ -160,7 +158,7 @@ const compareChunkGutter = gutter({
 const compareLineMarkers = [compareLineDecoPlugin, compareChunkGutter];
 
 /**
- * 工厂：返回行号差异标记的 CodeMirror 扩展数组（供 compare-merge.js / compare-unified.js 注入）。
+ * 工厂：返回行号差异标记的 CodeMirror 扩展数组（供 compare-merge.js 注入）。
  * @returns {import('@codemirror/state').Extension[]}
  */
 export function applyCompareLineMarkers() {

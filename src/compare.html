@@ -13,15 +13,14 @@
     <header class="toolbar compare-toolbar" id="compareToolbar">
       <div class="toolbar-left">
         <span class="logo-text">MD Compare</span>
-        <span class="app-version" id="compareVersion" title="扩展版本">v1.8.5</span>
+        <span class="app-version" id="compareVersion" title="扩展版本">v1.8.6</span>
       </div>
 
       <div class="toolbar-center">
-        <!-- 视图切换：两栏 / 三栏 / 单栏 unified -->
+        <!-- 视图切换：两栏 / 三栏 -->
         <div class="toolbar-group compare-view-group">
           <button class="compare-toolbar-btn" id="btnViewTwo" data-mode="two" title="两栏对照（Yours / Theirs）">两栏</button>
           <button class="compare-toolbar-btn" id="btnViewThree" data-mode="three" title="三栏合并（Yours / Result / Theirs）">三栏</button>
-          <button class="compare-toolbar-btn" id="btnViewSingle" data-mode="single" title="单栏 unified 内联对照">单栏</button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -51,7 +50,7 @@
     </header>
 
     <main class="compare-main" id="compareRoot">
-      <!-- 文件选择区：A=Yours, B=Theirs（单栏模式复用 A 作为 original） -->
+      <!-- 文件选择区：A=Yours, B=Theirs -->
       <section class="compare-files" id="compareFiles">
         <div class="compare-file-slot" id="fileSlotA" data-slot="a">
           <span class="compare-file-name">Yours（未选择）</span>
@@ -66,11 +65,10 @@
         将图片拖拽到此处，或点击「图片」按钮选择（T5 实现）
       </section>
 
-      <!-- 三个视图容器：由 UI-A Agent 在 T2/T4/T4b 初始化挂载内容 -->
+      <!-- 视图容器：两栏 / 三栏（对比/合并必为两栏或三栏，无单栏） -->
       <section class="compare-views" id="compareViews">
         <div class="compare-view compare-view-two" id="viewTwo" hidden></div>
         <div class="compare-view compare-view-three" id="viewThree" hidden></div>
-        <div class="compare-view compare-view-single" id="viewSingle" hidden></div>
       </section>
     </main>
 
