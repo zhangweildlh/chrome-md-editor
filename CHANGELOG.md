@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.7] - 2026-08-07（EXE 侧 window.open 接管：对比/合并入口 + 外链恢复可用）
+
+> 全量逐一审查 v1.8.6 在 EXE（Tauri）侧失效的按钮/功能：定位唯一根因——`window.open` 未被垫片接管，导致「对比/合并」入口与外链点击在 EXE 静默无反应。补全 Tauri 兼容层并加回 shell 插件与窗口创建能力。
+
+### 修复
+- EXE 侧 `window.open` 接管（`src/desktop-shims.js`，仅 Tauri 分支执行，浏览器侧零影响）：
+  - 站内相对路径（如 `compare.html`）→ 经 `@tauri-apps/api/window` 的 `WebviewWindow` 开受管子窗口（最接近扩展「新标签」语义）；子窗口不可用时退化为同窗 `location.assign` 导航，保证功能可达。
+  - 外部协议（http/https/mailto/tel/ftp）→ 经 `tauri-plugin-shell` 调系统默认程序打开。
+  - 返回 truthy 对象，兼容 `openPreviewLink` 中 `if (!opened) throw` 判空。
+- Tauri 后端：`desktop/Cargo.toml` 新增 `tauri-plugin-shell = "2"`；`desktop/capabilities/default.json` 新增 `shell:allow-open` 与 `core:webview:allow-create-webview-window`；EXE 版本 1.4.14 → 1.4.15。
+- 前端依赖：`package.json` 新增 `@tauri-apps/plugin-shell`。
+- 六处 web 版本戳同步至 1.8.7（package/manifest/editor.js/editor.html/compare.js/compare.html）。
+
+### 验证情况
+- 浏览器侧（360chrome）改动被 `isTauri` 守卫隔离，构建+单测+真机冒烟不受影响。
+- EXE 侧行为须由 CI 产出的 EXE 真机回归确认（360chrome 无法复现 Tauri 路径）。
+
 ## [1.8.6] - 2026-08-06（对比/合并 功能 6 步循环：clobber 回归修复 + 导航/折叠 + 单栏 unified 移除）
 
 > 站在用户视角编写对比/合并全覆盖测试方案（两栏/三栏，全部对比/编辑/合并，无预览栏），多场景+多边界；4+1 轮子 Agent 用 Playwright(360Chrome) 真机实测（先假设全功能有 BUG、用事实证伪/证真），经 code-review-combo 全量审计迭代，重测收敛至「无 BUG」。

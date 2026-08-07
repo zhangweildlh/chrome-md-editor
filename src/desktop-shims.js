@@ -262,5 +262,58 @@
     // 供编辑器按「命令行传入的绝对路径」构造文件句柄（双击 .md 启动 EXE 时使用）。
     // 返回的对象与 showOpenFilePicker 得到的句柄接口一致（getFile/createWritable）。
     window.__tauriFileHandle = (path) => new TFileHandle(path);
+
+    // -----------------------------------------------------------------------
+    // window.open 接管（Tauri 桌面壳）
+    //   浏览器侧：window.open 原生可用（开新标签 / 外链），此分支不执行，零影响。
+    //   Tauri 侧：原生 window.open 被 Tauri 拦截（无窗口创建权限 / 外链无通道），
+    //   导致「对比/合并」入口与外链点击无反应。此处统一接管：
+    //     - 站内相对路径（如 compare.html）→ 开受管子窗口（最接近扩展「新标签」语义）；
+    //       子窗口不可用（权限/能力缺失）时退化为同窗导航，保证功能可达。
+    //     - 外部协议（http/https/mailto/tel/ftp）→ tauri-plugin-shell 调系统默认程序。
+    //   注意：返回 truthy 对象，兼容 openPreviewLink 中 `if (!opened) throw` 的判空。
+    // -----------------------------------------------------------------------
+    const isExternalUrl = (u) => /^(https?:|mailto:|tel:|ftp:)/i.test(u);
+
+    window.open = (url, _target, _features) => {
+      try {
+        const u = String(url == null ? "" : url);
+        if (!u) return null;
+
+        if (isExternalUrl(u)) {
+          (async () => {
+            try {
+              const { open } = await import("@tauri-apps/plugin-shell");
+              await open(u);
+            } catch (e) {
+              console.error("[desktop-shims] 打开外部链接失败:", e);
+            }
+          })();
+          return { closed: false, focus() {}, close() {} };
+        }
+
+        // 站内相对路径：归一化为 dist 根下的相对路径（compare.html / ./compare.html 等）
+        const rel = u.startsWith("/") ? u.slice(1) : u;
+        const label = "cmw-" + Date.now() + "-" + Math.floor(Math.random() * 1e4);
+        (async () => {
+          try {
+            const { WebviewWindow } = await import("@tauri-apps/api/window");
+            new WebviewWindow(label, { url: rel, title: "Markdown 对比合并" });
+          } catch (e) {
+            // 子窗口不可用（权限/能力缺失）时退化为同窗导航，保证功能可达
+            console.warn("[desktop-shims] 子窗口创建失败，退化为同窗导航:", e);
+            try {
+              window.location.assign(rel);
+            } catch (_) {
+              /* noop */
+            }
+          }
+        })();
+        return { closed: false, focus() {}, close() {} };
+      } catch (e) {
+        console.error("[desktop-shims] window.open 接管失败:", e);
+        return null;
+      }
+    };
   }
 })();
