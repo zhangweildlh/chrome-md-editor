@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./compare.css" />
   </head>
   <body>
-    <!-- 顶部工具栏（按钮为占位，实际行为由 T2/T3/T4/T4b/T5/T6 Agent 绑定） -->
+    <!-- 顶部工具栏：三段式 left / center / right，行为在 compare.js 中绑定 -->
     <header class="toolbar compare-toolbar" id="compareToolbar">
       <div class="toolbar-left">
         <span class="logo-text">MD Compare</span>
@@ -21,31 +21,34 @@
         <div class="toolbar-group compare-view-group">
           <button class="compare-toolbar-btn" id="btnViewTwo" data-mode="two" title="两栏对照（Yours / Theirs）">两栏</button>
           <button class="compare-toolbar-btn" id="btnViewThree" data-mode="three" title="三栏合并（Yours / Result / Theirs）">三栏</button>
+          <button class="compare-toolbar-btn" id="btnToggleLocationPane" title="显示 / 隐藏右侧位置概览（差异缩略图 + 大纲，快捷键 L）">概览</button>
         </div>
 
         <div class="toolbar-divider"></div>
 
-        <!-- 块导航（B 增量：上一块 / 下一块） -->
+        <!-- 块导航与逐块合并 -->
         <div class="toolbar-group">
           <button class="compare-toolbar-btn" id="btnPrevChunk" title="跳到上一块 (Shift+B 或 [，编辑区内用 Alt+Shift+B)">← 上一块</button>
           <button class="compare-toolbar-btn" id="btnNextChunk" title="跳到下一块 (B 或 ]，编辑区内用 Alt+B)">下一块 →</button>
-          <button class="compare-toolbar-btn" id="btnToggleCollapse" title="展开/折叠未改区域 (E)">展开未改</button>
-          <button class="compare-toolbar-btn" id="btnAcceptTheirs" title="接受光标所在 Theirs 块到结果 (T4)">接受 Theirs 块</button>
+          <!-- 默认全文展开，所以初始文案是「折叠未改」；compare.js 会随状态同步该文案 -->
+          <button class="compare-toolbar-btn" id="btnToggleCollapse" title="折叠 / 展开未修改的区域（默认全文展开，快捷键 E）">折叠未改</button>
+          <button class="compare-toolbar-btn" id="btnAcceptTheirs" title="把光标所在的 Theirs 块并入合并结果">接受 Theirs 块</button>
         </div>
 
         <div class="toolbar-divider"></div>
 
-        <!-- 文件 / 导出 -->
+        <!-- 文件 / 保存 / 导出 -->
         <div class="toolbar-group">
-          <button class="compare-toolbar-btn" id="btnPickFiles" title="选择要对比的文件">选择文件</button>
-          <button class="compare-toolbar-btn" id="btnExportResult" title="导出合并结果 (T6)">导出结果</button>
-          <button class="compare-toolbar-btn" id="btnExportDiff" title="导出 diff 报告 (F)">导出 diff</button>
+          <button class="compare-toolbar-btn" id="btnPickFiles" title="选择要对比的两个文件">选择文件</button>
+          <button class="compare-toolbar-btn" id="btnSave" title="保存当前活动栏到其源文件 (Ctrl+S)">保存</button>
+          <button class="compare-toolbar-btn" id="btnExportResult" title="把合并结果另存为新文件">导出结果</button>
+          <button class="compare-toolbar-btn" id="btnExportDiff" title="导出 Git 风格的 diff 文本报告">导出 diff</button>
         </div>
       </div>
 
       <div class="toolbar-right">
-        <!-- 图片拖拽入口（T5） -->
-        <button class="compare-toolbar-btn" id="btnAddImages" title="添加图片插入当前块 (T5)">图片</button>
+        <!-- 图片插入入口 -->
+        <button class="compare-toolbar-btn" id="btnAddImages" title="选择图片并插入到当前活动栏的光标处">图片</button>
       </div>
     </header>
 
@@ -60,15 +63,18 @@
         </div>
       </section>
 
-      <!-- 图片拖拽区（T5 实现真实拖拽；此处为占位） -->
+      <!-- 图片拖拽区 -->
       <section class="compare-image-drop" id="compareImageDrop">
-        将图片拖拽到此处，或点击「图片」按钮选择（T5 实现）
+        将图片拖拽到此处，或点击右上角「图片」按钮选择；图片会以 Markdown 语法插入当前活动栏的光标处
       </section>
 
-      <!-- 视图容器：两栏 / 三栏（对比/合并必为两栏或三栏，无单栏） -->
+      <!-- 视图容器：两栏 / 三栏（对比/合并必为两栏或三栏，无单栏）
+           右侧 aside#locationPane 为「位置概览」侧栏（第三期），内容由
+           src/compare/location-pane.js 动态渲染；隐藏时加 hidden 属性。 -->
       <section class="compare-views" id="compareViews">
         <div class="compare-view compare-view-two" id="viewTwo" hidden></div>
         <div class="compare-view compare-view-three" id="viewThree" hidden></div>
+        <aside class="compare-location-pane" id="locationPane" aria-label="位置概览" hidden></aside>
       </section>
     </main>
 

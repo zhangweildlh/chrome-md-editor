@@ -11,7 +11,10 @@
 //       read_multiple_text_files / save_compare_result（std::fs，绕开 fs scope）。
 //
 // 导出（供 compare 模块 import）：
-//   pickFiles(accept?)        -> Promise<CompareFile[]>   // { name, content }[]
+//   pickFiles(accept?)        -> Promise<CompareFile[]>   // { name, content, target }[]
+//     target 为「回写目标描述符」，交给 compare/io-bridge.js 的 write(target, content)：
+//       桌面（Tauri）：{ path: string }   —— 由 Rust 返回的绝对路径原样保留
+//       浏览器：        null              —— <input type=file> 拿不到句柄，无法原地回写
 //   readFile(path)            -> Promise<string>
 //   saveFile(path, content)   -> Promise<void>
 //
@@ -48,6 +51,17 @@ function acceptToExtensions(accept) {
     .map((e) => (e.startsWith(".") ? e.slice(1) : e));
 }
 
+// 按目标路径后缀挑选桌面保存对话框的过滤器。
+// 导出 diff 报告时默认文件名为 diff.diff，若仍用 Markdown 过滤器，用户在保存框里
+// 看不到 .diff 文件、也无法保持后缀，故单独给 diff/patch 一组过滤器。
+function saveFiltersForPath(path) {
+  const lower = (path || "").toLowerCase();
+  if (lower.endsWith(".diff") || lower.endsWith(".patch")) {
+    return [{ name: "Diff / Patch", extensions: ["diff", "patch"] }];
+  }
+  return [{ name: "Markdown / Text", extensions: ["md", "markdown", "txt"] }];
+}
+
 // 浏览器端：隐藏 <input type=file multiple> 选取并读取全部文本。
 function browserPickFiles(accept) {
   return new Promise((resolve, reject) => {
@@ -59,7 +73,13 @@ function browserPickFiles(accept) {
       try {
         const files = Array.from(input.files || []);
         const out = await Promise.all(
-          files.map(async (f) => ({ name: f.name, content: await f.text() }))
+          // <input type=file> 拿不到 FileSystemFileHandle，故 target 恒为 null；
+          // 字段仍然存在，避免调用方同时面对 undefined 与 null 两种缺失形态。
+          files.map(async (f) => ({
+            name: f.name,
+            content: await f.text(),
+            target: null,
+          }))
         );
         resolve(out);
       } catch (e) {
@@ -136,6 +156,8 @@ export async function pickFiles(
         out.push({
           name: r.path.split(/[\\/]/).pop() || r.path,
           content: r.content,
+          // 保留磁盘绝对路径，供 io-bridge 的 write(target, content) 原地回写
+          target: { path: r.path },
         });
       } else {
         failed.push(r.path);
@@ -171,7 +193,7 @@ export async function saveFile(path, content) {
     const { dialog, invoke } = await getTauri();
     const savePath = await dialog.save({
       defaultPath: path || "merged.md",
-      filters: [{ name: "Markdown / Text", extensions: ["md", "markdown", "txt"] }],
+      filters: saveFiltersForPath(path),
     });
     if (!savePath) throw new DOMException("用户取消", "AbortError");
     await invoke("save_compare_result", { path: savePath, content });

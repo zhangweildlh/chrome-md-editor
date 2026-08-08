@@ -67,9 +67,11 @@ fn debug_args() -> Vec<String> {
 // 同时不影响任何既有功能（.md 打开保存、compare 读多文件、粘贴图片落盘）。
 
 // 文本类：编辑器打开/保存、对比模块读取、导出合并结果
+// 其中 .diff / .patch 供对比模块「导出 diff 报告」使用（前端默认文件名 diff.diff），
+// 缺少它们会导致导出在桌面端被 validate_path 直接拒绝、功能完全不可用。
 const ALLOWED_TEXT_EXT: &[&str] = &[
     ".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".txt", ".text", ".json", ".csv", ".tsv",
-    ".log", ".yml", ".yaml", ".html", ".htm", ".xml", ".svg",
+    ".log", ".yml", ".yaml", ".html", ".htm", ".xml", ".svg", ".diff", ".patch",
 ];
 
 // 二进制类：仅用于粘贴图片落盘（write_binary_file）

@@ -3,9 +3,9 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.7.0](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.7.0)**  
-**下载（Chrome 扩展）：** [chrome-md-editor-v1.7.0.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.7.0/chrome-md-editor-v1.7.0.zip)  
-**下载（Windows 独立 EXE）：** [Markdown.Editor_1.7.0_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.7.0/Markdown.Editor_1.7.0_portable.exe)  
+**当前版本：[v1.8.7](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.8.7)**  
+**下载（Chrome 扩展）：** [chrome-md-editor-v1.8.7.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.8.7/chrome-md-editor-v1.8.7.zip)  
+**下载（Windows 独立 EXE）：** [Markdown.Editor_1.8.7_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.8.7/Markdown.Editor_1.8.7_portable.exe)  
 **许可：** [MIT](./LICENSE)
 
 [English](#english)
@@ -57,6 +57,7 @@
 | 行内 == 高亮 == | 用 `==文字==` 语法在预览中高亮；GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` 等继续支持 |
 | 会话恢复 | 再次打开扩展时尽量恢复上次内容与文件名 |
 | 阅读翻译 | 预览区中英对照；**不修改** Markdown 源文件 |
+| 文件对照 / 合并 | 两个本地 Markdown 并排对照、逐块合并。差异高亮到「词」的粒度（删除的词带删除线）；整段搬家识别为「移动」并标蓝，不再显示成一删一加；默认展开全文，`Ctrl+S` 把当前活动栏存回其源文件 |
 
 > 工具栏所有按钮均带鼠标悬停提示（tooltip）：悬停即显示功能说明与对应快捷键。
 
@@ -101,33 +102,58 @@ GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]
 
 除了 Chrome 扩展，本项目还提供一个**独立 Windows 程序**：用 [Tauri](https://tauri.app/) v2 把同一套 Web 编辑器（CodeMirror 6 + markdown-it + Mermaid）打包成绿色免安装的 EXE，**无需浏览器、无需安装、本地零依赖**（仅依赖系统 WebView2 运行时）。
 
-- **下载**：Release `v1.7.0` 中的 `Markdown.Editor_1.7.0_portable.exe`（便携版，直接拷到任意目录双击运行）。
+- **下载**：Release `v1.8.7` 中的 `Markdown.Editor_1.8.7_portable.exe`（便携版，直接拷到任意目录双击运行）。
 - **双击打开**：把 `.md` 设为默认打开程序后，双击任意 `.md` 文件即由 EXE 直接打开并编辑。
 - **拖入打开**：启动 EXE 后，把 `.md` 文件拖进窗口也能打开。
 - **多实例**：每次双击 / 拖入都启动一个独立 EXE 实例，各自打开对应文件，互不干扰。
 - **保存写回原文件**：底层用 Rust `std::fs` 命令读写（无路径作用域限制），`Ctrl/Cmd+S` 可直接覆盖原文件。
 - **未签名提示**：未签名版本首次运行可能被 Windows SmartScreen 拦截，点「仍要运行」即可；本机需已安装 WebView2 运行时（Win10/11 通常已自带，否则按提示安装）。
-- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.7.0` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
+- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.8.7` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
 
 > 桌面端与 Chrome 扩展共用 `src/editor.html/.js/.css`；仅在检测到 Tauri 环境时由 `src/desktop-shims.js` 注入 `chrome` 与 File System Access API 垫片，对扩展零影响。
 ---
 
 ## 文件对照 / 多栏合并（compare 模块）
 
-把两个本地 Markdown / 纯文本文件并排对照、逐块合并，无需 Git 目录、纯前端 diff/merge。底层使用 `@codemirror/merge` 的 `MergeView` / `unifiedMergeView`，零自研 diff 算法。
+把两个本地 Markdown / 纯文本文件并排对照、逐块合并，无需 Git 目录、纯前端 diff/merge。行与块的对齐由 `@codemirror/merge` 的 `MergeView` 负责；在此之上本项目又补了两层更细的识别能力：**行内字词级差异**与**移动块检测**（见下文）。
 
 ### 如何打开
 
 - **Chrome 扩展**：在任意页面或扩展图标上点右键，选择「打开对比合并」（由 `public/background.js` 的 `chrome.contextMenus` 注册），会新开一个 `src/compare.html` 独立实例（沿用 `newInstanceId()`，不复用编辑器状态）。
 - **桌面端（Tauri EXE）**：同源入口——EXE 内同样通过右键菜单打开 compare 页，复用同一套 `src/compare.html`。
 
-### 三种视图
+### 两种视图
 
-- **两栏 diff**：左 `Yours` / 右 `Theirs`，差异块红绿高亮 + 行号差异标记（`−` / `+` gutter）。两栏默认可编辑；亦可将 `Yours` 侧设为只读。
+- **两栏对照**：左 `Yours` / 右 `Theirs`，差异块红绿高亮 + 行号差异标记（`−` / `+` gutter）。两栏默认可编辑；亦可将 `Yours` 侧设为只读。
 - **三栏合并**：左 `Yours`（只读）/ 中 `Result`（可编辑合并结果）/ 右 `Theirs`（只读参考）。每块提供中文「⇄ 接受此块」按钮，把 `Yours` 当前块并入 `Result`；另有「接受 Theirs 块」把 `Theirs` 对应块拷入 `Result`，逐步合并出最终结果。
-- **单栏 unified**：`unifiedMergeView` 行内对照——删除行以 widget 显示在原行上方，块内提供中文「接受 / 拒绝」按钮；开启行内 diff 与删除行语法高亮，保留 Markdown 语法色。
 
-> 工具栏可随时切换「两栏 / 三栏 / 单栏」；三种视图统一从已选的两个文件渲染。
+> 工具栏可随时切换「两栏 / 三栏」，两种视图统一从已选的两个文件渲染。
+
+### 差异看得更细：行内字词级高亮
+
+一般的 diff 只告诉你「这一整行变了」，整行涂成红或绿——可如果这行其实只改了两个字，你还得自己一个字一个字找。
+
+本项目在整行标记之上又加了一层**词级比对**：
+
+- 同一行里**只有真正改动的那几个词**才上色：新增的词绿底，删除的词红底并带**删除线**，没动过的字保持原色。
+- 中英文都按词切分；必要时可切到粒度更细的「按字符」比对模式。
+- 词级底色比整行底色更实一些，两层叠在一起时能同时看清「这行动过」和「具体动了哪里」。
+
+底层用 [`diff`](https://github.com/kpdecker/jsdiff) 库（BSD-3-Clause）做词序列比对，装饰层实现思路参考了 [udamir/api-diff-viewer](https://github.com/udamir/api-diff-viewer)（MIT）。模块：`src/compare/inline-word-diff.js`。
+
+### 内容搬家不算「删了又加」：移动块检测
+
+把一整段内容从文档前面挪到后面，普通 diff 会显示成「这边删掉一大段、那边新增一大段」——两片红绿看着吓人，其实一个字都没改。
+
+本项目会识别这种情况：
+
+- 当一段连续内容在两边**内容一致、只是位置变了**，就判定为「移动」，两侧都用**蓝色背景**标出，而不是一红一绿。
+- 于是有了三种独立语义：蓝 = 只挪了位置，绿 = 真的新增，红 = 真的删除。
+- 判定思路参考 Git 的 `--color-moved=blocks`：只有达到一定长度的连续块才算移动，避免把零散空行、短行误判成搬家。
+
+> 本期只做**颜色标识**，不画跨栏连线。源块与目标块之间的连线属于后续版本。
+
+模块：`src/compare/move-detection.js`（检测）、`src/compare/move-decorations.js`（着色）。
 
 ### 文件选择与拖拽
 
@@ -139,30 +165,36 @@ GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]
 
 - **块导航**：「上一块 / 下一块」按钮跳转差异块（底层 `goToNextChunk` / `goToPreviousChunk`）。
 - **块导航快捷键**：在对比页按 `B` / `]` 跳到下一块，`Shift+B` / `[` 跳到上一块；在可编辑区域（CodeMirror / input / textarea）内为不吞掉正常输入，改用 `Alt+B` / `Alt+Shift+B` 在编辑区内也生效。快捷键与按钮复用同一组函数，行为完全一致。
-- **逐块接受**：
-  - 三栏：每块「⇄ 接受此块」把 `Yours` 当前块并入 `Result`；「接受 Theirs 块」把 `Theirs` 对应块拷入 `Result`。
-  - 单栏：块内中文「接受 / 拒绝」按钮（自定义 `mergeControls`，避开验收闸门禁用类名）。
+- **逐块接受**（三栏）：每块「⇄ 接受此块」把 `Yours` 当前块并入 `Result`；工具栏「接受 Theirs 块」把 `Theirs` 对应块拷入 `Result`。
+
+### 活动栏与保存（Ctrl+S）
+
+「**活动栏**」＝你最后点进去的那一栏。当前活动栏会有一圈主题色描边，方便确认操作对象。
+
+- 按 `Ctrl+S`（或点工具栏「保存」），把**当前活动栏**的内容写回它自己的源文件——改哪栏存哪栏，不会串到另一个文件上。
+- 三栏模式的中间「合并结果」栏是新拼出来的内容，本身没有源文件，因此保存时会弹出「另存为」让你选存到哪儿。
+- 两种运行形态走各自的原生通道：**桌面版（Tauri EXE）**调 Rust 侧文件命令直接写盘；**浏览器扩展**走 File System Access API 的文件句柄写回。这层差异由 `src/compare/io-bridge.js` 统一封装，上层逻辑无需区分。
 
 ### 图片插入
 
-- 点「图片」按钮或拖拽图片到图片区：图片转为内嵌 `data URL`，插入到当前光标（或当前活动编辑块）处，生成 Markdown 语法 `![name](data:image/...)`；复用 `src/image-support.js` 的纯函数。
+- 点「图片」按钮或拖拽图片到图片区：图片转为内嵌 `data URL`，插入到当前活动栏的光标处，生成 Markdown 语法 `![name](data:image/...)`；复用 `src/image-support.js` 的纯函数。
 
 ### 导出
 
-- **导出合并结果**：把 `Result` / 单栏当前内容写出。优先 `showSaveFilePicker` **句柄留存**写回，失败降级为浏览器下载（`<a download>`），再失败降级到剪贴板。
+- **导出合并结果**：把 `Result` 内容另存为一个新文件。优先 `showSaveFilePicker` **句柄留存**写回，失败降级为浏览器下载（`<a download>`），再失败降级到剪贴板。
 - **导出 diff 报告**：生成 git 风格可读 diff 文本（`@@` 行 + `+/-` 标记，底层 `presentableDiff` 渲染层），同样走「句柄留存 / 下载 / 剪贴板」三级降级。
 
 ### 折叠未改 / 主题
 
-- 单栏 unified：「展开未改」按钮展开当前光标处的大片未改区域（单栏以展开为主；真正的折叠收起能力不在当前版本承诺）。两栏 / 三栏视图由 `@codemirror/merge` 的 `collapseUnchanged` 配置自动折叠未改区域。
-- 明暗主题：复用编辑器既有 `--bg` / `--fg` / `--accent` / `--border` 等 CSS 变量，`@codemirror/merge` 自带 `&light` / `&dark` 选择器，随主题自动适配，**不新建主题变量**。
+- **默认展开全文**：进入对比页时未改动的区域是**展开**的，直接就能通篇往下读。嫌太长时点工具栏「折叠未改」把未改区域收起来（底层为 `@codemirror/merge` 的 `collapseUnchanged`），再点一次恢复展开。
+- 明暗主题：布局与控件配色复用编辑器既有 `--bg` / `--fg` / `--accent` / `--border` 等 CSS 变量。差异配色（新增绿 / 删除红 / 移动蓝）在 `src/compare.css` 里集中定义为一组 `--diff-*` 语义变量，亮色 / 暗色各给一套值，随 `data-theme` 自动切换——改配色只需改这一处。其中删除 / 变更的红已从 `@codemirror/merge` 的默认深红**调浅**，避免整屏刺眼。
 - **对比页主题与主 UI 完全一致**：对比页通过复用主编辑器的权威主题应用函数（`applyEditorThemePreset` / `getColorScheme`），使其 `data-theme`（由主题预设的明暗 kind 决定，含 23 套主题中的暗色预设）、`data-editor-theme`（配色预设）、`data-color-scheme`（语法配色方案）与 `data-skin`（玻璃皮肤）实时跟随主编辑器——默认配置与任意暗色预设下均对齐；主编辑器切换主题/预设时经同源 `localStorage` 变更事件实时同步对比页。
 
 ### 桌面端（Tauri 同源）
 
 compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果保存复用桌面端既有的 Tauri 文件访问能力（`showOpenFilePicker` / `showSaveFilePicker` 垫片 → `read_text_file` / `write_text_file`）。Rust 侧另已实现并注册 `read_multiple_text_files` / `save_compare_result` 命令（`desktop/src/lib.rs`），作为对比批处理读写的专用通道；对应桥接模块 `src/compare-shims.js` 提供浏览器 / 桌面统一的文件读写签名。
 
-> 模块文件：`src/compare.js`（页面控制器）、`src/compare-merge.js`、`src/compare-nav.js`、`src/compare-line-markers.js`、`src/compare-files.js`、`src/compare-images.js`、`src/compare-export.js`、`src/compare-diff-export.js`、`src/compare-shims.js`；新增 `src/compare.html` 与 `vite.config.js` 多入口 `compare`、manifest `web_accessible_resources` + `contextMenus` 权限。
+> 模块文件：`src/compare.js`（页面控制器）、`src/compare-merge.js`、`src/compare-nav.js`、`src/compare-line-markers.js`、`src/compare-files.js`、`src/compare-images.js`、`src/compare-export.js`、`src/compare-diff-export.js`、`src/compare-shims.js`；`src/compare/` 下为差异算法与读写子模块：`inline-word-diff.js`（字词级差异）、`move-detection.js` + `move-decorations.js`（移动块检测与着色）、`chunk-ops.js`（块操作）、`save.js`（活动栏保存）、`io-bridge.js`（浏览器 / 桌面读写分流）。页面与样式为 `src/compare.html` / `src/compare.css`，另有 `vite.config.js` 多入口 `compare`、manifest `web_accessible_resources` + `contextMenus` 权限。
 
 ---
 
@@ -179,8 +211,8 @@ compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.7.0**）。
-4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.7.0_portable.exe` 覆盖旧文件即可，无需卸载。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.8.7**）。
+4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.8.7_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
 
@@ -275,7 +307,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.8.5**).
+The toolbar should show the release version (currently **v1.8.7**).
 
 ### Features (short)
 
@@ -303,7 +335,7 @@ Editing stays local unless you enable reading translation, which sends text to t
 
 ### Standalone Windows EXE (Tauri)
 
-A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.7.0_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.7.0` release.
+A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.8.7_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.8.7` release.
 
 ### License
 
