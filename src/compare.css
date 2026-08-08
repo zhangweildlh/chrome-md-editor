@@ -178,6 +178,94 @@
   pointer-events: none;
 }
 
+/* ── 批量合并组（对齐 JetBrains Merge Revisions 顶部栏） ────────────────
+   「应用非冲突变更」是主行动按钮，用 --accent 实心与其余次级按钮拉开层级。 */
+.compare-toolbar-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.compare-toolbar-btn-primary:hover {
+  background: var(--accent-hover, var(--accent));
+  color: #fff;
+  filter: brightness(1.08);
+}
+
+/* 方向选择器：三枚按钮拼成一条分段控件（<<左 | 全部 | 右>>）。
+   相邻边框用负 margin 折叠，避免出现 2px 的粗接缝。 */
+.compare-dir-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+.compare-dir-group .compare-dir-btn {
+  border-radius: 0;
+  margin-left: -1px;
+}
+.compare-dir-group .compare-dir-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  margin-left: 0;
+}
+.compare-dir-group .compare-dir-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+/* 选中态压在相邻按钮之上，否则高亮边框会被后一枚的普通边框盖掉半边 */
+.compare-dir-group .compare-dir-btn.active {
+  position: relative;
+  z-index: 1;
+}
+
+/* 「行内高亮」下拉：label 包住 span + select，整体当成一枚工具栏控件对齐 */
+.compare-toolbar-field {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  white-space: nowrap;
+}
+.compare-toolbar-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  user-select: none;
+}
+.compare-toolbar-select {
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.compare-toolbar-select:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 状态计数（「6 处变更，2 处冲突」）：纯文本指示，不可点击 */
+.compare-status-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  user-select: none;
+}
+/* 存在冲突时用警示色，让用户第一眼看见「还有几处要人工裁决」 */
+.compare-status-count.has-conflict {
+  color: var(--danger);
+}
+
 /* ── 视图容器布局 ── */
 .compare-views {
   flex: 1;
@@ -186,6 +274,109 @@
   min-width: 0;
   position: relative;
 }
+/* 「栏标题 + 编辑器」纵向容器。.compare-views 是横向 flex（编辑区 | 位置概览侧栏），
+   标题栏不能直接做它的子项（会被排成第四列），故多包一层。
+   ⚠ 不要给本容器加 transform / filter / opacity / will-change / contain ——
+   它是「移动块连线层」与「revert 列」的共同祖先，任一属性都会新建层叠上下文，
+   把 .cm-merge-revert 的 z-index:2 关进内部，连线会重新划花块级按钮（B2 复发）。 */
+.compare-panes {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── per-pane 标题栏（左 = Yours / 中 = Result / 右 = Theirs） ──
+   三格等宽近似对齐编辑器分栏：三栏下 MergeView(flex:2，内含两个等宽编辑器) +
+   Theirs(flex:1)，实际每栏各占约 1/3；两栏下由 compare.js 隐藏第三格。 */
+.compare-view-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  background: var(--border-subtle);
+  border: 1px solid var(--border-primary);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  overflow: hidden;
+}
+.compare-view-header[hidden] {
+  display: none;
+}
+.pane-header {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pane-header[hidden] {
+  display: none;
+}
+.pane-header-toggle {
+  flex: 0 0 auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.pane-header-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pane-header-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pane-header-close:hover {
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+/* 已关闭的栏：标题格保留（否则用户无从恢复），整体压暗表达「当前不显示」 */
+.pane-header.is-off .pane-header-title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+/* 关栏的视觉隐藏。DOM 事实（@codemirror/merge 6.12.2）：
+   .cm-mergeViewEditors > [ .cm-mergeViewEditor(A), .cm-merge-revert, .cm-mergeViewEditor(B) ]
+   三栏下右栏 Theirs 是 MergeView 之外的独立编辑器，根节点带 .cm-compare-theirs。
+   只做 display:none（不销毁视图），因此重新勾选即可原样恢复，编辑内容不丢。 */
+.compare-panes.pane-off-a .cm-mergeViewEditors > .cm-mergeViewEditor:first-child,
+.compare-panes.pane-off-b .cm-mergeViewEditors > .cm-mergeViewEditor:last-child {
+  display: none;
+}
+.compare-panes.pane-off-c .cm-compare-theirs {
+  display: none;
+}
+/* 左右两栏都关掉时 revert 列没有任何意义，一并收起 */
+.compare-panes.pane-off-a .cm-merge-revert,
+.compare-panes.pane-off-b .cm-merge-revert {
+  display: none;
+}
+
 .compare-view {
   flex: 1;
   min-width: 0;
@@ -313,6 +504,69 @@
 #compareRoot .cm-merge-revert {
   position: relative;
   z-index: 2;
+  /* 库默认 width:1.6em，只够放一个箭头字形；本项目的块级按钮是「⇄ 接受此块 /
+     ◀ 采纳左 / 采纳右 ▶」这类文字按钮，必须放宽，否则每个字都会折行成竖排。 */
+  width: 84px;
+}
+
+/* ── 块级操作按钮组（renderRevertControl 返回的容器） ──
+   库的外部主题写死 `.cm-merge-revert button { position:absolute; width:100% }`，
+   是为「一个块一个箭头按钮」设计的。我们一个块可能要放两枚按钮，若沿用绝对定位
+   两枚会完全重叠。故：外层 div 承担绝对定位（top 由库写进 style），
+   内层 button 用 #compareRoot 提权（1-3-0 > 库的 0-2-0）复位成 static 并纵向排列。 */
+#compareRoot .cm-merge-revert .cm-compare-revert-group {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+#compareRoot .cm-merge-revert .cm-compare-revert-group button {
+  position: static;
+  display: inline-flex;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* 默认（非冲突）：只露单按钮；冲突块 / 两栏（.is-dual 由 compare-merge.js 打）：只露双按钮。
+   ⚠ 特异性阶梯必须严格递增，否则显隐规则会被上面的 base 规则压过（曾发生的真实缺陷）：
+     base   #compareRoot .cm-merge-revert .cm-compare-revert-group button   = (1,2,1) display:inline-flex
+     默认隐藏 …… button.cm-compare-accept-left                              = (1,3,1) display:none
+     is-dual …… .is-dual button.cm-compare-accept-left                      = (1,4,1) display:inline-flex
+   早期写法把「默认隐藏」写成 (1,2,0)（末尾是 class 而非 `button.class`），class 段与 base 打平、
+   却少一个类型选择器，于是 base 的 inline-flex 胜出 → 非冲突块把「采纳左/采纳右」也一并渲染，
+   三枚按钮纵向溢出压到相邻块上，且点击非冲突块的「采纳右」会静默无反应。改动此段务必重算特异性。 */
+#compareRoot .cm-merge-revert .cm-compare-revert-group button.cm-compare-accept-left,
+#compareRoot .cm-merge-revert .cm-compare-revert-group button.cm-compare-accept-right {
+  display: none;
+}
+#compareRoot
+  .cm-merge-revert
+  .cm-compare-revert-group.is-dual
+  button.cm-compare-revert-single {
+  display: none;
+}
+#compareRoot
+  .cm-merge-revert
+  .cm-compare-revert-group.is-dual
+  button.cm-compare-accept-left,
+#compareRoot
+  .cm-merge-revert
+  .cm-compare-revert-group.is-dual
+  button.cm-compare-accept-right {
+  display: inline-flex;
+}
+/* 双向按钮按方向分色：左＝主强调色，右＝成功色，与三栏 Theirs 的语义色一致 */
+#compareRoot .cm-compare-accept-right {
+  border-color: var(--success);
+  color: var(--success);
+}
+#compareRoot .cm-compare-accept-right:hover {
+  background: var(--success);
+  color: #fff;
 }
 
 /* ── 第三期：位置概览侧栏（location-pane.js 渲染其内部结构） ──
@@ -502,21 +756,27 @@
   color: var(--text-secondary);
 }
 
-/* ── 自定义「接受此块」按钮（renderRevertControl，三栏） ── */
+/* ── 自定义块级按钮（renderRevertControl：接受此块 / 采纳左 / 采纳右） ──
+   宽度受 .cm-merge-revert 列（84px）约束，故字号压到 11px 并强制 nowrap；
+   否则「⇄ 接受此块」会逐字折行成一条竖排文字。 */
 .cm-compare-revert {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
+  min-height: 20px;
+  padding: 1px 4px;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--bg-active);
   color: var(--text-accent);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
@@ -562,6 +822,60 @@
 }
 .compare-filebtn:hover {
   background: var(--bg-hover);
+}
+
+/* ── 底部全局操作栏（APPLY / ABORT） ──
+   body 是 flex column，.compare-main 已 flex:1，本栏 flex:0 0 auto 即自然贴底，
+   无需 position:fixed（fixed 会脱离流、盖住编辑器最后一行，且要额外给 main 补 padding）。 */
+.compare-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
+}
+.compare-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  height: 30px;
+  padding: 0 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.compare-footer-btn:active {
+  transform: scale(0.98);
+}
+/* APPLY 是本页的最终落地动作，用强调色实心；ABORT 是危险/放弃动作，悬停才转红 */
+.compare-footer-apply {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.compare-footer-apply:hover {
+  filter: brightness(1.08);
+}
+.compare-footer-abort:hover {
+  border-color: var(--danger);
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+.compare-footer-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* 空状态提示（无任何视图渲染时） */

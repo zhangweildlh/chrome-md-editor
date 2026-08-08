@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.8.8] - 2026-08-08（缺陷修复：编辑器明暗跟随/字体属性白名单 + 对比页 scanLimit 分块/图片拖拽区）
+
+> 对比/合并三期功能的收尾修复闭环：修复编辑器主题明暗切换对 CSS 变量层失效、`<font>` 属性注入无白名单、大文档差异分块退化（scanLimit），以及图片拖拽插入区未挂载等缺陷；并补齐 compare 页 E2E 回归（80 条），确认零遗留真 BUG。
+
+### 修复
+- 编辑器主题：明暗切换改为切到同族对偶预设（`dou-sha-lv-light`↔`dou-sha-lv-dark`、`github`↔`github-dark`…），`data-theme`/`data-editor-theme`/下拉/CM6 四处一同翻转（THM-01）。
+- 字体样式：`applyFontStyle()` 增加 `isValidFontAttrValue` 白名单（size `/^[1-7]$/`、color `#hex3/6` 或 3–20 字母），非法值拦截+提示，杜绝坏标签污染源码（STY-10）。
+- 对比/合并：`@codemirror/merge` 的 `scanLimit` 由 500 提到 2000，3000 行/50 处分散差异恢复精确分块（逐字符不变，BND-05b）。
+- 对比/合并：图片拖拽插入区 `#compareImageDrop` 占位补挂 `createImageUploadArea` 真实拖拽区，可向活动编辑器拖入/选择图片（CMPX-08）。
+
+### 验证情况
+- 单测 370/367/0/3；编辑器复测 `fix-verify` 12/12；编辑器全量 E2E 57/0/1 阻塞(环境)/0 BUG；compare 边界 16/17 + 1 警告(已修)；compare 全量 E2E 80 条（75/5，4 测试工件 + 1 真缺陷 CMPX-08 已修）。
+- 构建通过，已部署 360Chrome 真机复验 CMPX-08 拖图插入生效。
+- 六处 web 版本戳同步至 1.8.8（package/manifest/editor.js/editor.html/compare.js/compare.html）。
+
 ## [1.8.7] - 2026-08-07（EXE 侧 window.open 接管：对比/合并入口 + 外链恢复可用）
 
 > 全量逐一审查 v1.8.6 在 EXE（Tauri）侧失效的按钮/功能：定位唯一根因——`window.open` 未被垫片接管，导致「对比/合并」入口与外链点击在 EXE 静默无反应。补全 Tauri 兼容层并加回 shell 插件与窗口创建能力。

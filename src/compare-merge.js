@@ -47,6 +47,8 @@ import {
   setMoveBlocks,
 } from "./compare/move-decorations.js";
 import { createConnectorPainter } from "./compare/move-connectors.js";
+// 块级「采纳右侧」按钮复用统一的写入原语（单次 dispatch、区间校验），不自己拼 changes。
+import { acceptChunk } from "./compare/chunk-ops.js";
 // MergeView 内的 view.scrollDOM 不是滚动盒（可滚余量恒 0、且收不到 scroll 事件），
 // 取滚动盒一律走 scrollBoxOf —— 理由见 compare/scroll-box.js 顶部说明。
 import { scrollBoxOf } from "./compare/scroll-box.js";
@@ -74,7 +76,13 @@ function safeChunks(state) {
  * diff 计算参数。提为模块级常量，因为第三期的 B↔C 层需要在 refreshDecorations
  * （模块级函数）内用 Chunk.build 自算差异块，无法访问 createCompareMergeView 的局部作用域。
  */
-const DIFF_CONFIG = { scanLimit: 500, timeout: 1500 };
+// scanLimit：@codemirror/merge 的差异块细分上限。库内会先 scanLimit >> 1（默认 500 → 250），
+// 当「去掉公共前后缀后的差异跨度」> 250*64 = 16000 字符时直接返回单个 Change，跳过精确 diff，
+// 导致大文档（如 3000 行 / 50 处分散差异）的 50 处差异被并成 1 个巨块，
+// 块级「接受此块」退化为全有全无（BND-05b 确证）。实测将 scanLimit 提到 2000 即可在
+// 3000 行文档上恢复精确分块（50 块 / ~19ms），且仍远低于 timeout:1500 上限，合并结果逐字符不变。
+// 故采用 2000 而非库默认 500。
+const DIFF_CONFIG = { scanLimit: 2000, timeout: 1500 };
 
 /**
  * 创建「按文档对象引用做脏检查」的热路径复用缓存（O1）。
@@ -176,12 +184,18 @@ function resolveCollapse(collapsed, collapseConf, viewA) {
  *
  * @param {EditorView|null} viewA A 面板（Yours / Result）
  * @param {EditorView|null} viewB B 面板（Result / Theirs）
- * @param {{wordDiff:boolean, moveDetect:boolean}} flags
+ * @param {{wordDiff:boolean, moveDetect:boolean, wordMode?:'off'|'word'|'char'}} flags
+ *        wordMode 由工具栏「行内高亮」下拉实时切换（见 instance.setWordDiffMode）：
+ *        'off' 时依旧走 dispatch，但推空数组 —— 必须推，否则上一次的高亮会僵在屏幕上。
  * @param {{aSide?:'a'|'b'|null,bSide?:'a'|'b'|null,writeA?:boolean,writeB?:boolean,computeChunks?:boolean}} [sides]
  * @param {ReturnType<typeof createDocCache>} cache 实例级脏检查缓存（O1，由调度器持有）
  * @returns {{pairs:import('./compare/move-detection.js').MovePair[], chunks:readonly any[], truncated:boolean}}
  */
-function refreshDecorations(viewA, viewB, { wordDiff, moveDetect }, sides, cache) {
+function refreshDecorations(viewA, viewB, flags, sides, cache) {
+  const wordDiff = flags.wordDiff;
+  const moveDetect = flags.moveDetect;
+  const wordMode =
+    flags.wordMode === "off" || flags.wordMode === "char" ? flags.wordMode : "word";
   const EMPTY = { pairs: [], chunks: [], truncated: false };
   if (!viewA || !viewB || !viewA.dom || !viewB.dom) return EMPTY;
   const opt = sides || {};
@@ -202,7 +216,8 @@ function refreshDecorations(viewA, viewB, { wordDiff, moveDetect }, sides, cache
     if (wordDiff) {
       const aData = [];
       const bData = [];
-      for (const c of chunks) {
+      // wordMode==='off'：跳过计算，下面照常 dispatch 空数组以清掉存量高亮。
+      for (const c of wordMode === "off" ? [] : chunks) {
         // 只处理「两侧都有内容」的 modified 块；纯增 / 纯删交给移动检测与整块高亮。
         if (!(c.toA > c.fromA) || !(c.toB > c.fromB)) continue;
         const aLines = aDoc.sliceString(c.fromA, c.toA).split("\n");
@@ -216,8 +231,8 @@ function refreshDecorations(viewA, viewB, { wordDiff, moveDetect }, sides, cache
         if (aLines.length !== bLines.length) continue;
         const aStart = aDoc.lineAt(c.fromA).number;
         const bStart = bDoc.lineAt(c.fromB).number;
-        aData.push(...buildWordDiffData(aLines, bLines, "before", aStart));
-        bData.push(...buildWordDiffData(aLines, bLines, "after", bStart));
+        aData.push(...buildWordDiffData(aLines, bLines, "before", aStart, wordMode));
+        bData.push(...buildWordDiffData(aLines, bLines, "after", bStart, wordMode));
       }
       if (writeA) viewA.dispatch({ effects: setWordDiffEffect.of(aData) });
       if (writeB) viewB.dispatch({ effects: setWordDiffEffect.of(bData) });
@@ -396,21 +411,137 @@ function createDecorationScheduler(flags) {
  * @property {boolean} [bReadonly]
  * @property {boolean} [enableWordDiff]   行内字词级差异（默认 true）
  * @property {boolean} [enableMoveDetect] 块移动检测蓝色标识（默认 true）
+ * @property {'off'|'word'|'char'} [wordDiffMode] 行内高亮初始粒度（默认 'word'）
  */
 
 /**
- * 自定义 renderRevertControl 工厂：生成中文「接受此块」按钮。
- * 类名 cm-compare-revert，避开禁用类名闸门。
- * @param {string} [label]
- * @returns {HTMLButtonElement}
+ * 两个偏移区间是否相交。
+ *
+ * 【为什么不能只写 f1 < t2 && f2 < t1】diff 块里大量存在**空区间**（纯新增时
+ * 目标侧 from===to、纯删除时源侧 from===to）。标准的严格相交判定对空区间恒为 false，
+ * 于是「Theirs 在 Result 的某处纯插入」这类块永远不会被判成冲突，双侧按钮就不出现。
+ * 故空区间退化为「点落在闭区间内」判定。
+ *
+ * @param {number} f1 @param {number} t1 @param {number} f2 @param {number} t2
+ * @returns {boolean}
  */
-function makeRevertButton(label = "⇄ 接受此块") {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "cm-compare-revert";
-  btn.textContent = label;
-  btn.title = "接受此块（将左侧内容并入结果）";
-  return btn;
+function rangesOverlap(f1, t1, f2, t2) {
+  if (f1 === t1 || f2 === t2) return f1 <= t2 && f2 <= t1;
+  return f1 < t2 && f2 < t1;
+}
+
+/**
+ * 自定义 renderRevertControl 工厂：生成块级操作按钮组。
+ *
+ * ── 与 @codemirror/merge 的协作方式（改这里前务必读完）──
+ * 库的 renderRevertButton(top, i) 拿到本函数返回的元素后，会给它打上 data-chunk=i
+ * 并塞进 .cm-merge-revert 列；该列上挂了一个 **mousedown** 监听（revertClicked），
+ * 它从 e.target 一路上溯到「revertDOM 的直接子节点」，据其 data-chunk 执行
+ * revertControls 指定方向（本项目恒为 a→b）的整块覆写。
+ * 因此：
+ *   · 「接受此块 / ACCEPT LEFT」= 让事件正常冒泡给库，一行自定义代码都不用写；
+ *   · 「ACCEPT RIGHT」= 必须在 mousedown 阶段 stopPropagation 掐断冒泡，
+ *      否则库会先把 a→b 写一遍，我们再写一遍右侧，产生双重写入。
+ * 【勿改成 click 上拦截】库监听的是 mousedown，click 时早已写完。
+ *
+ * 返回的是 div 而非 button：库的外部主题有 `.cm-merge-revert button{position:absolute}`，
+ * 若直接返回 button，两个并列按钮会绝对定位叠在一起。改由外层 div 承担绝对定位
+ * （compare.css 中 #compareRoot 提权覆盖），内部 button 复位为 static。
+ *
+ * @param {(chunkIndex:number)=>void} onAcceptRight 采纳右侧时的回调，入参为 data-chunk
+ * @returns {HTMLDivElement}
+ */
+function makeRevertGroup(onAcceptRight) {
+  const box = document.createElement("div");
+  box.className = "cm-compare-revert-group";
+
+  const mk = (cls, label, title) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    btn.textContent = label;
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    return btn;
+  };
+
+  // 非冲突块：单按钮（沿用既有语义与类名 cm-compare-revert）
+  box.appendChild(
+    mk("cm-compare-revert cm-compare-revert-single", "⇄ 接受此块", "接受此块（将左侧内容并入结果）")
+  );
+  // 冲突块 / 两栏：双向按钮
+  box.appendChild(
+    mk("cm-compare-revert cm-compare-accept-left", "◀ 采纳左", "ACCEPT LEFT：用左栏内容覆写本块")
+  );
+  const right = mk(
+    "cm-compare-revert cm-compare-accept-right",
+    "采纳右 ▶",
+    "ACCEPT RIGHT：用右栏内容覆写本块"
+  );
+  // 掐断冒泡，阻止库的默认 a→b 覆写（理由见上方大段说明）
+  right.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  right.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const idx = Number(box.dataset.chunk);
+    if (Number.isFinite(idx)) onAcceptRight(idx);
+  });
+  box.appendChild(right);
+  return box;
+}
+
+/**
+ * 让 .cm-merge-revert 列里的按钮组随「块是否冲突」切换单 / 双按钮形态。
+ *
+ * 库在每次 measure（滚动 / 视口变化 / 文档变化）时会增删按钮元素，且**复用**
+ * data-chunk 未变的旧元素；块内容却可能已经变了。因此形态不能在 makeRevertGroup
+ * 里一次性定死，必须有一个「事后校正」通道：
+ *   1) MutationObserver 捕获库对该列的增删（覆盖滚动/视口变化）；
+ *   2) 调度器的 onRefresh 覆盖文档变化后的重算。
+ *
+ * @param {HTMLElement} parent 视图容器（.cm-merge-revert 必在其子树内）
+ * @param {() => Set<number>} getDualIndexes 返回「应显示双按钮」的 chunk 下标集合
+ * @returns {{sync:()=>void, dispose:()=>void}}
+ */
+function createRevertGroupSync(parent, getDualIndexes) {
+  let observer = null;
+  let host = null;
+
+  function sync() {
+    if (!host || !host.isConnected) host = parent.querySelector(".cm-merge-revert");
+    if (!host) return;
+    let dual;
+    try {
+      dual = getDualIndexes();
+    } catch (err) {
+      console.error("[compare-merge] 计算冲突块下标失败:", err);
+      return;
+    }
+    for (const el of Array.from(host.children)) {
+      if (!el.classList || !el.classList.contains("cm-compare-revert-group")) continue;
+      el.classList.toggle("is-dual", dual.has(Number(el.dataset.chunk)));
+    }
+  }
+
+  if (typeof MutationObserver === "function") {
+    host = parent.querySelector(".cm-merge-revert");
+    if (host) {
+      observer = new MutationObserver(() => sync());
+      observer.observe(host, { childList: true });
+    }
+  }
+
+  return {
+    sync,
+    dispose() {
+      if (observer) observer.disconnect();
+      observer = null;
+      host = null;
+    },
+  };
 }
 
 /**
@@ -433,9 +564,14 @@ export function createCompareMergeView(opts) {
   const parent = opts.parent;
 
   // ── 行内字词差异 / 块移动检测：默认开启，仅显式传 false 才关闭 ──
+  // wordMode 可变（工具栏「行内高亮」下拉）：调度器闭包持有的就是这个对象引用，
+  // 原地改字段即可让下一轮 refreshDecorations 读到新值，无需重建实例。
   const flags = {
     wordDiff: opts.enableWordDiff !== false,
     moveDetect: opts.enableMoveDetect !== false,
+    wordMode: opts.wordDiffMode === "off" || opts.wordDiffMode === "char"
+      ? opts.wordDiffMode
+      : "word",
   };
   const decoEnabled = flags.wordDiff || flags.moveDetect;
   const scheduler = decoEnabled ? createDecorationScheduler(flags) : null;
@@ -627,9 +763,10 @@ export function createCompareMergeView(opts) {
       gutter: true,
       collapseUnchanged: collapse,
       diffConfig,
-      // 自定义中文接受按钮：revert a→b 即把当前块从 Yours 拷入 Result
+      // 自定义中文接受按钮：revert a→b 即把当前块从 Yours 拷入 Result。
+      // 冲突块会由 revertSync 追加「采纳右 ▶」（Theirs→Result），见下方 acceptRightAt。
       revertControls: "a-to-b",
-      renderRevertControl: () => makeRevertButton("⇄ 接受此块"),
+      renderRevertControl: () => makeRevertGroup((i) => acceptRightAt(i)),
     });
 
     // 右侧 Theirs 编辑器（独立挂载到 parent，紧随 MergeView 之后）。
@@ -683,6 +820,96 @@ export function createCompareMergeView(opts) {
     linkPaneScroll(mv.b, theirsView); // MergeView 已管 A↔B，此处补 B↔C
     if (scheduler) scheduler.onRefresh(() => connectorPainter && connectorPainter.draw());
     bindConnectorResize();
+
+    // ── 差异块模型（供工具栏批量操作 / 状态计数 / 冲突判定共用）──
+    //
+    // 两层的坐标系必须显式归一，否则调用方极易把 A↔B 的偏移喂给 B↔C 的视图：
+    //   layer 'ab'：src = Yours(mv.a) 侧 [fromA,toA)，dst = Result(mv.b) 侧 [fromB,toB)
+    //   layer 'bc'：Chunk.build(Result, Theirs) 的 a 侧是 Result、b 侧是 Theirs，
+    //               而我们要的方向是 Theirs→Result，故 src/dst 相对原始字段【互换】。
+    // 归一后两层都满足 chunk-ops.js 的约定：src* 属 srcView，dst* 属 dstView。
+    //
+    // conflict 判定：同一段 Result 区域既被 Yours 提议改写、又被 Theirs 提议改写 ——
+    // 即 ab 块的 dst 区间与 bc 块的 dst 区间（都在 Result 坐标系）相交。
+    /** @returns {{ab:any[], bc:any[]}} */
+    function buildChunkModel() {
+      const abRaw = safeChunks(mv.a.state);
+      let bcRaw = [];
+      try {
+        bcRaw = Chunk.build(mv.b.state.doc, theirsView.state.doc, diffConfig) || [];
+      } catch (err) {
+        console.error("[compare-merge] 计算 Result↔Theirs 差异块失败:", err);
+      }
+      const ab = abRaw.map((c, i) => ({
+        id: `ab-${i}`,
+        index: i,
+        layer: "ab",
+        conflict: false,
+        srcFrom: c.fromA,
+        srcTo: c.toA,
+        dstFrom: c.fromB,
+        dstTo: c.toB,
+      }));
+      const bc = bcRaw.map((c, i) => ({
+        id: `bc-${i}`,
+        index: i,
+        layer: "bc",
+        conflict: false,
+        srcFrom: c.fromB, // Theirs 侧
+        srcTo: c.toB,
+        dstFrom: c.fromA, // Result 侧
+        dstTo: c.toA,
+      }));
+      for (const x of ab) {
+        for (const y of bc) {
+          if (rangesOverlap(x.dstFrom, x.dstTo, y.dstFrom, y.dstTo)) {
+            x.conflict = true;
+            y.conflict = true;
+          }
+        }
+      }
+      return { ab, bc };
+    }
+
+    /**
+     * ACCEPT RIGHT：把与第 i 个 A↔B 块相交的 Theirs 块写进 Result。
+     * @param {number} i .cm-merge-revert 列上的 data-chunk（即 mv 的 chunk 下标）
+     * @returns {boolean}
+     */
+    function acceptRightAt(i) {
+      try {
+        const model = buildChunkModel();
+        const target = model.ab[i];
+        if (!target) return false;
+        const hit = model.bc.find((y) =>
+          rangesOverlap(target.dstFrom, target.dstTo, y.dstFrom, y.dstTo)
+        );
+        if (!hit) return false;
+        // dst 越界钳制：Result 尾部块的 toA 可能等于「文档长度+1」（含行尾换行），
+        // 直接喂给 dispatch 会抛 RangeError。
+        const len = mv.b.state.doc.length;
+        acceptChunk({
+          srcView: theirsView,
+          dstView: mv.b,
+          srcFrom: hit.srcFrom,
+          srcTo: hit.srcTo,
+          dstFrom: Math.min(hit.dstFrom, len),
+          dstTo: Math.min(hit.dstTo, len),
+        });
+        return true;
+      } catch (err) {
+        console.error("[compare-merge] 采纳右侧块失败:", err);
+        return false;
+      }
+    }
+
+    // 冲突块才显示双向按钮；非冲突块保持单个「⇄ 接受此块」
+    const revertSync = createRevertGroupSync(parent, () => {
+      const set = new Set();
+      for (const c of buildChunkModel().ab) if (c.conflict) set.add(c.index);
+      return set;
+    });
+    if (scheduler) scheduler.onRefresh(() => revertSync.sync());
 
     /**
      * 把光标（或指定位置）所在块从 Theirs 拷入 Result（b 面板）。
@@ -810,6 +1037,30 @@ export function createCompareMergeView(opts) {
         }
       },
       acceptTheirsAt,
+      /**
+       * 归一化后的全部差异块（两层合并）。字段契约见 chunk-ops.js：
+       * { id, index, layer:'ab'|'bc', conflict, srcFrom, srcTo, dstFrom, dstTo }
+       * @returns {Array<Object>}
+       */
+      getChunks() {
+        const m = buildChunkModel();
+        return [...m.ab, ...m.bc];
+      },
+      /** 某层的写入端点（供调用方直接喂给 chunk-ops）：ab = Yours→Result，bc = Theirs→Result */
+      getLayerViews(layer) {
+        return layer === "bc"
+          ? { srcView: theirsView, dstView: mv.b }
+          : { srcView: mv.a, dstView: mv.b };
+      },
+      /** 切换行内字词高亮粒度：'off' | 'word' | 'char'，立即重算 */
+      setWordDiffMode(m) {
+        flags.wordMode = m === "off" || m === "char" ? m : "word";
+        if (scheduler) scheduler.scheduleRefresh();
+      },
+      /** 手动同步块级按钮的单/双形态（外部改动文档后调用） */
+      syncRevertControls() {
+        revertSync.sync();
+      },
       /** 手动触发一次差异装饰重算（供外部 / 自动化测试用） */
       refreshDecorations() {
         if (scheduler) scheduler.scheduleRefresh();
@@ -831,6 +1082,7 @@ export function createCompareMergeView(opts) {
       },
       destroy() {
         if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图
+        revertSync.dispose(); // MutationObserver 由浏览器强引用，必须显式断开
         teardownConnectors(); // 解绑滚动/ResizeObserver 并移除 SVG 覆盖层
         parent.classList.remove("compare-three-layout");
         theirsView.destroy();
@@ -847,6 +1099,33 @@ export function createCompareMergeView(opts) {
     ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
     : [];
 
+  /**
+   * 两栏 ACCEPT RIGHT：把第 i 个块的 Theirs(b) 内容写回 Yours(a)。
+   * （ACCEPT LEFT 方向 a→b 由库的 revertControls:'a-to-b' 直接承担，无需自定义。）
+   * @param {number} i
+   * @returns {boolean}
+   */
+  function acceptRightTwo(i) {
+    try {
+      const c = safeChunks(mv.a.state)[i];
+      if (!c) return false;
+      if (mv.a.state.readOnly) return false; // a 被 opts.aReadonly 锁定：静默忽略
+      const len = mv.a.state.doc.length;
+      acceptChunk({
+        srcView: mv.b,
+        dstView: mv.a,
+        srcFrom: c.fromB,
+        srcTo: c.toB,
+        dstFrom: Math.min(c.fromA, len),
+        dstTo: Math.min(c.toA, len),
+      });
+      return true;
+    } catch (err) {
+      console.error("[compare-merge] 两栏采纳右侧块失败:", err);
+      return false;
+    }
+  }
+
   const mv = new MergeView({
     a: {
       doc: aFile.content,
@@ -862,7 +1141,20 @@ export function createCompareMergeView(opts) {
     gutter: true,
     collapseUnchanged: collapse,
     diffConfig,
+    // 两栏也提供块级操作：语义为 ACCEPT LEFT(a→b) / ACCEPT RIGHT(b→a)，
+    // 故这里恒为双按钮形态（两栏没有三方冲突概念）。
+    revertControls: "a-to-b",
+    renderRevertControl: () => makeRevertGroup((i) => acceptRightTwo(i)),
   });
+
+  // 两栏恒双向：把所有块下标都标成 dual
+  const revertSyncTwo = createRevertGroupSync(parent, () => {
+    const set = new Set();
+    const n = safeChunks(mv.a.state).length;
+    for (let i = 0; i < n; i++) set.add(i);
+    return set;
+  });
+  if (scheduler) scheduler.onRefresh(() => revertSyncTwo.sync());
 
   // 视图就绪后回填引用并首次调度（diff 异步落定，内部有 rAF 轮询兜底）
   if (scheduler) {
@@ -941,6 +1233,38 @@ export function createCompareMergeView(opts) {
     acceptTheirsAt() {
       return false;
     },
+    /**
+     * 归一化差异块。两栏只有 A↔B 一层，且不存在三方冲突，conflict 恒为 false。
+     * @returns {Array<Object>}
+     */
+    getChunks() {
+      return safeChunks(mv.a.state).map((c, i) => ({
+        id: `ab-${i}`,
+        index: i,
+        layer: "ab",
+        conflict: false,
+        srcFrom: c.fromA,
+        srcTo: c.toA,
+        dstFrom: c.fromB,
+        dstTo: c.toB,
+      }));
+    },
+    /**
+     * 两栏的写入端点。'right' 表示反向（Theirs→Yours），此时 src/dst 字段需由
+     * 调用方按 getChunks 的**反转**使用（srcFrom↔dstFrom），见 compare.js applyDirection。
+     */
+    getLayerViews(layer) {
+      return layer === "right"
+        ? { srcView: mv.b, dstView: mv.a }
+        : { srcView: mv.a, dstView: mv.b };
+    },
+    setWordDiffMode(m) {
+      flags.wordMode = m === "off" || m === "char" ? m : "word";
+      if (scheduler) scheduler.scheduleRefresh();
+    },
+    syncRevertControls() {
+      revertSyncTwo.sync();
+    },
     /** 手动触发一次差异装饰重算（供外部 / 自动化测试用） */
     refreshDecorations() {
       if (scheduler) scheduler.scheduleRefresh();
@@ -957,6 +1281,7 @@ export function createCompareMergeView(opts) {
     },
     destroy() {
       if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图
+      revertSyncTwo.dispose();
       teardownConnectors();
       mv.destroy();
     },
@@ -984,6 +1309,10 @@ export function countChunks(state) {
  * @property {() => string} getTheirs
  * @property {(collapsed: boolean) => void} setCollapse
  * @property {(pos?: number) => boolean} acceptTheirsAt
+ * @property {() => Array<Object>} getChunks 归一化差异块（含 layer / conflict / src 与 dst 偏移）
+ * @property {(layer:string) => {srcView:EditorView,dstView:EditorView}} getLayerViews 某层的写入端点
+ * @property {(mode:'off'|'word'|'char') => void} setWordDiffMode 切换行内字词高亮粒度
+ * @property {() => void} syncRevertControls 同步块级按钮的单/双形态
  * @property {() => void} refreshDecorations 手动重算行内字词差异 / 块移动装饰
  * @property {() => Array<Object>} getConnectorLayers 双层连线图层数据（供 Location Pane）
  * @property {(fn:()=>void) => (()=>void)} onRefresh 订阅装饰重算完成事件，返回解绑函数

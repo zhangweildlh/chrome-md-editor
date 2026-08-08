@@ -326,6 +326,50 @@ test('chunk-ops: applyNonConflicting 空列表返回 0 且不 dispatch', () => {
   assert.equal(dispatchCalls.length, 0);
 });
 
+// 用例 C2：dst 区间越界时钳制到文档末尾，而非抛 RangeError。
+// 背景：@codemirror/merge 的 chunk `to` 可能指向文档末尾之后（尾部块的 toA 常等于
+// 「文档长度 + 1」，表达“连同行尾换行一起替换”）。未钳制会让「应用非冲突变更」在
+// 最后一个差异块位于文末时整体失败。此用例是该修复的回归护栏。
+test('chunk-ops: applyNonConflicting 对越界 dst 区间做钳制', () => {
+  const srcText = 'ABCDEFGHIJ';
+  const dstText = '0123456789'; // 长度 10
+  const srcView = {
+    state: { doc: { sliceString: (from, to) => srcText.slice(from, to) } },
+  };
+  const dispatchCalls = [];
+  const dstView = {
+    // 与生产环境一致：提供 state 以便读取文档长度
+    state: { doc: { length: dstText.length } },
+    dispatch(spec) {
+      dispatchCalls.push(spec);
+    },
+  };
+  const chunks = [
+    // dstTo = 11 越过文档末尾（10），应被钳制为 10
+    { id: 1, srcFrom: 0, srcTo: 3, dstFrom: 8, dstTo: 11 },
+  ];
+  const n = applyNonConflicting({ chunks, srcView, dstView });
+  assert.equal(n, 1);
+  assert.equal(dispatchCalls.length, 1);
+  assert.deepEqual(dispatchCalls[0].changes, [
+    { from: 8, to: 10, insert: 'ABC' },
+  ]);
+});
+
+// 用例 C3：dstView 未提供 state 时降级放行（契约保真）。
+// applyNonConflicting 对 dstView 的原始契约只要求 dispatch，读 state 属可选增强，
+// 缺失时必须退化为「不钳制」，行为与钳制前一致，不可抛错。
+test('chunk-ops: applyNonConflicting 在 dstView 无 state 时不抛错', () => {
+  const { srcView, dstView, dispatchCalls } = makeFakeViews('ABCDEFGHIJ');
+  const chunks = [{ id: 1, srcFrom: 0, srcTo: 3, dstFrom: 0, dstTo: 99 }];
+  assert.doesNotThrow(() => applyNonConflicting({ chunks, srcView, dstView }));
+  assert.equal(dispatchCalls.length, 1);
+  // 无 state 时原样放行，不做钳制
+  assert.deepEqual(dispatchCalls[0].changes, [
+    { from: 0, to: 99, insert: 'ABC' },
+  ]);
+});
+
 // 用例 D：acceptChunk 非法参数抛错
 test('chunk-ops: acceptChunk 参数非法时抛错', () => {
   const { srcView, dstView } = makeFakeViews('ABCDEFGHIJ');

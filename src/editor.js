@@ -34,7 +34,7 @@ import {
 import { resolvePreviewLinkClickTarget } from './link-support.js';
 import { initWorkspaceSearchPanel, runWorkspaceSearch, setGlobalDirectoryHandle } from './workspace-search.js';
 import { showOnboarding, hideOnboarding } from './onboarding.js';
-import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect } from './theme-presets.js';
+import { applyEditorThemePreset, getStoredEditorTheme, setStoredEditorTheme, initThemeSelect, getThemeKind, getCounterpartTheme } from './theme-presets.js';
 import { initFeedbackButton } from './feedback.js';
 import { highlightPlugin } from './highlight-plugin.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
@@ -75,9 +75,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.7"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.8"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.7";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.8";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -196,7 +196,11 @@ let currentFileHandle = null;
 // 已加载文件名（file:// 打开时没有 FileHandle，用此值作为自动保存/快照键的回退来源，见 Bug #1 修复）
 let currentFileName = 'unsaved';
 let isModified = false;
-let currentTheme = localStorage.getItem('md-editor-theme') || 'dark';
+// 修复 THM-01：明暗基底的单一事实源是「当前编辑器主题预设的 kind」（applyEditorThemePreset 写 data-theme）。
+// currentTheme 只是该 kind 的派生量，用于驱动 CM6 明暗扩展 / mermaid / 主题图标。
+// 旧实现从独立键 md-editor-theme 读取（默认 'dark'），会与默认预设「豆沙绿（亮）」相互矛盾，
+// 导致首屏 CM6 用 oneDark 而 data-theme=light 的割裂。此处统一从预设派生，消除双事实源。
+let currentTheme = getThemeKind(getStoredEditorTheme());
 let currentViewMode = localStorage.getItem('md-editor-view-mode') || 'split';
 let scrollSyncEnabled = true;
 let isPreviewEditing = false; // 防止预览编辑时循环更新
@@ -2068,7 +2072,24 @@ function wrapSelection(before, after) {
 //  - 已存在同类 <font> 时「替换」属性而非嵌套（修复 v1.4.x 初版颜色重选嵌套的瑕疵）；
 //  - 再次选择同一值时「智能取消」（移除该属性，若已无属性则整体去标签）；
 //  - 保留其它属性（如 color 与 size 可共存）。
+// 修复 STY-10：<font> 属性值白名单校验。
+// 旧实现把 value 直接拼进 attr="value"，若 DOM 上的 data-size / data-color 被篡改
+// （或将来新增入口传入脏值），会写出 <font size="abc"> 这类坏标签污染 Markdown 源码。
+// 这里对已知属性做严格校验，未知属性一律拒绝——当前 UI 仅使用 color 与 size 两种。
+function isValidFontAttrValue(attr, value) {
+  const v = String(value == null ? '' : value).trim();
+  if (!v) return false;
+  if (attr === 'size') return /^[1-7]$/.test(v);            // HTML font size 合法范围 1-7
+  if (attr === 'color') return /^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$|^[a-zA-Z]{3,20}$/.test(v);
+  return false;
+}
+
 function applyFontStyle(attr, value) {
+  if (!isValidFontAttrValue(attr, value)) {
+    console.error(`[font] 非法的 ${attr} 值，已拒绝应用:`, value);
+    showToast(`字体${attr === 'size' ? '字号' : '颜色'}取值非法，已忽略`, 'error');
+    return false;
+  }
     const sel = editor.state.selection.main;
   const selectedText = editor.state.sliceDoc(sel.from, sel.to);
 
@@ -2169,23 +2190,24 @@ function insertBlock(text) {
 // ==========================================
 // 主题切换
 // ==========================================
-function toggleTheme() {
-  const _prev = currentTheme;
-  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+// 把「明暗基底」同步到本页运行时：CM6 明暗扩展、mermaid 主题、主题图标、预览重渲染。
+// 不负责写 data-theme / data-editor-theme（那是 applyEditorThemePreset 的职责，单一事实源）。
+// 供 toggleTheme 与主题下拉共用，保证两个入口的运行时状态永远一致。
+function syncThemeRuntime(kind) {
+  currentTheme = kind === 'dark' ? 'dark' : 'light';
+  try {
     localStorage.setItem('md-editor-theme', currentTheme);
+  } catch {
+    /* localStorage 不可用时静默忽略，不阻断主题切换 */
+  }
 
-  document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
-  // === MARKRA_HOOK: THEMES === 主题预设：在此行之后应用当前编辑器主题预设（data-editor-theme）
-  applyEditorThemePreset(getStoredEditorTheme());
-
-  // 玻璃拟态 skin 维度（data-skin="glass"）已由 applyEditorThemePreset 统一设置，
-  // 此处不再重复，保持单一事实源。
-
-  editor.dispatch({
-    effects: themeCompartment.reconfigure(
-      currentTheme === 'dark' ? oneDark : lightTheme
-    ),
-  });
+  if (editor) {
+    editor.dispatch({
+      effects: themeCompartment.reconfigure(
+        currentTheme === 'dark' ? oneDark : lightTheme
+      ),
+    });
+  }
 
   // 更新 Mermaid 主题
   mermaid.initialize({
@@ -2201,6 +2223,26 @@ function toggleTheme() {
   updateThemeIcon();
   // A+B 方案 Phase 4：主题切换时防御性重设配色方案属性（data-color-scheme 与 data-theme 正交）。
   document.documentElement.setAttribute('data-color-scheme', getColorScheme());
+}
+
+// 明/暗切换（工具栏 #btnTheme）。
+// 修复 THM-01：旧实现只翻转 currentTheme 并直接写 data-theme，随后 applyEditorThemePreset
+// 立刻用「已存预设的 kind」把 data-theme 覆盖回去，导致按钮对 CSS 变量层完全无效。
+// 现改为切换到「同族对偶预设」，让 data-theme 与 data-editor-theme 随预设一起翻转，
+// 再同步运行时状态；同时回写下拉选中项，保持三处（属性 / 下拉 / CM6）一致。
+function toggleTheme() {
+  const nextThemeId = getCounterpartTheme(getStoredEditorTheme());
+  setStoredEditorTheme(nextThemeId);
+  // === MARKRA_HOOK: THEMES === 主题预设：写 data-editor-theme / data-theme / data-skin
+  const applied = applyEditorThemePreset(nextThemeId);
+
+  // 玻璃拟态 skin 维度（data-skin="glass"）已由 applyEditorThemePreset 统一设置，
+  // 此处不再重复，保持单一事实源。
+
+  const sel = document.getElementById('editorThemeSelect');
+  if (sel) sel.value = applied;
+
+  syncThemeRuntime(getThemeKind(applied));
 }
 
 function updateThemeIcon() {
@@ -3310,16 +3352,16 @@ function init() {
   console.info(`[MD Editor] build v${APP_VERSION}`);
 
   
-  // 恢复主题
-  if (currentTheme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'default',
-      securityLevel: 'strict',
-      fontFamily: 'Inter, sans-serif',
-    });
-  }
+  // 恢复主题（修复 THM-01 的首屏分支）：
+  // data-theme / data-editor-theme 由 init 尾部的 applyEditorThemePreset 统一落定（单一事实源），
+  // 此处只按派生出的明暗基底对齐 mermaid 与主题图标。旧实现仅在 light 分支初始化 mermaid，
+  // 且默认 currentTheme='dark' 与默认预设「豆沙绿（亮）」矛盾，会造成首屏明暗错配。
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: currentTheme === 'dark' ? 'dark' : 'default',
+    securityLevel: 'strict',
+    fontFamily: 'Inter, sans-serif',
+  });
   updateThemeIcon();
 
   // 创建编辑器
@@ -3378,7 +3420,9 @@ function init() {
   applyEditorThemePreset(getStoredEditorTheme());   // 默认豆沙绿(亮) / 已存主题
   applyViewMode(getStoredViewMode());               // 视图模式（日常/专注/沉浸/全显）
   requestAnimationFrame(() => editor.requestMeasure());
-  initThemeSelect();                                 // 主题下拉绑定
+  // 主题下拉绑定：传入回调，使「下拉换预设」也同步 CM6 明暗扩展 / mermaid / 主题图标，
+  // 与 #btnTheme 明暗切换走同一条运行时同步路径（修复 THM-01 的反向不一致）。
+  initThemeSelect((_id, kind) => syncThemeRuntime(kind));
   initChromeModeButton();                            // 视图模式 ⊞ 按钮循环
   initWorkspaceSearchPanel(directoryHandle, openWithHandle);    // 工作区搜索面板（句柄走全局实时 directoryHandle）
   setGlobalDirectoryHandle(directoryHandle);                    // 同步当前文件夹句柄给搜索模块

@@ -88,10 +88,31 @@ export function applyNonConflicting({ chunks, srcView, dstView }) {
   }
 
   // map 阶段一次性取完所有 insert 文本（基于原始文档）。
+  //
+  // 越界钳制：@codemirror/merge 的类型声明明确写明 chunk 的 `to` 可能指向文档末尾之后
+  // （尾部块的 toA 常等于「文档长度 + 1」，用于表达“连同行尾换行一起替换”）。未经钳制
+  // 直接喂给 dispatch 会抛 RangeError，导致「应用非冲突变更」在最后一个差异块位于文末时
+  // 整体失败。compare-merge.js 与 compare.js 的 bulkTo 都已做同样钳制，此处必须对齐。
+  // 契约保真：本函数对 dstView 的原始契约只要求 `dispatch`（既有单测的 mock 即只提供
+  // dispatch）。这里读 state 仅为取长度做钳制，属可选增强，因此必须降级容错——长度
+  // 不可用时退化为 Infinity，Math.min 原样放行，行为与钳制前完全一致，不破坏调用方契约。
+  //
+  // ⚠ 必须校验到 `length` 是不是数字，只判断 `state` 存在是不够的：若 doc 上没有 length，
+  // 取到 undefined 会让 Math.min 返回 NaN，进而 sliceString(NaN, NaN) 得到空串，静默把
+  // insert 文本清空。这是修钳制时真实踩过的坑，由单测护栏拦下。
+  const docLen = (view) => {
+    const n = view && view.state && view.state.doc && view.state.doc.length;
+    return typeof n === "number" ? n : Infinity;
+  };
+  const dstLen = docLen(dstView);
+  const srcLen = docLen(srcView);
   const changes = sorted.map((c) => ({
-    from: c.dstFrom,
-    to: c.dstTo,
-    insert: srcView.state.doc.sliceString(c.srcFrom, c.srcTo),
+    from: Math.min(c.dstFrom, dstLen),
+    to: Math.min(c.dstTo, dstLen),
+    insert: srcView.state.doc.sliceString(
+      Math.min(c.srcFrom, srcLen),
+      Math.min(c.srcTo, srcLen)
+    ),
   }));
 
   dstView.dispatch({ changes });

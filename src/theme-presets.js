@@ -448,6 +448,43 @@ const EDITOR_THEME_KEY = 'md-editor-editor-theme';
 
 const isKnownTheme = (id) => EDITOR_THEMES.some((t) => t.id === id);
 
+// 默认暗色主题：豆沙绿（暗），与 DEFAULT_EDITOR_THEME 构成默认明暗对偶。
+export const DEFAULT_DARK_EDITOR_THEME = 'dou-sha-lv-dark';
+
+// 明暗对偶预设映射（同族配对）。
+// 背景（修复 THM-01）：data-theme 的单一事实源是「当前编辑器主题预设的 kind」
+// （见下方 applyEditorThemePreset）。因此「明/暗切换」不能只翻转一个独立变量，
+// 否则会被 applyEditorThemePreset 立刻覆盖回预设 kind，使按钮对 CSS 变量层完全失效
+// （表现为：编辑区文本变暗，但工具栏/预览区仍是亮色的割裂状态）。
+// 正确语义：明暗切换 = 切换到同族的对偶预设；无同族对偶时回退到目标 kind 的默认预设。
+const THEME_COUNTERPARTS = {
+  light: 'dark',
+  dark: 'light',
+  github: 'github-dark',
+  'github-dark': 'github',
+  'one-light': 'one-dark',
+  'one-dark': 'one-light',
+  'solarized-light': 'solarized-dark',
+  'solarized-dark': 'solarized-light',
+  'catppuccin-latte': 'catppuccin-mocha',
+  'catppuccin-mocha': 'catppuccin-latte',
+  'dou-sha-lv-light': 'dou-sha-lv-dark',
+  'dou-sha-lv-dark': 'dou-sha-lv-light',
+};
+
+// 读取预设的明暗归属；未知 id 视为 light（与 applyEditorThemePreset 的兜底保持一致）。
+export function getThemeKind(themeId) {
+  const t = EDITOR_THEMES.find((x) => x.id === themeId);
+  return t && t.kind === 'dark' ? 'dark' : 'light';
+}
+
+// 取当前预设的「明暗对偶」预设 id：优先同族配对，否则回退到目标 kind 的默认预设。
+export function getCounterpartTheme(themeId) {
+  const paired = THEME_COUNTERPARTS[themeId];
+  if (paired && isKnownTheme(paired)) return paired;
+  return getThemeKind(themeId) === 'dark' ? DEFAULT_EDITOR_THEME : DEFAULT_DARK_EDITOR_THEME;
+}
+
 // 应用主题预设：设置 documentElement 的 data-editor-theme；未知用默认。
 // 修复 BUG6：编辑器明暗基底(data-theme)与所选配色预设(kind)必须一致，否则出现
 // "暗色主题下编辑区仍白底"或双轴错乱。此处按预设 kind 同步 data-theme，
@@ -483,8 +520,11 @@ export function setStoredEditorTheme(themeId) {
   }
 }
 
-// 初始化主题下拉：填充 <option> 并绑定切换
-export function initThemeSelect() {
+// 初始化主题下拉：填充 <option> 并绑定切换。
+// onChange（可选）：预设切换后回调，入参 (themeId, kind)。宿主页据此同步自身运行时状态
+// （CM6 明暗扩展 / mermaid 主题 / 主题图标），避免「下拉选了暗色预设但编辑器仍用亮色扩展」
+// 的反向不一致（修复 THM-01 的第二个方向）。不传时行为与旧版完全一致，保持向后兼容。
+export function initThemeSelect(onChange) {
   const sel = document.getElementById('editorThemeSelect');
   if (!sel) return;
   sel.textContent = '';
@@ -498,7 +538,15 @@ export function initThemeSelect() {
   sel.value = current;
   sel.addEventListener('change', () => {
     setStoredEditorTheme(sel.value);
-    applyEditorThemePreset(sel.value);
+    const applied = applyEditorThemePreset(sel.value);
+    if (typeof onChange === 'function') {
+      try {
+        onChange(applied, getThemeKind(applied));
+      } catch (err) {
+        // 宿主回调失败不应阻断主题本身的切换（预设已生效）
+        console.error('[theme] onChange 回调失败', err);
+      }
+    }
   });
 }
 

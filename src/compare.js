@@ -28,6 +28,7 @@ import { pickFiles, enableFileDropZone } from "./compare-files.js";
 import {
   bindCompareEditorView,
   bindImageToolbarButton,
+  createImageUploadArea,
 } from "./compare-images.js";
 import { exportResult } from "./compare-export.js";
 import { exportDiffReport } from "./compare-diff-export.js";
@@ -37,6 +38,8 @@ import {
   getActivePane,
   saveActivePane,
 } from "./compare/save.js";
+// 批量接受块（chunk-ops 纯函数层）：应用所有非冲突块，单次 dispatch 不漂移
+import { applyNonConflicting } from "./compare/chunk-ops.js";
 // 活动栏描边：必须走 CodeMirror 的 editorAttributes facet，不能手工 classList。
 // 详见 pane-active.js 顶部说明（CM 会在焦点变化时整体覆写 .cm-editor 的 class）。
 import {
@@ -87,6 +90,10 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   let locationPane = null;
   /** @type {(()=>void)|null} 解绑 instance.onRefresh 的句柄 */
   let unsubscribeLocationPane = null;
+  /** @type {(()=>void)|null} 解绑 instance.onRefresh(状态计数/方向按钮) 的句柄 */
+  let unsubscribeStatus = null;
+  /** 各栏关闭（隐藏）状态，跨 render 保留（关掉某栏后切换两/三栏再切回仍保持） */
+  const paneOffState = { a: false, b: false, c: false };
   const LOCATION_PANE_KEY = "md-compare-location-pane";
   // 默认开启：概览是第三期的核心增量，首次进入应能直接看到；用户关掉后经 localStorage 记住。
   let locationPaneVisible = (() => {
@@ -148,9 +155,31 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   // 「保存」按钮由 compare.html 提供；该按钮可能尚未上线，必须做 null 保护
   const btnSave = $("btnSave");
 
+  // ── 批量合并相关元素（对齐 JetBrains Merge Revisions 顶部栏）──
+  const btnApplyNonConflicting = $("btnApplyNonConflicting");
+  const btnAcceptLeft = $("btnAcceptLeft");
+  const btnAcceptAll = $("btnAcceptAll");
+  const btnAcceptRight = $("btnAcceptRight");
+  const selHighlightWords = $("selHighlightWords");
+  const statusCountEl = $("compareStatusCount");
+  const compareViewHeader = $("compareViewHeader");
+  const comparePanes = $("comparePanes");
+  const btnApplyMerge = $("btnApplyMerge");
+  const btnAbortMerge = $("btnAbortMerge");
+  const paneTitles = {
+    a: $("paneTitleA"),
+    b: $("paneTitleB"),
+    c: $("paneTitleC"),
+  };
+  const paneToggles = {
+    a: $("paneToggleA"),
+    b: $("paneToggleB"),
+    c: $("paneToggleC"),
+  };
+
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.8.7（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.7";
+  // 运行时兜底 1.8.8（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.8";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -183,6 +212,13 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         unsubscribeLocationPane();
       } catch (_) {}
       unsubscribeLocationPane = null;
+    }
+    // 状态计数 / 方向按钮的 onRefresh 订阅必须【先于】视图实例销毁，否则回调会摸到已销毁的 view。
+    if (unsubscribeStatus) {
+      try {
+        unsubscribeStatus();
+      } catch (_) {}
+      unsubscribeStatus = null;
     }
     if (locationPane) {
       try {
@@ -299,6 +335,13 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
     skipSaveOnNextRender = false; // 一次性跳过已消费，后续 render（模式切换等）恢复回写
     teardown();
+    // 重置栏隐藏类（切换两/三栏时避免残留），随后按 paneOffState 重新应用
+    if (comparePanes) {
+      comparePanes.classList.remove("pane-off-a", "pane-off-b", "pane-off-c");
+      for (const p of ["a", "b", "c"]) {
+        if (paneOffState[p]) comparePanes.classList.add("pane-off-" + p);
+      }
+    }
     const aFile = files.a || { name: "Yours", content: "" };
     const bFile = files.b || { name: "Theirs", content: "" };
     const target = viewEls[mode];
@@ -372,6 +415,22 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     // 视图刚重建，描边随旧 DOM 一起消失了，必须按复位后的活动栏重新打上，
     // 否则重渲染后会出现「没有任何栏带描边、但 Ctrl+S 仍会写 A 栏」的静默不一致。
     applyActivePaneClass();
+
+    // 补齐 UI：刷新 per-pane 标题（Yours / Result / Theirs）与差异/冲突计数。
+    // 首帧 diff 尚未落定，计数可能为 0；onRefresh 订阅后会在 diff 算完时再刷一次。
+    updatePaneHeader();
+    syncDirectionTooltips();
+    // 修复 R5：createCompareMergeView 内部默认 wordDiffMode='word'，而 #selHighlightWords
+    // 是页面级静态控件，其值在 render 间不会重置。若不回填，用户选「关闭 / 按字符」后
+    // 一旦重渲染（切换视图模式、重新载入文件），装饰会悄悄退回「按词」，
+    // 造成「下拉显示 A、实际行为 B」的静默不一致。
+    onHighlightWordsChange();
+    updateStatusCount();
+    if (instance && typeof instance.onRefresh === "function") {
+      instance.onRefresh(() => {
+        updateStatusCount();
+      });
+    }
 
     // 位置概览侧栏：随视图一同重建（旧实例已在 teardown 中销毁）。
     // 首帧刷新同样推到下一帧：此刻视图 DOM 刚插入，CM 尚未完成首次 measure，
@@ -602,6 +661,296 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   }
 
+  // ── 状态计数：实时反映当前差异块 / 冲突块数量（对齐 "6 changes, 2 conflicts"）──
+  function updateStatusCount() {
+    if (!statusCountEl) return;
+    let changes = 0;
+    let conflicts = 0;
+    try {
+      if (instance && typeof instance.getChunks === "function") {
+        const chunks = instance.getChunks() || [];
+        changes = chunks.length;
+        // 冲突去重：三栏的一处物理冲突，在 compare-merge.js buildChunkModel() 中会被
+        // **双侧各标记一次**（相交的 ab 块与 bc 块同时置 conflict=true），若直接对全量
+        // filter 统计，1 处冲突会显示成「2 处冲突」。按 ab 层计数即等于冲突区域数。
+        // 注意：去重只作用于计数维度，getChunks() 源头必须保留两侧标记 —— 块级 revert
+        // 按钮要依据各自的 conflict 决定渲染单按钮还是双按钮（采纳左 / 采纳右）。
+        // 两栏模式 conflict 恒为 false（无三方冲突），该式自然归零，不受影响。
+        conflicts = chunks.filter((c) => c.conflict && c.layer === "ab").length;
+      }
+    } catch (err) {
+      console.error("[compare] 统计差异块失败:", err);
+    }
+    statusCountEl.textContent = `${changes} 处变更，${conflicts} 处冲突`;
+    statusCountEl.classList.toggle("has-conflict", conflicts > 0);
+  }
+
+  // ── per-pane 标题栏：根据当前模式与文件动态设置标题（Yours / Result / Theirs）──
+  function updatePaneHeader() {
+    if (!compareViewHeader || !comparePanes) return;
+    // 修复中-1：#compareViewHeader 在 compare.html 中初始带 hidden，必须显式解除，
+    // 否则整条标题栏被 CSS `.compare-view-header[hidden]{display:none}` 永久隐藏，
+    // 三栏的 Yours / Result / Theirs 标题永不显示。
+    compareViewHeader.hidden = false;
+    // 三栏显示三份标题，两栏显示两份；c 栏在两栏下隐藏
+    const visiblePanes = mode === "three" ? ["a", "b", "c"] : ["a", "b"];
+    const titles = {
+      a: files.a ? files.a.name : "Yours",
+      b: mode === "three" ? "Result" : files.b ? files.b.name : "Theirs",
+      c: files.b ? files.b.name : "Theirs",
+    };
+    for (const p of ["a", "b", "c"]) {
+      const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
+      if (!el) continue;
+      const isVisible = visiblePanes.includes(p);
+      el.hidden = !isVisible;
+      // 修复 R6：跨 render 重放关闭态视觉（.pane-header 是静态 DOM，但 paneOffState
+      // 可能在上一轮 render 前就被改过，这里统一以状态为准，保证幂等）
+      el.classList.toggle("is-off", !!paneOffState[p]);
+      const titleEl = paneTitles[p];
+      if (titleEl) titleEl.textContent = titles[p];
+    }
+  }
+
+  // ── 关闭态视觉同步（修复 R6）：CSS 已定义 .pane-header.is-off，此前无人添加该类 ──
+  function syncPaneOffClass(p) {
+    const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
+    if (el) el.classList.toggle("is-off", !!paneOffState[p]);
+  }
+
+  // ── 方向选择器文案（按模式动态，修复低-1：两栏 left/right 实为 Yours↔Theirs）──
+  // 三栏：left=Yours→结果、right=Theirs→结果；两栏：left=Yours→Theirs、right=Theirs→Yours。
+  function syncDirectionTooltips() {
+    const isTwo = mode === "two";
+    if (btnAcceptLeft)
+      btnAcceptLeft.title = isTwo
+        ? "接受左侧全部块（Yours → Theirs）"
+        : "接受左侧全部块（Yours → 结果）";
+    if (btnAcceptAll)
+      btnAcceptAll.title = isTwo
+        ? "用左栏覆盖全部（Yours 优先）"
+        : "两侧全部接受（先左后右，右侧覆盖冲突处）";
+    if (btnAcceptRight)
+      btnAcceptRight.title = isTwo
+        ? "接受右侧全部块（Theirs → Yours）"
+        : "接受右侧全部块（Theirs → 结果）";
+  }
+
+  // ── 关闭某栏：仅视觉隐藏该栏（display:none）+ 触发重绘 ──
+  // 简单方案：给 compare-panes 加 pane-off-<p> 类，CSS 收缩为该栏宽度 0；
+  // 不能用 CSS 隐藏整列（会破坏 MergeView 的滚动联动），故仅收缩宽度。
+  function closePane(p) {
+    if (!comparePanes) return;
+    comparePanes.classList.add(`pane-off-${p}`);
+    paneOffState[p] = true; // 跨 render 保留关闭状态
+    if (paneToggles[p]) paneToggles[p].checked = false;
+    syncPaneOffClass(p); // 修复 R6：标题格压暗 + 删除线，否则关栏后无任何视觉反馈
+    scheduleAfterLayout(() => {
+      if (instance && typeof instance.redrawConnectors === "function") {
+        instance.redrawConnectors();
+      }
+    });
+  }
+  function reopenPane(p) {
+    if (!comparePanes) return;
+    comparePanes.classList.remove(`pane-off-${p}`);
+    paneOffState[p] = false; // 跨 render 保留关闭状态
+    if (paneToggles[p]) paneToggles[p].checked = true;
+    syncPaneOffClass(p); // 修复 R6：撤下压暗 + 删除线
+    scheduleAfterLayout(() => {
+      if (instance && typeof instance.redrawConnectors === "function") {
+        instance.redrawConnectors();
+      }
+    });
+  }
+
+  // ── 应用所有非冲突变更（一键解决无冲突区，冲突块留给人工裁决）──
+  // 三栏：ab 层（Yours→Result）与 bc 层（Theirs→Result）共用同一个 Result 文档。
+  // 若分两次 dispatch，ab 层改动后 Result 内容已变，bc 层会把这些区域重新识别为
+  // 「Result 与 Theirs 的差异」并覆盖回去，导致 ab 层改动丢失（实测：只有 Theirs 生效）。
+  // 正确做法：一次性收集两层的 changes（均基于 dispatch 前的同一 Result 坐标），
+  // 按 dstFrom 排序后合并为单次 dispatch；层间区间重叠则中止，避免静默损坏。
+  // 两栏：只有一层，走原有路径。
+  function applyNonConflictingChunks() {
+    if (!instance || typeof instance.getChunks !== "function") return;
+    const chunks = instance.getChunks() || [];
+    const nonConf = chunks.filter((c) => !c.conflict);
+    if (!nonConf.length) return;
+    if (mode === "three") {
+      const abViews = instance.getLayerViews("ab");
+      const bcViews = instance.getLayerViews("bc");
+      const ab = nonConf.filter((c) => c.layer === "ab");
+      const bc = nonConf.filter((c) => c.layer === "bc");
+      const changes = [];
+      const pushChanges = (srcView, dstView, list) => {
+        if (!srcView || !dstView || !list.length) return;
+        const dstLen = dstView.state.doc.length;
+        const srcLen = srcView.state.doc.length;
+        for (const c of list) {
+          changes.push({
+            from: Math.min(c.dstFrom, dstLen),
+            to: Math.min(c.dstTo, dstLen),
+            insert: srcView.state.doc.sliceString(
+              Math.min(c.srcFrom, srcLen),
+              Math.min(c.srcTo, srcLen)
+            ),
+          });
+        }
+      };
+      pushChanges(abViews.srcView, abViews.dstView, ab);
+      pushChanges(bcViews.srcView, bcViews.dstView, bc);
+      changes.sort((a, b) => a.from - b.from);
+      for (let i = 1; i < changes.length; i++) {
+        if (changes[i - 1].to > changes[i].from) {
+          console.error(
+            "[compare] 三栏非冲突块跨层区间重叠，已中止以免损坏 Result"
+          );
+          return;
+        }
+      }
+      abViews.dstView.dispatch({ changes });
+    } else {
+      const views = instance.getLayerViews("ab");
+      applyNonConflicting({
+        chunks: nonConf,
+        srcView: views.srcView,
+        dstView: views.dstView,
+      });
+    }
+    updateStatusCount();
+  }
+
+  // ── 方向选择器：<< 左 / 全部 / 右 >> 批量接受某一侧全部块（含冲突块）──
+  // 关键正确性：向同一 dstView 写入多个块必须合并为【单次 dispatch】，
+  // 否则后续块 dstFrom/dstTo 仍基于原始文档、从第 2 个起写错位置（漂移）。
+  // 收集每一块的 changes（from/to/insert），按 dstFrom 升序排序后整批 dispatch。
+  function acceptAllDir(dir) {
+    if (!instance || typeof instance.getChunks !== "function") return;
+    const chunks = instance.getChunks() || [];
+    const isTwo = mode === "two";
+
+    function bulkTo(srcView, dstView, layerChunks) {
+      if (!srcView || !dstView || !layerChunks.length) return;
+      const len = dstView.state.doc.length;
+      const sorted = [...layerChunks].sort((a, b) => a.dstFrom - b.dstFrom);
+      // 防御：相邻块区间重叠则中止，避免静默损坏文档（同 applyNonConflicting）
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i - 1].dstTo > sorted[i].dstFrom) {
+          console.error(
+            `[compare] 批量接受 ${dir} 检测到重叠块区间，已中止以免损坏文档`
+          );
+          return;
+        }
+      }
+      const changes = sorted.map((c) => ({
+        from: Math.min(c.dstFrom, len),
+        to: Math.min(c.dstTo, len),
+        insert: srcView.state.doc.sliceString(c.srcFrom, c.srcTo),
+      }));
+      dstView.dispatch({ changes });
+    }
+
+    if (dir === "left" || dir === "all") {
+      if (isTwo) {
+        const views = instance.getLayerViews("ab");
+        bulkTo(views.srcView, views.dstView, chunks.filter((c) => c.layer === "ab"));
+      } else if (dir === "left") {
+        const views = instance.getLayerViews("ab"); // a→b (Yours→Result)
+        bulkTo(views.srcView, views.dstView, chunks.filter((c) => c.layer === "ab"));
+      }
+      // dir === "all" 三栏：与下方 right 阶段合并为单次 dispatch，避免 ab 层被 bc 层覆盖。
+    }
+    if (dir === "right" || dir === "all") {
+      if (isTwo) {
+        // 两栏右：b→a（Theirs→Yours）。
+        // ① dir==='all' 时上面的 left 阶段刚改写过 b，快照里的 dstFrom/dstTo 已过期，必须重取；
+        // ② 把 src/dst 角色对调后交给 bulkTo，从而复用同一套「按 dstFrom 排序 + 重叠区间校验
+        //    + 越界钳制」防御。此前这里是手写 dispatch，缺重叠校验，相邻块接触时 CM6 会直接
+        //    抛 Overlapping changes，导致后续 syncRevertControls / updateStatusCount 都不执行。
+        const srcChunks = dir === "all" ? instance.getChunks() || [] : chunks;
+        const rightChunks = srcChunks
+          .filter((c) => c.layer === "ab")
+          .map((c) => ({
+            ...c,
+            srcFrom: c.dstFrom, // 取 b（Theirs）的内容
+            srcTo: c.dstTo,
+            dstFrom: c.srcFrom, // 写回 a（Yours）的区间
+            dstTo: c.srcTo,
+          }));
+        // getLayerViews('right') 即 { srcView: mv.b, dstView: mv.a }，两栏实例已提供该反向端点
+        const views = instance.getLayerViews("right");
+        bulkTo(views.srcView, views.dstView, rightChunks);
+      } else if (dir === "right") {
+        // 三栏单独右：Theirs→Result（bc 层）
+        const views = instance.getLayerViews("bc"); // theirsView→b
+        bulkTo(views.srcView, views.dstView, chunks.filter((c) => c.layer === "bc"));
+      }
+      // dir === "all" 三栏：在下面统一处理。
+    }
+
+    // 三栏「全部」：把 ab + bc 两层 changes 合并为单次 dispatch，原因同 applyNonConflictingChunks。
+    if (!isTwo && dir === "all") {
+      const abViews = instance.getLayerViews("ab");
+      const bcViews = instance.getLayerViews("bc");
+      const allChanges = [];
+      const pushAll = (srcView, dstView, list) => {
+        if (!srcView || !dstView || !list.length) return;
+        const dstLen = dstView.state.doc.length;
+        const srcLen = srcView.state.doc.length;
+        for (const c of list) {
+          allChanges.push({
+            from: Math.min(c.dstFrom, dstLen),
+            to: Math.min(c.dstTo, dstLen),
+            insert: srcView.state.doc.sliceString(
+              Math.min(c.srcFrom, srcLen),
+              Math.min(c.srcTo, srcLen)
+            ),
+          });
+        }
+      };
+      pushAll(abViews.srcView, abViews.dstView, chunks.filter((c) => c.layer === "ab"));
+      pushAll(bcViews.srcView, bcViews.dstView, chunks.filter((c) => c.layer === "bc"));
+      allChanges.sort((a, b) => a.from - b.from);
+      for (let i = 1; i < allChanges.length; i++) {
+        if (allChanges[i - 1].to > allChanges[i].from) {
+          console.error("[compare] 三栏「全部」块区间重叠，已中止");
+          return;
+        }
+      }
+      abViews.dstView.dispatch({ changes: allChanges });
+    }
+    if (instance.syncRevertControls) instance.syncRevertControls();
+    updateStatusCount();
+  }
+
+  // ── 行内字词高亮粒度切换 ──
+  function onHighlightWordsChange() {
+    if (!selHighlightWords || !instance) return;
+    const modeVal = selHighlightWords.value || "word";
+    if (typeof instance.setWordDiffMode !== "function") return;
+    // 本函数已被 render() 复用作「重建后回填」（修复 R5）。render 尾部还要挂载概览侧栏，
+    // 若此处抛出会连带掐断后续初始化，故就地兜住：粒度失败只是装饰降级，不该拖垮整页。
+    try {
+      instance.setWordDiffMode(modeVal);
+    } catch (e) {
+      console.error("[compare] 设置行内高亮粒度失败:", e);
+    }
+  }
+
+  // ── 底部 APPLY / ABORT ──
+  function onApplyMerge() {
+    // APPLY：导出 / 保存当前合并结果（复用现有导出逻辑）
+    onExportResult();
+  }
+  function onAbortMerge() {
+    // ABORT：放弃本次合并并关闭对比页（对比页通过 window.open 打开）
+    try {
+      window.close();
+    } catch (_) {
+      /* 某些环境禁止脚本关闭窗口：静默忽略 */
+    }
+  }
+
   // ── 绑定工具栏按钮 ──
   if (btnViewTwo) btnViewTwo.addEventListener("click", () => switchMode("two"));
   if (btnViewThree) btnViewThree.addEventListener("click", () => switchMode("three"));
@@ -618,6 +967,66 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   if (btnToggleLocationPane)
     btnToggleLocationPane.addEventListener("click", toggleLocationPane);
   if (btnSave) btnSave.addEventListener("click", onSaveActive);
+
+  // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
+  if (btnApplyNonConflicting)
+    btnApplyNonConflicting.addEventListener("click", applyNonConflictingChunks);
+  // 修复 R7：CSS 已定义 .compare-dir-btn.active（选中态压在相邻按钮之上），此前无人添加该类，
+  // 属死代码。方向选择器是【即时动作】而非持久模式，故不做持久选中态，
+  // 改为点击后短暂点亮 —— 批量合并的文档变化常在视口外，缺少反馈时用户无法确认「点中了哪个」。
+  const DIR_FLASH_MS = 700;
+  const dirFlashTimers = new WeakMap();
+  function flashDirBtn(btn) {
+    if (!btn) return;
+    btn.classList.add("active");
+    const prev = dirFlashTimers.get(btn);
+    if (prev) clearTimeout(prev); // 连点时重置计时，避免前一次的定时器提前熄灯
+    dirFlashTimers.set(
+      btn,
+      setTimeout(() => {
+        btn.classList.remove("active");
+        dirFlashTimers.delete(btn);
+      }, DIR_FLASH_MS)
+    );
+  }
+  if (btnAcceptLeft)
+    btnAcceptLeft.addEventListener("click", () => {
+      flashDirBtn(btnAcceptLeft);
+      acceptAllDir("left");
+    });
+  if (btnAcceptAll)
+    btnAcceptAll.addEventListener("click", () => {
+      flashDirBtn(btnAcceptAll);
+      acceptAllDir("all");
+    });
+  if (btnAcceptRight)
+    btnAcceptRight.addEventListener("click", () => {
+      flashDirBtn(btnAcceptRight);
+      acceptAllDir("right");
+    });
+  if (selHighlightWords)
+    selHighlightWords.addEventListener("change", onHighlightWordsChange);
+
+  // ── 底部全局操作栏：APPLY / ABORT ──
+  if (btnApplyMerge) btnApplyMerge.addEventListener("click", onApplyMerge);
+  if (btnAbortMerge) btnAbortMerge.addEventListener("click", onAbortMerge);
+
+  // ── per-pane 标题栏：勾选框（关闭/恢复栏）与关闭按钮 ──
+  for (const p of ["a", "b", "c"]) {
+    const toggle = paneToggles[p];
+    const closeBtn = document.querySelector(
+      `.pane-header-close[data-pane="${p}"]`
+    );
+    if (toggle) {
+      toggle.addEventListener("change", () => {
+        if (toggle.checked) reopenPane(p);
+        else closePane(p);
+      });
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => closePane(p));
+    }
+  }
 
   // ── 概览侧栏快捷键 L（不带修饰键，且不能在编辑器内触发，否则会吞掉字母输入） ──
   document.addEventListener("keydown", (e) => {
@@ -696,6 +1105,21 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         return 0;
       },
     });
+  }
+
+  // ── 图片拖拽区（CMPX-08 修复）：把占位 #compareImageDrop 替换为真实拖拽上传区 ──
+  const imageDropPlaceholder = document.getElementById("compareImageDrop");
+  if (imageDropPlaceholder) {
+    const area = createImageUploadArea({
+      // 与「图片」按钮同源：取当前活动编辑器视图的光标作为插入位置
+      getCursor: () => {
+        if (activeView && activeView.state) {
+          return activeView.state.selection.main.head;
+        }
+        return 0;
+      },
+    });
+    imageDropPlaceholder.replaceWith(area);
   }
 
   // ── 文件拖拽（E4-01）：拖入文件区即载入为 Yours / Theirs，无需走文件框 ──

@@ -13,7 +13,7 @@
     <header class="toolbar compare-toolbar" id="compareToolbar">
       <div class="toolbar-left">
         <span class="logo-text">MD Compare</span>
-        <span class="app-version" id="compareVersion" title="扩展版本">v1.8.7</span>
+        <span class="app-version" id="compareVersion" title="扩展版本">v1.8.8</span>
       </div>
 
       <div class="toolbar-center">
@@ -33,6 +33,28 @@
           <!-- 默认全文展开，所以初始文案是「折叠未改」；compare.js 会随状态同步该文案 -->
           <button class="compare-toolbar-btn" id="btnToggleCollapse" title="折叠 / 展开未修改的区域（默认全文展开，快捷键 E）">折叠未改</button>
           <button class="compare-toolbar-btn" id="btnAcceptTheirs" title="把光标所在的 Theirs 块并入合并结果">接受 Theirs 块</button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <!-- 批量合并（对齐 JetBrains Merge Revisions 顶部栏）：
+             非冲突一键应用 + 方向选择器 + 行内高亮粒度 + 状态计数 -->
+        <div class="toolbar-group compare-merge-group">
+          <button class="compare-toolbar-btn compare-toolbar-btn-primary" id="btnApplyNonConflicting" title="一键应用所有不冲突的变更（冲突块保留给人工裁决）">应用非冲突变更</button>
+          <div class="compare-dir-group" role="group" aria-label="批量接受方向">
+            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptLeft" data-dir="left" title="接受左侧全部块（Yours → Theirs）">&lt;&lt; 左</button>
+            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptAll" data-dir="all" title="两侧全部接受（先左后右，右侧覆盖冲突处）">全部</button>
+            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptRight" data-dir="right" title="接受右侧全部块（Theirs → Yours）">右 &gt;&gt;</button>
+          </div>
+          <label class="compare-toolbar-field" for="selHighlightWords">
+            <span class="compare-toolbar-field-label">行内高亮</span>
+            <select class="compare-toolbar-select" id="selHighlightWords" title="行内字词级高亮粒度：关闭 / 按词 / 按字符">
+              <option value="off">关闭</option>
+              <option value="word" selected>按词</option>
+              <option value="char">按字符</option>
+            </select>
+          </label>
+          <span class="compare-status-count" id="compareStatusCount" title="当前差异块与冲突块数量">0 处变更，0 处冲突</span>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -72,11 +94,42 @@
            右侧 aside#locationPane 为「位置概览」侧栏（第三期），内容由
            src/compare/location-pane.js 动态渲染；隐藏时加 hidden 属性。 -->
       <section class="compare-views" id="compareViews">
-        <div class="compare-view compare-view-two" id="viewTwo" hidden></div>
-        <div class="compare-view compare-view-three" id="viewThree" hidden></div>
+        <!-- #comparePanes 是「栏标题 + 编辑器」的纵向容器。
+             必须存在这一层包裹：.compare-views 本身是横向 flex（编辑区 | 位置概览侧栏），
+             若把标题栏直接放进去会被排成第四列。而 #viewTwo / #viewThree 在三栏下会被
+             compare-merge.js 加上 .compare-three-layout（flex-direction:row !important），
+             标题栏也不能塞进视图容器内部，否则会被排到编辑器左边。 -->
+        <div class="compare-panes" id="comparePanes">
+          <!-- per-pane 标题栏：勾选框 + 标题 + 关闭按钮，栏数与标题由 compare.js 按模式动态设置 -->
+          <div class="compare-view-header" id="compareViewHeader" hidden>
+            <div class="pane-header" data-pane="a">
+              <input type="checkbox" class="pane-header-toggle" id="paneToggleA" checked aria-label="显示 / 隐藏左栏" />
+              <span class="pane-header-title" id="paneTitleA">Yours</span>
+              <button type="button" class="pane-header-close" data-pane="a" title="关闭该栏" aria-label="关闭左栏">×</button>
+            </div>
+            <div class="pane-header" data-pane="b">
+              <input type="checkbox" class="pane-header-toggle" id="paneToggleB" checked aria-label="显示 / 隐藏中栏" />
+              <span class="pane-header-title" id="paneTitleB">Result</span>
+              <button type="button" class="pane-header-close" data-pane="b" title="关闭该栏" aria-label="关闭中栏">×</button>
+            </div>
+            <div class="pane-header" data-pane="c">
+              <input type="checkbox" class="pane-header-toggle" id="paneToggleC" checked aria-label="显示 / 隐藏右栏" />
+              <span class="pane-header-title" id="paneTitleC">Theirs</span>
+              <button type="button" class="pane-header-close" data-pane="c" title="关闭该栏" aria-label="关闭右栏">×</button>
+            </div>
+          </div>
+          <div class="compare-view compare-view-two" id="viewTwo" hidden></div>
+          <div class="compare-view compare-view-three" id="viewThree" hidden></div>
+        </div>
         <aside class="compare-location-pane" id="locationPane" aria-label="位置概览" hidden></aside>
       </section>
     </main>
+
+    <!-- 底部全局操作栏：APPLY 落地合并结果，ABORT 放弃并关闭对比页 -->
+    <footer class="compare-footer" id="compareFooter">
+      <button type="button" class="compare-footer-btn compare-footer-apply" id="btnApplyMerge" title="导出 / 保存当前合并结果">APPLY</button>
+      <button type="button" class="compare-footer-btn compare-footer-abort" id="btnAbortMerge" title="放弃本次合并并关闭对比页">ABORT</button>
+    </footer>
 
     <script type="module" src="./compare.js"></script>
   </body>
