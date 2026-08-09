@@ -228,6 +228,87 @@ export async function runWorkspaceSearch(query, directoryHandle = null) {
 }
 
 /**
+ * 取回某个结果路径对应的文件句柄（runWorkspaceSearch 期间缓存）。
+ * 供查找/替换面板点击结果时在编辑器内打开该文件。
+ * @param {string} path
+ * @returns {FileSystemFileHandle|null}
+ */
+export function getWorkspaceFileHandle(path) {
+  return resultHandles.get(path) || null;
+}
+
+/**
+ * 字面量（非正则）全量替换，语义与 searchInFiles 的匹配口径一致：
+ * 默认大小写不敏感、命中不重叠、按 needle 长度整体前进。
+ * @param {string} text
+ * @param {string} query
+ * @param {string} replacement
+ * @param {boolean} [caseSensitive=false]
+ * @returns {{text:string, count:number}}
+ */
+export function replaceAllOccurrences(text, query, replacement, caseSensitive = false) {
+  const src = String(text ?? '');
+  const needle = String(query ?? '');
+  if (!needle) return { text: src, count: 0 };
+
+  const hay = caseSensitive ? src : src.toLowerCase();
+  const ned = caseSensitive ? needle : needle.toLowerCase();
+  const repl = String(replacement ?? '');
+
+  let out = '';
+  let from = 0;
+  let count = 0;
+  let idx;
+  while ((idx = hay.indexOf(ned, from)) !== -1) {
+    out += src.slice(from, idx) + repl;
+    from = idx + needle.length;
+    count++;
+  }
+  out += src.slice(from);
+  return { text: out, count };
+}
+
+/**
+ * 在工作区所有 Markdown 文件中执行字面量替换并落盘。
+ *
+ * ⚠ 直接写磁盘、不可撤销：调用方（查找/替换面板）必须先向用户二次确认。
+ * skipPaths 用于跳过「当前正在编辑的文件」——那份内容以编辑器缓冲区为准，
+ * 由 CM6 自己的 replaceAll 处理，若这里再写一遍磁盘会覆盖掉用户的未保存修改。
+ *
+ * @param {string} query
+ * @param {string} replacement
+ * @param {{directoryHandle?:FileSystemDirectoryHandle|null, caseSensitive?:boolean, skipPaths?:string[]}} [options]
+ * @returns {Promise<{files:number, replacements:number, failed:string[]}>}
+ */
+export async function replaceInWorkspace(query, replacement, options = {}) {
+  const { directoryHandle = null, caseSensitive = false, skipPaths = [] } = options;
+  const summary = { files: 0, replacements: 0, failed: [] };
+  const handle = resolveDirectoryHandle(directoryHandle);
+  if (!query || !handle) return summary;
+
+  const skip = new Set(skipPaths);
+  const markdownFiles = await collectMarkdownFiles(handle);
+
+  for (const file of markdownFiles) {
+    if (skip.has(file.path)) continue;
+    try {
+      const fileObj = await file.handle.getFile();
+      const content = await fileObj.text();
+      const { text, count } = replaceAllOccurrences(content, query, replacement, caseSensitive);
+      if (!count) continue;
+      const writable = await file.handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      summary.files += 1;
+      summary.replacements += count;
+    } catch (err) {
+      summary.failed.push(file.path);
+    }
+  }
+  return summary;
+}
+
+/**
  * 防抖封装。
  * @param {Function} fn
  * @param {number} wait
@@ -249,6 +330,10 @@ function debounce(fn, wait) {
  * @param {FileSystemDirectoryHandle|null} [directoryHandle=null]
  * @param {Function|null} [onOpenFile=null] 形如 (detail: {path, handle}) => void
  */
+// 控制 initWorkspaceSearchPanel 注册的监听器生命周期：重复调用时先 abort 旧控制器，
+// 避免 document 级 keydown（Escape）等监听器被重复叠加绑定。
+let wsListenersAC = null;
+
 export function initWorkspaceSearchPanel(directoryHandle = null, onOpenFile = null) {
   activeDirectoryHandle = directoryHandle || null;
 
@@ -257,7 +342,9 @@ export function initWorkspaceSearchPanel(directoryHandle = null, onOpenFile = nu
   const input = document.getElementById('workspaceSearchInput');
   const resultsEl = document.getElementById('workspaceSearchResults');
 
-  if (!openBtn || !modal || !input || !resultsEl) return;
+  // openBtn 可缺省：v1.8.9 起「工作区搜索」已并入查找/替换面板的子按钮，
+  // 工具栏不再单独放入口，但独立弹窗仍保留（供旧入口 / 外部调用 openWorkspaceSearchModal）。
+  if (!modal || !input || !resultsEl) return;
 
   const closeModal = () => {
     modal.hidden = true;
@@ -265,7 +352,7 @@ export function initWorkspaceSearchPanel(directoryHandle = null, onOpenFile = nu
     resultsEl.replaceChildren();
   };
 
-  openBtn.addEventListener('click', () => {
+  const openModal = () => {
     modal.hidden = false;
     try {
       const recent = localStorage.getItem(RECENT_QUERY_KEY);
@@ -274,15 +361,22 @@ export function initWorkspaceSearchPanel(directoryHandle = null, onOpenFile = nu
       /* localStorage 不可用时忽略 */
     }
     input.focus();
-  });
+  };
+
+  // 重复初始化时撤销上一次注册的监听器，杜绝叠加绑定。
+  if (wsListenersAC) wsListenersAC.abort();
+  wsListenersAC = typeof AbortController === 'function' ? new AbortController() : null;
+  const signal = wsListenersAC ? wsListenersAC.signal : undefined;
+
+  if (openBtn) openBtn.addEventListener('click', openModal, { signal });
 
   modal.addEventListener('click', (event) => {
     if (event.target === modal) closeModal();
-  });
+  }, { signal });
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !modal.hidden) closeModal();
-  });
+  }, { signal });
 
   const performSearch = debounce(async (q) => {
     try {
