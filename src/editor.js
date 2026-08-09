@@ -75,9 +75,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.8"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.9"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.8";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.9";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -290,10 +290,16 @@ const selectedBracketHighlight = ViewPlugin.fromClass(
       
       if (matchPos == null) return Decoration.none;
       const deco = Decoration.mark({ class: 'cm-bracket-match-active' });
+      // 必须传 sort=true：选中的是「闭符号」时（`)]}>”’）` 或处于偶数序位的
+      // 自配对 ' " ` ），findPairedBracket 走 dir=-1 / findSelfPair 反向分支，
+      // 返回的 matchPos < sel.from，数组即为逆序。RangeSet.of 不排序会直接抛
+      // 「Ranges must be added sorted by `from` position and `startSide`」，
+      // 整个 ViewPlugin 被 CM6 卸载（控制台 "CodeMirror plugin crashed"），
+      // 连带该 EditorView 上后续依赖装饰的交互（如选区拖拽手柄）一起失效。
       return Decoration.set([
         deco.range(sel.from, sel.to),
         deco.range(matchPos, matchPos + 1),
-      ]);
+      ], true);
     }
   },
   { decorations: (v) => v.decorations }
@@ -1827,10 +1833,11 @@ function tauriSourceFilePath() {
   return p && typeof window.__tauriFileHandle === 'function' ? p : null;
 }
 
-// 解析落盘目录。interactive=true 时允许弹目录选择器（必须在用户手势中调用）。
+// 解析落盘目录（纯推导，绝不弹目录选择器——弹窗只由「右键自动保存按钮」触发）。
 //   桌面端 → { kind: 'tauri', dir }
 //   Web 侧 → { kind: 'handle', handle }
-async function resolveAutosaveTarget({ interactive = false } = {}) {
+//   推导不出 → null（调用方提示用户右键授权目录）
+async function resolveAutosaveTarget() {
   const srcPath = tauriSourceFilePath();
   if (srcPath) {
     const idx = Math.max(srcPath.lastIndexOf('/'), srcPath.lastIndexOf('\\'));
@@ -1846,13 +1853,10 @@ async function resolveAutosaveTarget({ interactive = false } = {}) {
     }
   }
 
-  if (autosaveDirHandle) return { kind: 'handle', handle: autosaveDirHandle };
-
   // 只有 File System Access API 打开的单文件句柄拿不到父目录（规范限制），
-  // 此时请用户授权一次目录（建议就选源文件所在目录）。
-  if (!interactive || typeof window.showDirectoryPicker !== 'function') return null;
-  autosaveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-  return { kind: 'handle', handle: autosaveDirHandle };
+  // 这种情况下需要用户右键按钮授权一次目录（建议就选源文件所在目录）。
+  if (autosaveDirHandle) return { kind: 'handle', handle: autosaveDirHandle };
+  return null;
 }
 
 // 实际落盘一份副本，返回展示用路径。由 autosave.js 的定时器调用。
@@ -1891,7 +1895,7 @@ function initAutosaveDiskUI() {
   if (!btn || !input) return;
 
   const OFF_TITLE =
-    '自动保存（开关）：每 N 秒在源文件同目录生成「文件名_时间戳.md」副本，不覆盖源文件';
+    '自动保存（左键开关）：每 N 秒在源文件同目录生成「文件名_时间戳.md」副本，不覆盖源文件；右键可指定保存目录';
   let announcedFirstSave = false;
 
   input.value = String(
@@ -1930,6 +1934,22 @@ function initAutosaveDiskUI() {
     },
   });
 
+  const startAutosave = () => {
+    const sec = normalizeIntervalSec(input.value);
+    input.value = String(sec);
+    localStorage.setItem('md-editor-autosave-interval', String(sec));
+    announcedFirstSave = false;
+    resetDiskAutosaveBaseline();
+    autosaveToDisk(sec);
+    syncButton();
+    showToast(`自动保存已开启：每 ${sec} 秒写入一份带时间戳的副本`, 'success');
+  };
+
+  // 左键 = 纯粹的开关（原设计）。此处绝不弹目录选择器：
+  // 旧实现在开启前调用 resolveAutosaveTarget({ interactive: true })，
+  // 只要落盘目录无法自动推导（Web 侧单文件句柄拿不到父目录 / 桌面端尚未打开文件），
+  // 点一下按钮就会弹出「选择文件夹」窗口，与「点击即开关」的设计不符。
+  // 需要显式授权目录时改由右键触发（见下方 contextmenu）。
   btn.addEventListener('click', async () => {
     if (isAutosaveToDiskOn()) {
       stopAutosaveToDisk();
@@ -1939,23 +1959,39 @@ function initAutosaveDiskUI() {
     }
 
     try {
-      // 开启前先确定落盘目录（本次点击是用户手势，可以弹目录选择器）
-      const target = await resolveAutosaveTarget({ interactive: true });
+      const target = await resolveAutosaveTarget();
       if (!target) {
-        showToast('无法确定落盘目录：请先用「打开文件夹」或授权一个目录', 'error');
+        // 右键入口不易被发现，这里把「下一步该做什么」放在句首而不是句尾。
+        showToast(
+          '尚未指定保存目录：请【右键点击此按钮】选择一个目录，即可开启自动保存（或先打开文件 / 文件夹，再左键开启）',
+          'error'
+        );
         return;
       }
-      const sec = normalizeIntervalSec(input.value);
-      input.value = String(sec);
-      localStorage.setItem('md-editor-autosave-interval', String(sec));
-      announcedFirstSave = false;
-      resetDiskAutosaveBaseline();
-      autosaveToDisk(sec);
-      syncButton();
-      showToast(`自动保存已开启：每 ${sec} 秒写入一份带时间戳的副本`, 'success');
+      startAutosave();
+    } catch (err) {
+      showToast('开启自动保存失败: ' + (err && err.message ? err.message : err), 'error');
+    }
+  });
+
+  // 右键 = 显式选择落盘目录（唯一会弹目录选择器的入口），选完即开启。
+  btn.addEventListener('contextmenu', async (e) => {
+    e.preventDefault();
+    if (typeof window.showDirectoryPicker !== 'function') {
+      showToast('当前环境不支持选择目录', 'error');
+      return;
+    }
+    try {
+      autosaveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      if (isAutosaveToDiskOn()) {
+        syncButton();
+        showToast(`自动保存目录已切换为「${autosaveDirHandle.name}」`, 'success');
+        return;
+      }
+      startAutosave();
     } catch (err) {
       if (err && err.name === 'AbortError') return; // 用户取消目录选择
-      showToast('开启自动保存失败: ' + (err && err.message ? err.message : err), 'error');
+      showToast('选择自动保存目录失败: ' + (err && err.message ? err.message : err), 'error');
     }
   });
 
@@ -2006,11 +2042,72 @@ function setEditorContent(content) {
   
 }
 
+// ==========================================
+// 编辑区标题栏：文件图标 + 绝对路径
+// ==========================================
+// 解析当前文件的展示路径。按「信息量从高到低」逐级回退：
+//   1) 桌面端(Tauri)句柄自带 .path        → 真正的绝对路径（本需求的主目标）
+//   2) 已打开文件夹(FSA) + 相对目录        → 「根文件夹名/子目录/文件名」
+//      （浏览器安全模型不暴露磁盘绝对路径，这已是 Web 侧能拿到的最完整路径）
+//   3) file:// 打开                        → 由 URL 反解出路径
+//   4) 兜底                                → 仅文件名
+// 返回 null 表示当前没有任何已打开文件。
+const NO_FILE_NAMES = new Set(['unsaved', '未打开文件', '']);
+
+function resolveCurrentFilePath() {
+  const name = currentFileName && !NO_FILE_NAMES.has(currentFileName) ? currentFileName : null;
+
+  const handlePath =
+    currentFileHandle && typeof currentFileHandle.path === 'string' ? currentFileHandle.path : null;
+  if (handlePath) return handlePath.replace(/\\/g, '/');
+
+  // currentDirectoryPath !== null 才说明当前文件确实来自已打开的文件树
+  // （与 resolveAutosaveTarget 同一判据）。仅凭 directoryHandle 存在就拼路径，
+  // 会把「用打开文件对话框单独打开的外部文件」误标成工作区内文件。
+  if (name && directoryHandle && currentDirectoryPath !== null) {
+    // 桌面端目录句柄同样带 .path，可拼出绝对路径；Web 侧只有目录名。
+    const root =
+      typeof directoryHandle.path === 'string' && directoryHandle.path
+        ? directoryHandle.path.replace(/\\/g, '/')
+        : directoryHandle.name || '';
+    const segs = [root, currentDirectoryPath || '', name].filter(Boolean);
+    return segs.join('/').replace(/\/{2,}/g, '/');
+  }
+
+  if (currentFileUrl) {
+    try {
+      const u = new URL(currentFileUrl);
+      if (u.protocol === 'file:') {
+        // file:///D:/a/b.md → D:/a/b.md；file:///home/x.md → /home/x.md
+        return decodeURIComponent(u.pathname).replace(/^\/(?=[A-Za-z]:)/, '');
+      }
+    } catch {
+      /* 非法 URL：走下面的文件名兜底 */
+    }
+  }
+
+  return name;
+}
+
+function updateEditorFilePath() {
+  const wrap = document.getElementById('editorFileInfo');
+  const pathEl = document.getElementById('editorFilePath');
+  if (!wrap || !pathEl) return;
+  const path = resolveCurrentFilePath();
+  // textContent 防 XSS：路径来自文件系统，可能含 < > 等字符。
+  pathEl.textContent = path || '未打开文件';
+  wrap.title = path ? `当前文件：${path}` : '当前未打开文件';
+  wrap.classList.toggle('is-empty', !path);
+}
+
 function updateFilename(name) {
   document.getElementById('filename').textContent = name;
   // Bug #1 修复：记录当前文件名，供 getFileId 在 file://（无句柄）场景下回退使用，
   // 避免所有 file:// 文件共用 'unsaved' 键导致草稿/快照串档。
   currentFileName = name || 'unsaved';
+  // 顶部「编辑」标题栏同步展示图标 + 绝对路径。所有打开/切换/另存路径都会经过
+  // updateFilename，故此处是唯一刷新点（单一事实源）。
+  updateEditorFilePath();
   // 换文件后，之前为自动保存授权的目录可能已不是新文件所在目录 → 作废，
   // 避免把副本写进错误的目录；同时重置去重基准，保证新文件首次到点必写。
   autosaveDirHandle = null;
@@ -2057,7 +2154,7 @@ function wrapSelection(before, after) {
     });
   } else {
     // 无选中 → 插入模板
-    const placeholder = before === '**' ? '加粗文本' : before === '*' ? '斜体文本' : before === '~~' ? '删除线文本' : before === '`' ? 'code' : '文本';
+    const placeholder = before === '**' ? '加粗文本' : before === '*' ? '斜体文本' : before === '~~' ? '删除线文本' : before === '`' ? '代码' : '文本';
     editor.dispatch({
       changes: { from: sel.from, insert: before + placeholder + after },
       selection: { anchor: sel.from + before.length, head: sel.from + before.length + placeholder.length },
@@ -2299,7 +2396,12 @@ function initResizer() {
   if (sidebarResizer && sidebar) {
     let isSidebarResizing = false;
 
-    sidebarResizer.addEventListener('mousedown', (e) => {
+    // 用 Pointer Capture：按下时把指针捕获到分隔条本身，即便拖出浏览器窗口再松手，
+    // pointerup / pointercancel 仍会送达本元素，避免 document 级监听在窗口外丢失 mouseup
+    // 导致分隔条卡在拖拽态（宽度「粘住」）。
+    sidebarResizer.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
       isSidebarResizing = true;
       sidebarResizer.classList.add('dragging');
       document.body.style.cursor = 'col-resize';
@@ -2308,22 +2410,25 @@ function initResizer() {
       const startX = e.clientX;
       const startSidebarWidth = sidebar.offsetWidth;
 
-      function onMouseMove(e) {
+      function onPointerMove(ev) {
         if (!isSidebarResizing) return;
-        const dx = e.clientX - startX;
+        const dx = ev.clientX - startX;
         let newWidth = startSidebarWidth + dx;
         if (newWidth < SIDEBAR_MIN_WIDTH) newWidth = SIDEBAR_MIN_WIDTH;
         if (newWidth > SIDEBAR_MAX_WIDTH) newWidth = SIDEBAR_MAX_WIDTH;
         sidebar.style.width = newWidth + 'px';
       }
 
-      function onMouseUp() {
+      function onPointerUp(ev) {
+        if (!isSidebarResizing) return;
         isSidebarResizing = false;
         sidebarResizer.classList.remove('dragging');
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
+        sidebarResizer.removeEventListener('pointermove', onPointerMove);
+        sidebarResizer.removeEventListener('pointerup', onPointerUp);
+        sidebarResizer.removeEventListener('pointercancel', onPointerUp);
+        try { sidebarResizer.releasePointerCapture(ev.pointerId); } catch (_) { /* 未捕获则忽略 */ }
 
         // 存内联 style 宽度（目标值），避免 CSS transition 动画期间 offsetWidth 返回中间帧导致持久化失真
         const savedWidth = sidebar.style.width ? parseInt(sidebar.style.width, 10) : sidebar.offsetWidth;
@@ -2331,14 +2436,20 @@ function initResizer() {
         if (editor) editor.requestMeasure();
       }
 
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+      try { sidebarResizer.setPointerCapture(e.pointerId); } catch (_) { /* 指针不可用则忽略 */ }
+      sidebarResizer.addEventListener('pointermove', onPointerMove);
+      sidebarResizer.addEventListener('pointerup', onPointerUp);
+      sidebarResizer.addEventListener('pointercancel', onPointerUp);
     });
   }
 
   let isResizing = false;
 
-  resizer.addEventListener('mousedown', (e) => {
+  // 用 Pointer Capture：捕获到分隔条本身，拖出窗口再松手也能收到 pointerup/pointercancel，
+  // 不会卡在拖拽态。
+  resizer.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     isResizing = true;
     resizer.classList.add('dragging');
     document.body.style.cursor = 'col-resize';
@@ -2348,9 +2459,9 @@ function initResizer() {
     const totalWidth = editorMain.offsetWidth;
     const startEditorWidth = editorPanel.offsetWidth;
 
-    function onMouseMove(e) {
+    function onPointerMove(ev) {
       if (!isResizing) return;
-      const dx = e.clientX - startX;
+      const dx = ev.clientX - startX;
       const newEditorWidth = startEditorWidth + dx;
       const editorPercent = (newEditorWidth / totalWidth) * 100;
 
@@ -2360,19 +2471,137 @@ function initResizer() {
       }
     }
 
-    function onMouseUp() {
+    function onPointerUp(ev) {
+      if (!isResizing) return;
       isResizing = false;
       resizer.classList.remove('dragging');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      resizer.removeEventListener('pointermove', onPointerMove);
+      resizer.removeEventListener('pointerup', onPointerUp);
+      resizer.removeEventListener('pointercancel', onPointerUp);
+      try { resizer.releasePointerCapture(ev.pointerId); } catch (_) { /* 未捕获则忽略 */ }
 
       if (editor) editor.requestMeasure();
     }
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    try { resizer.setPointerCapture(e.pointerId); } catch (_) { /* 指针不可用则忽略 */ }
+    resizer.addEventListener('pointermove', onPointerMove);
+    resizer.addEventListener('pointerup', onPointerUp);
+    resizer.addEventListener('pointercancel', onPointerUp);
+  });
+}
+
+// ==========================================
+// 镶入式大纲面板：宽度拖拽 + 展开态同步
+// ==========================================
+const OUTLINE_WIDTH_KEY = 'md-editor-outline-width';
+const OUTLINE_WIDTH_DEFAULT = 260;
+const OUTLINE_MIN_WIDTH = 160; // 与 editor.css .side-panel-docked min-width 对齐（单一事实源）
+const OUTLINE_MAX_WIDTH_ABS = 520;
+
+function outlineMaxWidth() {
+  const main = document.getElementById('editorMain');
+  const avail = main ? main.clientWidth : 0;
+  if (!avail) return OUTLINE_MAX_WIDTH_ABS;
+  // 不写死上限：窄窗口下 520px 会把编辑区挤没，取「主区宽度的 45%」与绝对上限的较小值。
+  return Math.max(OUTLINE_MIN_WIDTH, Math.min(OUTLINE_MAX_WIDTH_ABS, Math.round(avail * 0.45)));
+}
+
+function applyOutlineWidth(px, { persist = false } = {}) {
+  const panel = document.getElementById('outlinePanel');
+  if (!panel) return;
+  const n = Number(px);
+  const w = Number.isFinite(n)
+    ? Math.round(Math.min(outlineMaxWidth(), Math.max(OUTLINE_MIN_WIDTH, n)))
+    : OUTLINE_WIDTH_DEFAULT;
+  panel.style.setProperty('--outline-width', `${w}px`);
+  if (persist) {
+    try {
+      localStorage.setItem(OUTLINE_WIDTH_KEY, String(w));
+    } catch {
+      /* storage 不可用：仅本次会话生效 */
+    }
+  }
+}
+
+// 大纲分隔条的可见性必须跟随「面板真正可见」而非仅仅「用户点开过」：
+// 视图模式（专注 / 沉浸）会给面板加 .view-hidden（display:none!important），
+// 此时若分隔条还在，编辑区右侧会挂着一根拖不动任何东西的空条。
+// CSS 选不到「前一个兄弟」，故用 MutationObserver 监听 class 变化统一同步。
+function syncOutlineDockState() {
+  const main = document.getElementById('editorMain');
+  const panel = document.getElementById('outlinePanel');
+  if (!main || !panel) return;
+  const visible = panel.classList.contains('open') && !panel.classList.contains('view-hidden');
+  main.classList.toggle('outline-docked-open', visible);
+}
+
+function initOutlineDock() {
+  const panel = document.getElementById('outlinePanel');
+  const resizer = document.getElementById('resizerOutline');
+  if (!panel) return;
+
+  let saved = null;
+  try {
+    saved = localStorage.getItem(OUTLINE_WIDTH_KEY);
+  } catch {
+    /* 忽略 */
+  }
+  if (saved != null && saved !== '') applyOutlineWidth(saved);
+
+  syncOutlineDockState();
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(syncOutlineDockState).observe(panel, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }
+
+  if (!resizer) return;
+
+  // 用 Pointer Capture：捕获到分隔条本身，拖出窗口再松手也能收到 pointerup/pointercancel，
+  // 不会卡在拖拽态（新版镶入式大纲面板自带交互，必须稳健）。
+  resizer.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    let dragging = true;
+    resizer.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const startX = e.clientX;
+    const startWidth = panel.getBoundingClientRect().width;
+
+    function onPointerMove(ev) {
+      if (!dragging) return;
+      // 大纲在最右侧：鼠标左移（dx<0）应变宽，故用 startX - clientX。
+      applyOutlineWidth(startWidth + (startX - ev.clientX));
+    }
+
+    function onPointerUp(ev) {
+      if (!dragging) return;
+      dragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      resizer.removeEventListener('pointermove', onPointerMove);
+      resizer.removeEventListener('pointerup', onPointerUp);
+      resizer.removeEventListener('pointercancel', onPointerUp);
+      try { resizer.releasePointerCapture(ev.pointerId); } catch (_) { /* 未捕获则忽略 */ }
+      applyOutlineWidth(panel.getBoundingClientRect().width, { persist: true });
+      if (editor) editor.requestMeasure();
+    }
+
+    try { resizer.setPointerCapture(e.pointerId); } catch (_) { /* 指针不可用则忽略 */ }
+    resizer.addEventListener('pointermove', onPointerMove);
+    resizer.addEventListener('pointerup', onPointerUp);
+    resizer.addEventListener('pointercancel', onPointerUp);
+  });
+
+  resizer.addEventListener('dblclick', () => {
+    applyOutlineWidth(OUTLINE_WIDTH_DEFAULT, { persist: true });
+    if (editor) editor.requestMeasure();
   });
 }
 
@@ -2438,6 +2667,17 @@ function initScrollSync() {
   });
 }
 
+// 工具栏弹层定位：.style-popover 用 position:fixed（宿主 .toolbar 是
+// overflow-x:auto/overflow-y:hidden 的滚动容器，absolute 会被裁掉），
+// 因此打开时按锚点按钮实时算出视口坐标；右对齐按钮右边缘并夹在视口内。
+function positionStylePopover(anchorBtn, popover) {
+  if (!anchorBtn || !popover || popover.hidden) return;
+  const rect = anchorBtn.getBoundingClientRect();
+  popover.style.top = `${rect.bottom + 6}px`;
+  popover.style.left = 'auto';
+  popover.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+}
+
 // ==========================================
 // 事件绑定
 // ==========================================
@@ -2454,11 +2694,28 @@ function bindEvents() {
   // 查找 / 替换面板（Ctrl+F 亦可触发）
   const btnFind = document.getElementById('btnFind');
   if (btnFind) btnFind.addEventListener('click', () => {
-    const sel = editor.state.selection.main;
-    const selText = sel.empty ? null : editor.state.doc.sliceString(sel.from, sel.to);
-    const previewEl = document.getElementById('previewContainer');
-
     openSearchPanel(editor);
+  });
+
+  // 查找/替换面板里的「工作区搜索」结果被点击：把对应文件载入编辑器并跳到命中行。
+  // 面板（search-panel.js）不直接依赖 editor.js，通过自定义事件解耦，避免循环导入。
+  document.addEventListener('cme:workspace-search-open', async (e) => {
+    const detail = e.detail || {};
+    if (!detail.handle) {
+      showToast('无法打开该文件：句柄已失效，请重新检索', 'error');
+      return;
+    }
+    try {
+      await openWithHandle(detail.handle);
+      const line = Number(detail.line);
+      if (Number.isFinite(line) && line >= 1 && line <= editor.state.doc.lines) {
+        const pos = editor.state.doc.line(line).from;
+        editor.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+        editor.focus();
+      }
+    } catch (err) {
+      showToast('打开文件失败: ' + (err && err.message ? err.message : err), 'error');
+    }
   });
 
   // A-5：快照 / 历史版本面板
@@ -2536,7 +2793,10 @@ function bindEvents() {
       const willShow = colorPopover.hidden;
       closeStylePopovers();
       colorPopover.hidden = !willShow;
-      if (!colorPopover.hidden) markFontChoice();
+      if (!colorPopover.hidden) {
+        positionStylePopover(btnColor, colorPopover);
+        markFontChoice();
+      }
     });
     colorPopover.querySelectorAll('.swatch').forEach((sw) => {
       sw.addEventListener('mousedown', (e) => e.preventDefault()); // 保住编辑器选区
@@ -2557,7 +2817,10 @@ function bindEvents() {
       const willShow = fontSizePopover.hidden;
       closeStylePopovers();
       fontSizePopover.hidden = !willShow;
-      if (!fontSizePopover.hidden) markFontChoice();
+      if (!fontSizePopover.hidden) {
+        positionStylePopover(btnFontSize, fontSizePopover);
+        markFontChoice();
+      }
     });
     fontSizePopover.querySelectorAll('.fs-option').forEach((opt) => {
       opt.addEventListener('mousedown', (e) => e.preventDefault());
@@ -2579,6 +2842,17 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeStylePopovers();
   });
+
+  // fixed 弹层不随锚点按钮移动：窗口缩放或工具栏横向滚动后会错位，直接关闭。
+  const closeAllStylePopovers = () => {
+    document.querySelectorAll('.style-popover:not([hidden])').forEach((p) => {
+      p.hidden = true;
+    });
+  };
+  window.addEventListener('resize', closeAllStylePopovers);
+  document
+    .querySelector('.toolbar')
+    ?.addEventListener('scroll', closeAllStylePopovers, { passive: true });
 
   // 使用说明（重新打开引导说明书）
   const btnHelp = document.getElementById('btnHelp');
@@ -2799,6 +3073,7 @@ function bindEvents() {
     btnDisplaySettings.addEventListener('click', (e) => {
       e.stopPropagation();
       displayPopover.hidden = !displayPopover.hidden;
+      if (!displayPopover.hidden) positionStylePopover(btnDisplaySettings, displayPopover);
     });
     if (eFont) eFont.addEventListener('change', () => {
             setEditorFontSize(parseInt(eFont.value, 10) || 0);
@@ -2834,7 +3109,9 @@ function bindEvents() {
       btnOutline.classList.toggle('active', open);
       if (open) {
         renderOutline(getOutlineItems(editor));
-              }
+      }
+      // 镶入式面板会挤压编辑区宽度 → 软换行重排，必须让 CM6 重测
+      if (editor) requestAnimationFrame(() => editor.requestMeasure());
     });
   }
   const btnTasks = document.getElementById('btnTasks');
@@ -2852,6 +3129,7 @@ function bindEvents() {
   document.getElementById('outlineClose')?.addEventListener('click', () => {
     document.getElementById('outlinePanel')?.classList.remove('open');
     document.getElementById('btnOutline')?.classList.remove('active');
+    if (editor) requestAnimationFrame(() => editor.requestMeasure());
   });
   document.getElementById('taskClose')?.addEventListener('click', () => {
     document.getElementById('taskListPanel')?.classList.remove('open');
@@ -3346,7 +3624,7 @@ function closeSnapshotsDialog() {
 function init() {
   // Stamp version so we can confirm Chrome loaded the new package
   document.documentElement.dataset.appVersion = APP_VERSION;
-  document.title = `Markdown Editor v${APP_VERSION}`;
+  document.title = `Markdown 编辑器 v${APP_VERSION}`;
   const verEl = document.getElementById('appVersion');
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
   console.info(`[MD Editor] build v${APP_VERSION}`);
@@ -3383,6 +3661,9 @@ function init() {
   // 初始化分屏拖拽
   initResizer();
 
+  // 镶入式大纲面板：宽度恢复 + 拖拽 + 展开态同步
+  initOutlineDock();
+
   // v1.8.5：工具栏横向溢出滚动按钮（已知问题3）
   initToolbarScroll('#toolbar');
 
@@ -3395,6 +3676,9 @@ function init() {
 
   // 初始化文件浏览器侧边栏
   initFileSidebar();
+
+  // 编辑区标题栏的「文件图标 + 绝对路径」首帧对齐当前状态
+  updateEditorFilePath();
 
   // 初始化反馈按钮
   initFeedbackButton();
@@ -3424,7 +3708,11 @@ function init() {
   // 与 #btnTheme 明暗切换走同一条运行时同步路径（修复 THM-01 的反向不一致）。
   initThemeSelect((_id, kind) => syncThemeRuntime(kind));
   initChromeModeButton();                            // 视图模式 ⊞ 按钮循环
-  initWorkspaceSearchPanel(directoryHandle, openWithHandle);    // 工作区搜索面板（句柄走全局实时 directoryHandle）
+  // 工作区搜索独立弹窗（保留兜底入口；主入口已并入查找/替换面板的「工作区搜索」子按钮）。
+  // renderResults 回调传的是 {path, handle} 而非裸句柄，必须解包后再交给 openWithHandle。
+  initWorkspaceSearchPanel(directoryHandle, (detail) => {
+    if (detail && detail.handle) openWithHandle(detail.handle);
+  });
   setGlobalDirectoryHandle(directoryHandle);                    // 同步当前文件夹句柄给搜索模块
 
   // 延迟初始化滚动同步(等待 CM 挂载完成)

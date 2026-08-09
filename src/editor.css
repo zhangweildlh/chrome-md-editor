@@ -1344,11 +1344,12 @@ body {
 }
 
 /* 样式工具栏弹窗（颜色 / 字号 / 显示设置），复用主题变量，深浅主题一致 */
+/* 必须用 fixed 而非 absolute：宿主 .toolbar 为 overflow-x:auto / overflow-y:hidden
+   的横向滚动容器，absolute 弹窗会被工具栏 48px 高度裁掉而完全不可见
+   （表现为「颜色 / 显示设置按钮点击无效」）。fixed 脱离裁剪上下文，
+   具体 left/top 由 positionStylePopover() 按锚点按钮实时计算。 */
 .style-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  /* 锚到按钮右侧：避免「显示设置」按钮位于工具栏最右侧时弹窗向左溢出屏幕 */
-  right: 0;
+  position: fixed;
   z-index: 50;
   min-width: 140px;
   /* 限制弹窗宽度，防止内容撑开后超出窗口/屏幕边界（特别是显示设置含三个字段时） */
@@ -1457,6 +1458,43 @@ body {
   flex-shrink: 0;
 }
 
+/* 编辑区标题栏里的「文件图标 + 绝对路径」。
+   路径可能很长：本体 flex:1 + min-width:0，配合 direction:rtl 让省略号出现在【左侧】，
+   始终保证「…/父目录/文件名」这一段可见（文件名比盘符更有辨识度）。 */
+.panel-header-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 8px;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.panel-header-file-icon {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+.panel-header-file-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  /* rtl 让溢出从头部截断（显示尾部路径），unicode-bidi:plaintext 保证路径本身仍按
+     从左到右正常阅读，不会把开头的分隔符甩到行尾。 */
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+.panel-header-file.is-empty .panel-header-file-path {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* CodeMirror Container */
 .editor-container {
   flex: 1;
@@ -1488,7 +1526,11 @@ body {
 }
 
 .editor-container .cm-editor .cm-content {
-  padding: 16px 20px;
+  /* 左内边距 3.6em 是块拖拽手柄的预留槽位：块工具栏（+ / 拖拽手柄）用
+     margin-inline-start:-3.2em 挂在行首左侧，若左内边距只有 20px，工具栏会被
+     拉进 .cm-gutters（sticky + z-index:200）下方而完全无法点中，表现为「块拖拽无效」。
+     用 em 而非 px，保证「显示设置 → 编辑器字号」改变时槽位同比缩放。 */
+  padding: 16px 20px 16px 3.6em;
 }
 
 .editor-container .cm-editor .cm-gutters {
@@ -2896,6 +2938,35 @@ body {
 .side-panel.open {
   display: flex;
 }
+
+/* ── 镶入式侧面板（大纲）──
+   与编辑栏 / 预览栏同为 .editor-main 的横向 flex 子项，纵向并列铺满高度，
+   宽度由 --outline-width 决定（editor.js initOutlineResizer 拖拽写入并持久化）。
+   注意：这里必须逐条复位 .side-panel 的浮层属性（position/top/right/max-height/
+   box-shadow/z-index），否则 fixed 定位会让它继续脱离文档流盖在预览区上。 */
+.side-panel.side-panel-docked {
+  position: static;
+  top: auto;
+  right: auto;
+  width: auto;
+  max-height: none;
+  height: 100%;
+  flex: 0 0 var(--outline-width, 260px);
+  min-width: 160px;
+  box-shadow: none;
+  z-index: auto;
+}
+
+/* 大纲分隔条只在大纲展开时出现。
+   用 #resizerOutline（含 id，特异性 1-1-0 / 1-2-0）压过视图模式里的
+   `.editor-main[data-mode="edit"] .resizer{display:none}`（0-2-0），
+   否则纯编辑 / 纯预览模式下大纲分隔条会被一并隐藏。 */
+#resizerOutline {
+  display: none;
+}
+.editor-main.outline-docked-open #resizerOutline {
+  display: flex;
+}
 .side-panel-header {
   display: flex;
   align-items: center;
@@ -3155,6 +3226,69 @@ body {
 
 .md-search-panel__btn.is-active:hover {
   background: var(--accent-hover);
+}
+
+/* ── 面板内的「工作区搜索」结果区（默认折叠，点亮子按钮后展开） ── */
+.md-search-panel__ws {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-primary);
+}
+
+.md-search-panel__ws[hidden] {
+  display: none;
+}
+
+.md-search-panel__ws-status {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.md-search-panel__ws-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* 结果多时自身滚动，绝不把编辑区顶下去 */
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.md-search-panel__ws-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.md-search-panel__ws-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-primary);
+}
+
+.md-search-panel__ws-item-path {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-search-panel__ws-item-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ===== A-5 快照 / 历史版本对话框 ===== */

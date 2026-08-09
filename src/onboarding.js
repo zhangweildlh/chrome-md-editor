@@ -22,7 +22,7 @@ export function showOnboarding(options = {}) {
   container.id = 'onboardingOverlay';
 
   const isGuide = mode === 'guide';
-  const title = isGuide ? '使用说明' : '开始使用 Markdown Editor';
+  const title = isGuide ? '使用说明' : '开始使用 Markdown 编辑器';
   const subtitle = isGuide
     ? '本地编辑 · 无需上传 · 数据只留在你的电脑'
     : '先打开一个文件，或先看一遍说明';
