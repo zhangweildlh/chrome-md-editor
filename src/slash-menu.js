@@ -22,11 +22,12 @@ import {
 import { keymap, ViewPlugin } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import {
-  SLASH_TRIGGER_RE,
   SLASH_COMMANDS as SLASH_COMMANDS_CORE,
   filterSlashCommands as filterSlashCommandsCore,
+  matchSlashTrigger,
   nodeChainHasCodeBlock,
   selectionOffsetsFor,
+  SLASH_QUERY_INVALID_RE,
   SLASH_MENU_WIDTH,
   SLASH_MENU_MAX_HEIGHT,
   fitFloatingMenu,
@@ -37,15 +38,13 @@ import {
 // ------------------------------------------------------------------
 
 /**
- * 判断光标前文本是否构成斜杠菜单触发。
+ * 判断光标前文本是否构成斜杠菜单触发（行内任意位置的行尾 `/`，BUG4 定稿）。
+ * 触发符仅 `/`（顿号 `、` 已取消）；前置放行规则见 isSlashPrecedingAllowed。
  * @param {string} lineText 当前行行首到光标处的文本
- * @returns {{ indent: string, query: string } | null}
+ * @returns {{ before: string, query: string } | null}
  */
 export function isSlashTrigger(lineText) {
-  if (typeof lineText !== 'string') return null;
-  const match = SLASH_TRIGGER_RE.exec(lineText);
-  if (!match) return null;
-  return { indent: match[1] ?? '', query: match[2] ?? '' };
+  return matchSlashTrigger(lineText);
 }
 
 /** 按查询词过滤命令表（大小写不敏感，匹配 label / keywords / command id）。 */
@@ -105,27 +104,42 @@ function isInsideCodeBlock(state, position) {
 }
 
 /**
- * 从 state 推导「键入触发」范围：行尾的 `/query` 或 `、query`。
+ * 从 state 推导「键入触发」范围：光标前的 `/query`。
+ * 触发符仅 `/`（顿号 `、` 已取消触发资格，BUG4 定稿）；`/` 前可跟任意文本，
+ * 但紧邻前一字符必须是「行首 / 空白 / 非 ASCII（中文等）」才放行，
+ * 数字或 Latin 字母紧邻（2026/08、http/、https://）一律不触发；
+ * 代码块内由 isInsideCodeBlock 拦截。
+ *
+ * 行尾约束已完全放开（2026-08-08 用户拍板）：只要光标紧跟在合格的 `/query`
+ * 之后即可激活，行首 / 行中 / 行尾一视同仁，光标后仍有文字也照常弹面板。
+ * 已知代价（用户已确认接受）：鼠标点到已有 `中文/内容` 的 `/` 后面也会弹面板。
+ * 替换范围仍是 [触发符, 光标)，故光标之后的原有文字不会被吞。
  * @param {import('@codemirror/state').EditorState} state
  * @returns {SlashMenuRange | null}
  */
-function typedRangeFromState(state) {
+export function typedRangeFromState(state) {
   if (!isEditable(state) || state.selection.ranges.length !== 1) return null;
   const selection = state.selection.main;
   if (!selection.empty) return null;
 
   const line = state.doc.lineAt(selection.head);
-  if (selection.head !== line.to) return null;
   if (isInsideCodeBlock(state, selection.head)) return null;
 
   const beforeCursor = state.sliceDoc(line.from, selection.head);
-  const match = SLASH_TRIGGER_RE.exec(beforeCursor);
-  if (!match) return null;
+  const matched = matchSlashTrigger(beforeCursor);
+  if (!matched) return null;
+  // 查询词无任何匹配命令时立即关闭面板：避免「空面板」吞掉 Enter/方向键，
+  // 保证放宽触发后误弹频次上升的情况下用户仍可正常输入/换行（BUG4 补强）。
+  if (filterSlashCommandsCore(matched.query, SLASH_COMMANDS_CORE).length === 0) {
+    return null;
+  }
 
-  const indentLength = match[1]?.length ?? 0;
+  // before 即「触发符前的全部文本」，其长度恰好是触发符在行内的偏移，
+  // 故 from 精确落在触发符处：行内触发时只删触发符+query，不吞前面文字。
+  const beforeLength = matched.before.length;
   return {
-    from: line.from + indentLength,
-    query: match[2] ?? '',
+    from: line.from + beforeLength,
+    query: matched.query,
     source: 'typed',
     to: selection.head,
   };
@@ -147,7 +161,8 @@ function virtualRangeFromState(state, from = state.selection.main.head) {
   if (isInsideCodeBlock(state, selection.head)) return null;
 
   const query = state.sliceDoc(from, selection.head);
-  if (/\s|[/、]/u.test(query)) return null;
+  // 复用 core 的单一事实源，避免此处硬编码副本与触发规则漂移（曾经两份不同步）。
+  if (SLASH_QUERY_INVALID_RE.test(query)) return null;
 
   return { from, query, source: 'virtual', to: selection.head };
 }
@@ -349,9 +364,10 @@ function internalState(view) {
  * @param {import('@codemirror/view').EditorView} view
  * @param {-1 | 1} amount
  */
-function moveSelection(view, amount) {
+export function moveSelection(view, amount) {
   const menu = getSlashMenuState(view);
-  if (!menu.open) return false;
+  // 无候选时方向键一律放行给编辑器（不与空面板争抢 ↑↓），避免光标被卡住。
+  if (!menu.open || menu.actions.length === 0) return false;
   const count = menu.actions.length;
   const index = count === 0 ? 0 : (menu.selectedIndex + amount + count) % count;
   view.dispatch({ effects: updateSlashMenu.of({ index, type: 'select' }) });
@@ -361,7 +377,7 @@ function moveSelection(view, amount) {
 /**
  * @param {import('@codemirror/view').EditorView} view
  */
-function runSelectedAction(view) {
+export function runSelectedAction(view) {
   const menu = getSlashMenuState(view);
   if (!menu.open || menu.actions.length === 0) return false;
   const selected = menu.actions[menu.selectedIndex];
@@ -437,6 +453,9 @@ const slashMenuPlugin = ViewPlugin.fromClass(
         this.dom = doc.createElement('div');
         this.dom.className = 'markra-slash-menu';
         this.dom.setAttribute('role', 'menu');
+        // 首帧先移出视口，避免定位落在 measure 阶段前于左上角闪一下。
+        this.dom.style.left = '-9999px';
+        this.dom.style.top = '-9999px';
         doc.body.appendChild(this.dom);
         doc.addEventListener('pointerdown', this.dismiss, true);
       }
@@ -467,32 +486,48 @@ const slashMenuPlugin = ViewPlugin.fromClass(
         });
       }
 
-      // 用 view.coordsAtPos(active.to) 定位（固定定位，视口边界约束）。
-      const coords = view.coordsAtPos(state.to);
-      if (coords) {
-        this.dom.style.position = 'fixed';
-        this.dom.style.margin = '0';
-        this.dom.style.left = `${coords.left}px`;
-        this.dom.style.top = `${coords.bottom}px`;
-        this.dom.style.maxHeight = `${SLASH_MENU_MAX_HEIGHT}px`;
-        this.dom.style.overflowY = 'auto';
+      this.dom.style.position = 'fixed';
+      this.dom.style.margin = '0';
+      this.dom.style.maxHeight = `${SLASH_MENU_MAX_HEIGHT}px`;
+      this.dom.style.overflowY = 'auto';
 
-        const rect = this.dom.getBoundingClientRect();
-        const fitted = fitFloatingMenu(
-          { left: coords.left, top: coords.bottom },
-          {
-            width: rect.width || SLASH_MENU_WIDTH,
-            height: rect.height || 200,
-          },
-          { width: window.innerWidth, height: window.innerHeight },
-        );
-        this.dom.style.left = `${fitted.left}px`;
-        this.dom.style.top = `${fitted.top}px`;
-      }
+      // 定位必须延后到 CM6 的 measure 阶段：render() 由 ViewPlugin.update() 调用，
+      // 而 update 期间调用 view.coordsAtPos() 会抛
+      // 「Reading the editor layout isn't allowed during an update」，
+      // 插件随即被 CM6 卸载，菜单此后永不出现（斜杠/顿号唤起失效的根因）。
+      this.measure();
 
       // 选中项滚动可见。
       const selected = this.dom.querySelector('[aria-selected="true"]');
       if (selected) selected.scrollIntoView({ block: 'nearest' });
+    }
+
+    /** 在 measure 阶段读取光标坐标并写入浮层位置（视口边界约束）。 */
+    measure() {
+      const view = this.view;
+      view.requestMeasure({
+        key: this,
+        read: () => {
+          const state = getSlashMenuState(view);
+          if (!state.open || !this.dom) return null;
+          const rect = this.dom.getBoundingClientRect();
+          return {
+            coords: view.coordsAtPos(state.to),
+            height: rect.height || 200,
+            width: rect.width || SLASH_MENU_WIDTH,
+          };
+        },
+        write: (measured) => {
+          if (!measured || !measured.coords || !this.dom) return;
+          const fitted = fitFloatingMenu(
+            { left: measured.coords.left, top: measured.coords.bottom },
+            { width: measured.width, height: measured.height },
+            { width: window.innerWidth, height: window.innerHeight },
+          );
+          this.dom.style.left = `${fitted.left}px`;
+          this.dom.style.top = `${fitted.top}px`;
+        },
+      });
     }
 
     teardown() {
