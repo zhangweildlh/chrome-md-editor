@@ -33,14 +33,21 @@ dist-ssr
 # Local Playwright profile for extension E2E
 .playwright-chrome-md-editor/
 
-# E2E 测试运行目录：采用「默认拒绝 + 白名单」模型，只放行顶层文档与测试脚本。
-# 原因（重要，勿改回黑名单）：该目录会生成 profile/ 与 profile-<时间戳>/ 等浏览器
+# E2E 测试运行目录：采用「默认拒绝 + 逐文件显式白名单」模型，仅放行约定的 8 个通用 lib 脚本。
+# 原因（重要，勿改回黑名单/勿改回宽白名单）：该目录会生成 profile/ 与 profile-<时间戳>/ 等浏览器
 # 用户数据目录，体积约 1.8GB / 39 万文件，且内含 Login Data（密码库）、Cookies、
-# 收藏夹备份等真实隐私数据。黑名单式忽略一旦漏写一种命名，隐私即被推送到公开仓库。
+# 收藏夹备份等真实隐私数据。黑名单式忽略一旦漏写一种命名，隐私即被推送到公开仓库；
+# 宽白名单（*.mjs/*.png/*.md）则会让一次性调试产物被 `git add -A` 误入库。
+# 白名单与历史提交 `git ls-files .test-run/` 完全一致；新增通用 lib 须在此逐行加白。
 .test-run/*
-!.test-run/*.md
-!.test-run/*.mjs
-!.test-run/*.png
+!.test-run/bnd-compare.mjs
+!.test-run/bnd-fixtures.mjs
+!.test-run/bnd-lib.mjs
+!.test-run/diag-cm.mjs
+!.test-run/diag-cmpx.mjs
+!.test-run/diag-token.mjs
+!.test-run/e2e-editor-lib.mjs
+!.test-run/fix-verify.mjs
 
 # 主题探索临时产物（非源码，不入仓库）
 theme-exploration/
