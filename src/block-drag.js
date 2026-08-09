@@ -279,8 +279,34 @@ export function moveCodeMirrorBlock(view, sourceFrom, targetFrom, side, targetDe
     }
   }
 
-  let deletionFrom = source.from;
-  let deletionTo = source.to;
+  const tight = (source.name === "ListItem" || movingIntoList) &&
+    target.name === "ListItem";
+  return relocateRange(view, {
+    insertedBeforeTarget: side === "before",
+    requiredBreaks: tight ? 1 : 2,
+    sourceFrom: source.from,
+    sourceMarkdown,
+    sourceTo: source.to,
+    targetPosition: side === "before" ? target.from : target.to,
+  });
+}
+
+// 把 [sourceFrom, sourceTo) 的文本整体搬到 targetPosition，并规范化前后空行。
+// 从 moveCodeMirrorBlock 抽出，供「语法块拖拽」与「选区临时块拖拽」共用。
+function relocateRange(view, options) {
+  const {
+    insertedBeforeTarget = false,
+    requiredBreaks,
+    selectMoved = false,
+    sourceFrom,
+    sourceMarkdown,
+    sourceTo,
+    targetPosition,
+  } = options;
+  const document = view.state.doc.toString();
+
+  let deletionFrom = sourceFrom;
+  let deletionTo = sourceTo;
   if (deletionTo < document.length) {
     while (document[deletionTo] === "\n") deletionTo += 1;
   } else {
@@ -288,16 +314,19 @@ export function moveCodeMirrorBlock(view, sourceFrom, targetFrom, side, targetDe
       deletionFrom -= 1;
     }
   }
-  const targetPosition = side === "before" ? target.from : target.to;
   if (targetPosition > deletionFrom && targetPosition < deletionTo) return false;
+
+  // 上面的删除会把紧邻源块的整段换行一并吞掉（无上限）。这段空白是「跟着块走」
+  // 的分隔符：不把它带到目标端，插入侧就只按 requiredBreaks 补（=1 个空行），
+  // 于是「3 个连续空行」被压成 1 个。记录吞掉的换行数，供插入侧兜底。
+  const carriedBreaks = deletionTo - sourceTo > 0
+    ? deletionTo - sourceTo
+    : sourceFrom - deletionFrom;
 
   const withoutSource = document.slice(0, deletionFrom) + document.slice(deletionTo);
   const mappedTarget = targetPosition <= deletionFrom
     ? targetPosition
     : targetPosition - (deletionTo - deletionFrom);
-  const tight = (source.name === "ListItem" || movingIntoList) &&
-    target.name === "ListItem";
-  const requiredBreaks = tight ? 1 : 2;
   let leftBreaks = 0;
   for (
     let index = mappedTarget - 1;
@@ -314,11 +343,22 @@ export function moveCodeMirrorBlock(view, sourceFrom, targetFrom, side, targetDe
   ) {
     rightBreaks += 1;
   }
+  // 携带的空白只还原到**一侧**——落点新造出来的那条边界，也就是朝向目标块的一侧：
+  //   side='before' → 块插在目标前，新边界是「块|目标」，落在后缀；
+  //   side='after'  → 块插在目标后，新边界是「目标|块」，落在前缀。
+  // 另一侧沿用原地已有的换行（照旧按 requiredBreaks 规范化），因此空行总量守恒，
+  // 不会两边都被撑开。落点已在文末（无后缀可写）时，后缀那份改还到前缀。
+  // carriedBreaks <= requiredBreaks 时两侧都退化成 requiredBreaks，与原行为
+  // 逐字节一致——本改动只在「块紧邻 ≥2 个连续空行」时才生效。
+  const hasRoomAfter = mappedTarget < withoutSource.length;
+  const carried = Math.max(requiredBreaks, carriedBreaks);
+  const prefixBreaks = insertedBeforeTarget && hasRoomAfter ? requiredBreaks : carried;
+  const suffixBreaks = insertedBeforeTarget ? carried : requiredBreaks;
   const prefix = mappedTarget > 0
-    ? "\n".repeat(Math.max(0, requiredBreaks - leftBreaks))
+    ? "\n".repeat(Math.max(0, prefixBreaks - leftBreaks))
     : "";
-  const suffix = mappedTarget < withoutSource.length
-    ? "\n".repeat(Math.max(0, requiredBreaks - rightBreaks))
+  const suffix = hasRoomAfter
+    ? "\n".repeat(Math.max(0, suffixBreaks - rightBreaks))
     : "";
   const inserted = `${prefix}${sourceMarkdown}${suffix}`;
   const nextDocument = withoutSource.slice(0, mappedTarget) +
@@ -331,11 +371,113 @@ export function moveCodeMirrorBlock(view, sourceFrom, targetFrom, side, targetDe
   view.dispatch({
     changes: minimalDocumentChange(document, nextDocument),
     scrollIntoView: true,
-    selection: EditorSelection.cursor(insertedFrom),
+    // 选区拖拽后保持选中，方便用户连续调整顺序；块拖拽只落光标。
+    selection: selectMoved
+      ? EditorSelection.range(insertedFrom, insertedFrom + sourceMarkdown.length)
+      : EditorSelection.cursor(insertedFrom),
     userEvent: "move",
   });
   view.focus();
   return true;
+}
+
+// 选区起点向外吸附：取包含 position 的块里 from 最大者（最内层，扩张最小）；
+// 若 position 落在块间空白（无块包含），取右侧最近块的 from。
+function snapStartToBlock(blocks, position) {
+  let best = null;
+  for (const block of blocks) {
+    if (block.from <= position && position <= block.to) {
+      if (!best || block.from > best.from) best = block;
+    }
+  }
+  if (best) return Math.min(best.from, position);
+  let nearestRight = null;
+  for (const block of blocks) {
+    if (block.from >= position && (!nearestRight || block.from < nearestRight.from)) {
+      nearestRight = block;
+    }
+  }
+  return nearestRight ? nearestRight.from : position;
+}
+
+// 选区终点向外吸附：取包含 position 的块里 to 最小者（最内层，扩张最小）；
+// 若 position 落在块间空白，取左侧最近块的 to。
+function snapEndToBlock(blocks, position) {
+  let best = null;
+  for (const block of blocks) {
+    if (block.from <= position && position <= block.to) {
+      if (!best || block.to < best.to) best = block;
+    }
+  }
+  if (best) return Math.max(best.to, position);
+  let nearestLeft = null;
+  for (const block of blocks) {
+    if (block.to <= position && (!nearestLeft || block.to > nearestLeft.to)) {
+      nearestLeft = block;
+    }
+  }
+  return nearestLeft ? nearestLeft.to : position;
+}
+
+// 把当前非空选区对齐成一个临时块范围（选区可跨多个语法块）。
+// 先按「整行」对齐，再把两端**向外吸附到所属块的边界**——只做行对齐会把围栏
+// 代码块、表格、列表项从中间切断：只搬走半个块，剩下的半个成为孤立的
+// ``` / | --- | --- | / 悬空列表项，Markdown 结构随即失配。吸附的块边界直接复用
+// readCodeMirrorBlockRanges（与块拖拽同一事实源），列表按 ListItem 逐项吸附，
+// 所以「选中列表中间两项」仍然只搬这两项，不会被撑成整个列表。
+export function readSelectionBlockRange(state) {
+  if (!state || state.selection.ranges.length !== 1) return null;
+  const selection = state.selection.main;
+  if (selection.empty) return null;
+  const startLine = state.doc.lineAt(selection.from);
+  // 选区右端停在行首是「整行选中」的常见形态（含末尾换行），
+  // 回退一格避免把下一行也吞进临时块。
+  const endPosition =
+    selection.to > selection.from &&
+    selection.to === state.doc.lineAt(selection.to).from
+      ? selection.to - 1
+      : selection.to;
+  const endLine = state.doc.lineAt(endPosition);
+  if (endLine.to <= startLine.from) return null;
+
+  const blocks = readCodeMirrorBlockRanges(state);
+  if (blocks.length === 0) return { from: startLine.from, to: endLine.to };
+  const from = snapStartToBlock(blocks, startLine.from);
+  const to = snapEndToBlock(blocks, endLine.to);
+  // 纯空白选区两端可能反向交叉，退回行对齐范围，避免手柄凭空消失。
+  if (to <= from) return { from: startLine.from, to: endLine.to };
+  return { from, to };
+}
+
+// 把选区临时块整体移动到目标块之前/之后。
+export function moveCodeMirrorSelection(view, sourceFrom, sourceTo, targetFrom, side) {
+  if (view.state.facet(EditorState.readOnly)) return false;
+  const document = view.state.doc.toString();
+  if (
+    !Number.isInteger(sourceFrom) ||
+    !Number.isInteger(sourceTo) ||
+    sourceFrom < 0 ||
+    sourceTo <= sourceFrom ||
+    sourceTo > document.length
+  ) {
+    return false;
+  }
+  const target = readCodeMirrorBlockRanges(view.state).find(
+    (block) => block.from === targetFrom,
+  );
+  if (!target) return false;
+  // 落点仍在选区内部 → 自我移动，无意义
+  if (targetFrom >= sourceFrom && targetFrom < sourceTo) return false;
+
+  return relocateRange(view, {
+    insertedBeforeTarget: side === "before",
+    requiredBreaks: 2,
+    selectMoved: true,
+    sourceFrom,
+    sourceMarkdown: document.slice(sourceFrom, sourceTo),
+    sourceTo,
+    targetPosition: side === "before" ? target.from : target.to,
+  });
 }
 
 export function addCodeMirrorBlockBelow(view, blockFrom) {
@@ -369,6 +511,7 @@ const pointerDragThreshold = 4;
 const defaultLabels = {
   addBlock: "在下方插入块",
   dragBlock: "拖拽块",
+  dragSelection: "拖拽选中区域以调整顺序",
 };
 
 class BlockToolbarWidget extends WidgetType {
@@ -448,12 +591,107 @@ class BlockToolbarWidget extends WidgetType {
   }
 }
 
+// 选区临时拖拽手柄：仅在存在非空选区时出现在选区首行左侧，
+// 拖动它可把整个选区（按整行对齐）搬到别处。
+class SelectionDragWidget extends WidgetType {
+  constructor(from, to, label) {
+    super();
+    this.from = from;
+    this.to = to;
+    this.label = label;
+  }
+
+  eq(other) {
+    return other.from === this.from &&
+      other.to === this.to &&
+      other.label === this.label;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+
+  toDOM(view) {
+    const document = view.dom.ownerDocument;
+    const wrapper = document.createElement("span");
+    const handle = blockControl(
+      document,
+      this.label,
+      "markra-block-tool-button markra-selection-drag-handle",
+    );
+    for (let index = 0; index < 6; index += 1) {
+      const dot = document.createElement("span");
+      dot.className = "markra-block-drag-dot";
+      handle.append(dot);
+    }
+    handle.dataset.selectionFrom = String(this.from);
+    handle.dataset.selectionTo = String(this.to);
+    handle.addEventListener("pointerdown", (event) => {
+      startPointerSelectionDrag(view, this.from, this.to, handle, event);
+    });
+    wrapper.className = "cm-markra-selection-toolbar markra-selection-toolbar";
+    wrapper.append(handle);
+    return wrapper;
+  }
+}
+
+function selectionDecorationsFromState(state, labels) {
+  if (state.facet(EditorState.readOnly)) return Decoration.none;
+  const range = readSelectionBlockRange(state);
+  if (!range) return Decoration.none;
+  // 高亮必须覆盖**吸附后的完整范围**：吸附会把选区向外扩到块边界，
+  // 只标首行的话用户看不到「实际会被搬走的是整块」，拖完才发现多搬了内容。
+  const decorations = [
+    Decoration.widget({
+      // 排在块工具栏（side -2）之前，占据同一处左侧槽位。
+      side: -3,
+      widget: new SelectionDragWidget(range.from, range.to, labels.dragSelection),
+    }).range(range.from),
+  ];
+  const lastLine = state.doc.lineAt(range.to);
+  for (
+    let lineNumber = state.doc.lineAt(range.from).number;
+    lineNumber <= lastLine.number;
+    lineNumber += 1
+  ) {
+    decorations.push(
+      Decoration.line({ class: "markra-selection-drag-line" })
+        .range(state.doc.line(lineNumber).from),
+    );
+  }
+  return Decoration.set(decorations, true);
+}
+
+class SelectionDragViewPlugin {
+  constructor(view, labels) {
+    this.labels = labels;
+    this.decorations = selectionDecorationsFromState(view.state, labels);
+  }
+
+  update(update) {
+    // 选区手柄依赖 selection，必须监听 selectionSet（块手柄那套只看 docChanged）。
+    if (
+      update.docChanged ||
+      update.selectionSet ||
+      update.startState.facet(EditorState.readOnly) !==
+        update.state.facet(EditorState.readOnly)
+    ) {
+      this.decorations = selectionDecorationsFromState(update.state, this.labels);
+    }
+  }
+}
+
 function blockDecorationsFromRanges(blocks, labels) {
   const decorations = blocks.flatMap((block) => {
-    const lineAttrs = { "data-markra-block-from": String(block.from) };
-    if (block.depth !== undefined) lineAttrs["data-list-depth"] = String(block.depth);
+    const attributes = { "data-markra-block-from": String(block.from) };
+    if (block.depth !== undefined) attributes["data-list-depth"] = String(block.depth);
     return [
-      Decoration.line(lineAttrs).range(block.from),
+      // Decoration.line 的 spec 只识别 class / attributes 两个键。
+      // 早先把 data-* 平铺在 spec 顶层，CM6 会静默忽略，导致 .cm-line 上
+      // 根本没有 data-markra-block-from：dropTarget 的首选分支永远落空，
+      // 退化到 posAtCoords 兜底（side 恒为 "after"），于是「向上拖」被当成
+      // 「拖到目标块之后」= 放回原位，落点指示器也从不显示。
+      Decoration.line({ attributes }).range(block.from),
       Decoration.widget({
         // Block tools must be the outermost start-of-line widget. Heading-level
         // controls also use side -1, and their negative gutter margin would
@@ -514,10 +752,15 @@ function eventElement(event) {
 function dropTarget(event, view) {
   const element = eventElement(event) &&
     eventElement(event).closest("[data-markra-block-from], [data-block-from]");
-  const from = Number(
-    element && (element.dataset.markraBlockFrom ?? element.dataset.blockFrom),
-  );
-  if (Number.isInteger(from)) {
+  // 必须先判 element 存在：element 为 null 时 Number(null) === 0 且
+  // Number.isInteger(0) 为真，会直接走进下面的分支对 null 调
+  // getBoundingClientRect 抛 TypeError；该异常发生在 pointermove/pointerup
+  // 监听器内，导致 pointerup 里的 moveCodeMirrorBlock 永远执行不到——
+  // 表现为「拖得动、松手却不排序」。
+  const from = element
+    ? Number(element.dataset.markraBlockFrom ?? element.dataset.blockFrom)
+    : Number.NaN;
+  if (element && Number.isInteger(from)) {
     const rect = element.getBoundingClientRect();
     const side = rect && event.clientY < rect.top + rect.height / 2
       ? "before"
@@ -562,7 +805,7 @@ function clearBlockDragUi(view) {
   blockDragUi.delete(view);
 }
 
-function startBlockDragUi(view, sourceFrom, event) {
+function startBlockDragUi(view, sourceFrom, event, ghostLabel) {
   clearBlockDragUi(view);
   const source = view.dom.querySelector(
     `.cm-line[data-markra-block-from="${sourceFrom}"]`,
@@ -573,7 +816,9 @@ function startBlockDragUi(view, sourceFrom, event) {
   indicator.dataset.show = "false";
   ghost.className = "markra-block-drag-ghost";
   ghost.dataset.show = "true";
-  ghost.textContent = (source && source.textContent && source.textContent.trim()) || "Markdown 块";
+  ghost.textContent = ghostLabel ||
+    (source && source.textContent && source.textContent.trim()) ||
+    "Markdown 块";
   ghost.style.left = `${event.clientX + 12}px`;
   ghost.style.top = `${event.clientY + 12}px`;
   ghost.style.transform = "translate(0, 0)";
@@ -605,7 +850,9 @@ function updateBlockDragUi(view, target, event) {
   if (event.clientY > scrollRect.bottom - 48) scroll.scrollTop += 18;
 }
 
-function startPointerBlockDrag(view, sourceFrom, handle, event) {
+// 通用指针拖拽会话（语法块手柄 / 选区临时手柄共用）。
+// options: { ghostFrom, ghostLabel, onDrop(target) }
+function startPointerDragSession(view, handle, event, options) {
   if (event.button !== 0 || view.state.facet(EditorState.readOnly)) return;
   event.preventDefault();
   event.stopPropagation();
@@ -632,7 +879,7 @@ function startPointerBlockDrag(view, sourceFrom, handle, event) {
       if (distance < pointerDragThreshold) return;
       dragging = true;
       handle.dataset.dragging = "true";
-      startBlockDragUi(view, sourceFrom, moveEvent);
+      startBlockDragUi(view, options.ghostFrom, moveEvent, options.ghostLabel);
     }
 
     const target = dropTarget(moveEvent, view);
@@ -645,15 +892,7 @@ function startPointerBlockDrag(view, sourceFrom, handle, event) {
     if (!dragging) return;
 
     const target = dropTarget(upEvent, view);
-    if (target) {
-      moveCodeMirrorBlock(
-        view,
-        sourceFrom,
-        target.from,
-        target.side,
-        target.depth,
-      );
-    }
+    if (target) options.onDrop(target);
     clearBlockDragUi(view);
     upEvent.preventDefault();
     upEvent.stopPropagation();
@@ -667,6 +906,24 @@ function startPointerBlockDrag(view, sourceFrom, handle, event) {
   document.addEventListener("pointermove", handlePointerMove, true);
   document.addEventListener("pointerup", handlePointerUp, true);
   document.addEventListener("pointercancel", handlePointerCancel, true);
+}
+
+function startPointerBlockDrag(view, sourceFrom, handle, event) {
+  startPointerDragSession(view, handle, event, {
+    ghostFrom: sourceFrom,
+    onDrop: (target) =>
+      moveCodeMirrorBlock(view, sourceFrom, target.from, target.side, target.depth),
+  });
+}
+
+function startPointerSelectionDrag(view, sourceFrom, sourceTo, handle, event) {
+  const text = view.state.doc.sliceString(sourceFrom, sourceTo).trim();
+  startPointerDragSession(view, handle, event, {
+    ghostFrom: sourceFrom,
+    ghostLabel: text || "选中区域",
+    onDrop: (target) =>
+      moveCodeMirrorSelection(view, sourceFrom, sourceTo, target.from, target.side),
+  });
 }
 
 function draggedBlockFrom(event) {
@@ -741,6 +998,44 @@ const blockDragTheme = EditorView.theme({
     opacity: "0.7",
     margin: "0 0.04em",
   },
+  // 选区手柄用 width:0 的 relative 外壳 + absolute 按钮，完全不占 inline 宽度，
+  // 出现/消失时正文不会左右跳动。
+  ".cm-markra-selection-toolbar": {
+    position: "relative",
+    display: "inline-block",
+    width: "0",
+    height: "0",
+    verticalAlign: "baseline",
+  },
+  ".cm-markra-selection-toolbar > .markra-selection-drag-handle": {
+    position: "absolute",
+    left: "-3.05em",
+    top: "0",
+    display: "inline-flex",
+    alignItems: "center",
+    background: "var(--markra-selection-handle-bg, rgba(120,140,220,0.18))",
+    border: "0",
+    borderRadius: "4px",
+    color: "var(--markra-selection-handle-fg, #4a63c8)",
+    cursor: "grab",
+    padding: "0.1em 0.2em",
+  },
+  ".cm-markra-selection-toolbar > .markra-selection-drag-handle:hover": {
+    background: "var(--markra-selection-handle-bg-hover, rgba(120,140,220,0.34))",
+  },
+  ".cm-markra-selection-toolbar > .markra-selection-drag-handle[data-dragging='true']": {
+    cursor: "grabbing",
+  },
+  // 吸附后的完整范围底色：选区会向外吸附到块边界，浏览器原生选区只染到
+  // 用户框选的那几个字符，用户看不到「实际会被搬走的是整块」。这条底色把
+  // 吸附扩出来的行也染上，拖之前就能看清搬运范围。
+  ".markra-selection-drag-line": {
+    background: "var(--markra-selection-range-bg, rgba(120,140,220,0.13))",
+  },
+  // 选区激活时让位给临时手柄；用 visibility 保留占位，避免正文横向跳动。
+  ".markra-selection-drag-line > .cm-markra-block-toolbar": {
+    visibility: "hidden",
+  },
   ".markra-block-drag-ghost": {
     position: "fixed",
     zIndex: "1000",
@@ -765,6 +1060,10 @@ export function codeMirrorBlockDragPlugin(options = {}) {
   return [
     ViewPlugin.define(
       (view) => new BlockDragViewPlugin(view, labels),
+      { decorations: (plugin) => plugin.decorations },
+    ),
+    ViewPlugin.define(
+      (view) => new SelectionDragViewPlugin(view, labels),
       { decorations: (plugin) => plugin.decorations },
     ),
     EditorView.domEventHandlers({
