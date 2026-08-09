@@ -299,9 +299,10 @@ export const wordDiffTheme = EditorView.baseTheme({
     padding: "0 1px",
   },
   [`.${REMOVED_CLASS}`]: {
+    // 不加删除线：左侧独属/被删内容一律只用浅红高亮底示意。
+    // 删除线在中日文等宽字形上会直接压住字身、显著降低可读性，
+    // 而底色本身已经完成了「这段是左侧独有」的语义传达，删除线是冗余噪音。
     backgroundColor: "var(--diff-word-removed-bg, rgba(248, 81, 73, 0.4))",
-    textDecoration: "line-through",
-    textDecorationColor: "var(--diff-word-removed-strike, rgba(248, 81, 73, 0.8))",
     borderRadius: "2px",
     padding: "0 1px",
   },
@@ -311,7 +312,6 @@ export const wordDiffTheme = EditorView.baseTheme({
   },
   [`&dark .${REMOVED_CLASS}`]: {
     backgroundColor: "var(--diff-word-removed-bg, rgba(248, 81, 73, 0.55))",
-    textDecorationColor: "var(--diff-word-removed-strike, rgba(248, 81, 73, 0.9))",
   },
 });
 

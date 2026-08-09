@@ -12,15 +12,15 @@
     <!-- 顶部工具栏：三段式 left / center / right，行为在 compare.js 中绑定 -->
     <header class="toolbar compare-toolbar" id="compareToolbar">
       <div class="toolbar-left">
-        <span class="logo-text">MD Compare</span>
-        <span class="app-version" id="compareVersion" title="扩展版本">v1.8.8</span>
+        <span class="logo-text">MD 对比</span>
+        <span class="app-version" id="compareVersion" title="扩展版本">v1.8.9</span>
       </div>
 
       <div class="toolbar-center">
         <!-- 视图切换：两栏 / 三栏 -->
         <div class="toolbar-group compare-view-group">
-          <button class="compare-toolbar-btn" id="btnViewTwo" data-mode="two" title="两栏对照（Yours / Theirs）">两栏</button>
-          <button class="compare-toolbar-btn" id="btnViewThree" data-mode="three" title="三栏合并（Yours / Result / Theirs）">三栏</button>
+          <button class="compare-toolbar-btn" id="btnViewTwo" data-mode="two" title="两栏对照（本地 / 对方）">两栏</button>
+          <button class="compare-toolbar-btn" id="btnViewThree" data-mode="three" title="三栏合并（本地 / 合并结果 / 对方）">三栏</button>
           <button class="compare-toolbar-btn" id="btnToggleLocationPane" title="显示 / 隐藏右侧位置概览（差异缩略图 + 大纲，快捷键 L）">概览</button>
         </div>
 
@@ -32,7 +32,7 @@
           <button class="compare-toolbar-btn" id="btnNextChunk" title="跳到下一块 (B 或 ]，编辑区内用 Alt+B)">下一块 →</button>
           <!-- 默认全文展开，所以初始文案是「折叠未改」；compare.js 会随状态同步该文案 -->
           <button class="compare-toolbar-btn" id="btnToggleCollapse" title="折叠 / 展开未修改的区域（默认全文展开，快捷键 E）">折叠未改</button>
-          <button class="compare-toolbar-btn" id="btnAcceptTheirs" title="把光标所在的 Theirs 块并入合并结果">接受 Theirs 块</button>
+          <button class="compare-toolbar-btn" id="btnAcceptTheirs" title="把光标所在的对方块并入合并结果">接受对方块</button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -42,9 +42,9 @@
         <div class="toolbar-group compare-merge-group">
           <button class="compare-toolbar-btn compare-toolbar-btn-primary" id="btnApplyNonConflicting" title="一键应用所有不冲突的变更（冲突块保留给人工裁决）">应用非冲突变更</button>
           <div class="compare-dir-group" role="group" aria-label="批量接受方向">
-            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptLeft" data-dir="left" title="接受左侧全部块（Yours → Theirs）">&lt;&lt; 左</button>
-            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptAll" data-dir="all" title="两侧全部接受（先左后右，右侧覆盖冲突处）">全部</button>
-            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptRight" data-dir="right" title="接受右侧全部块（Theirs → Yours）">右 &gt;&gt;</button>
+            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptLeft" data-dir="left" title="采纳左侧全部块（本地 → 对方/合并结果）">◀ 左侧</button>
+            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptAll" data-dir="all" title="两侧全部采纳（先左后右，右侧覆盖冲突处）">全部</button>
+            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptRight" data-dir="right" title="采纳右侧全部块（对方/合并结果 → 本地）">右侧 ▶</button>
           </div>
           <label class="compare-toolbar-field" for="selHighlightWords">
             <span class="compare-toolbar-field-label">行内高亮</span>
@@ -75,13 +75,13 @@
     </header>
 
     <main class="compare-main" id="compareRoot">
-      <!-- 文件选择区：A=Yours, B=Theirs -->
+      <!-- 文件选择区：A=本地，B=对方 -->
       <section class="compare-files" id="compareFiles">
         <div class="compare-file-slot" id="fileSlotA" data-slot="a">
-          <span class="compare-file-name">Yours（未选择）</span>
+          <span class="compare-file-name">本地文件（未选择）</span>
         </div>
         <div class="compare-file-slot" id="fileSlotB" data-slot="b">
-          <span class="compare-file-name">Theirs（未选择）</span>
+          <span class="compare-file-name">对方文件（未选择）</span>
         </div>
       </section>
 
@@ -104,31 +104,43 @@
           <div class="compare-view-header" id="compareViewHeader" hidden>
             <div class="pane-header" data-pane="a">
               <input type="checkbox" class="pane-header-toggle" id="paneToggleA" checked aria-label="显示 / 隐藏左栏" />
-              <span class="pane-header-title" id="paneTitleA">Yours</span>
+              <span class="pane-header-title" id="paneTitleA">本地</span>
               <button type="button" class="pane-header-close" data-pane="a" title="关闭该栏" aria-label="关闭左栏">×</button>
             </div>
             <div class="pane-header" data-pane="b">
               <input type="checkbox" class="pane-header-toggle" id="paneToggleB" checked aria-label="显示 / 隐藏中栏" />
-              <span class="pane-header-title" id="paneTitleB">Result</span>
+              <span class="pane-header-title" id="paneTitleB">合并结果</span>
               <button type="button" class="pane-header-close" data-pane="b" title="关闭该栏" aria-label="关闭中栏">×</button>
             </div>
             <div class="pane-header" data-pane="c">
               <input type="checkbox" class="pane-header-toggle" id="paneToggleC" checked aria-label="显示 / 隐藏右栏" />
-              <span class="pane-header-title" id="paneTitleC">Theirs</span>
+              <span class="pane-header-title" id="paneTitleC">对方</span>
               <button type="button" class="pane-header-close" data-pane="c" title="关闭该栏" aria-label="关闭右栏">×</button>
             </div>
           </div>
           <div class="compare-view compare-view-two" id="viewTwo" hidden></div>
           <div class="compare-view compare-view-three" id="viewThree" hidden></div>
         </div>
-        <aside class="compare-location-pane" id="locationPane" aria-label="位置概览" hidden></aside>
+        <!-- 概览侧栏拖拽分隔条：拖动调整差异概览宽度（与编辑/预览分隔条一致的交互） -->
+        <div
+          class="compare-lp-resizer"
+          id="locationPaneResizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整差异概览宽度"
+          title="拖动调整差异概览宽度（双击恢复默认）"
+          hidden
+        >
+          <div class="compare-lp-resizer-handle"></div>
+        </div>
+        <aside class="compare-location-pane" id="locationPane" aria-label="差异概览" hidden></aside>
       </section>
     </main>
 
-    <!-- 底部全局操作栏：APPLY 落地合并结果，ABORT 放弃并关闭对比页 -->
+    <!-- 底部全局操作栏：「应用」落地合并结果，「放弃」放弃并关闭对比页 -->
     <footer class="compare-footer" id="compareFooter">
-      <button type="button" class="compare-footer-btn compare-footer-apply" id="btnApplyMerge" title="导出 / 保存当前合并结果">APPLY</button>
-      <button type="button" class="compare-footer-btn compare-footer-abort" id="btnAbortMerge" title="放弃本次合并并关闭对比页">ABORT</button>
+      <button type="button" class="compare-footer-btn compare-footer-apply" id="btnApplyMerge" title="导出 / 保存当前合并结果">应用</button>
+      <button type="button" class="compare-footer-btn compare-footer-abort" id="btnAbortMerge" title="放弃本次合并并关闭对比页">放弃</button>
     </footer>
 
     <script type="module" src="./compare.js"></script>

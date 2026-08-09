@@ -57,9 +57,36 @@
 //   - 变量：--diff-connector-ab / --diff-connector-ab-fill
 //           --diff-connector-bc / --diff-connector-bc-fill
 
+// 【第三期增量：独属内容连线（exclusive / wedge）】
+//   除「移动块」外，本文件还承担「某侧独有的内容 → 对侧插入点」的连线。
+//   二者共用同一套坐标算法与同一个 SVG 覆盖层，区别只在端点形态：
+//     · 移动块（ribbon）：两端都是**块跨度**，画成上下两条贝塞尔边围出的连接带；
+//     · 独属内容（wedge）：一端是块跨度、另一端收敛成对侧的**插入点**（零高度），
+//       于是连接带自然退化为一个楔形（三角形），尖端精确指向「这段内容该插到哪」。
+//   端点形态由 pair 上的 srcCaret / dstCaret 布尔字段声明（见 ConnectorPair）。
+//   配色不再固定按层取：独属内容需要「红=左侧独有 / 绿=右侧独有」与其行内高亮同色，
+//   因此 pair 自身可携带 stroke / fill / variant 覆盖层默认色（见 ConnectorPair）。
+
+/**
+ * 单条连线的数据。
+ *
+ * 行号字段名由所属层的 fromLineKey / toLineKey 决定（历史约定：移动块用
+ * srcStartLine / dstStartLine，末行为同名的 *EndLine）。以下为**可选**增量字段：
+ *
+ * @typedef {Object} ConnectorPair
+ * @property {boolean} [srcCaret] 源端是否为「插入点」而非块跨度。
+ *   为真时只取 srcStartLine 的**行首**作为零高度端点，忽略 srcEndLine。
+ * @property {boolean} [dstCaret] 目标端是否为插入点，语义同上。
+ * @property {string}  [stroke]   本条连线的描边色，覆盖层默认色。
+ * @property {string}  [fill]     本条连线的填充色，覆盖层默认色。**必须显著淡于描边**。
+ * @property {string}  [variant]  语义变体名，会渲染成 `cm-diff-connector-<variant>`
+ *   类名与 data-variant 属性，供 CSS 精确着色与自动化测试断言。
+ *   约定取值：'added'（仅右侧独有）/ 'removed'（仅左侧独有）/ 'moved'（块移动）。
+ */
+
 /**
  * @typedef {Object} ConnectorLayer
- * @property {'ab'|'bc'} layer
+ * @property {'ab'|'bc'|'diff'} layer
  * @property {import('@codemirror/view').EditorView} fromView
  * @property {import('@codemirror/view').EditorView} toView
  * @property {Array<{srcStartLine:number,srcEndLine:number,dstStartLine:number,dstEndLine:number,text?:string}>} pairs
@@ -142,7 +169,49 @@ const LAYER_PAINT = {
     stroke: "rgba(163, 113, 247, 0.7)", // = --diff-connector-bc（亮色）
     fill: "rgba(163, 113, 247, 0.14)", // = --diff-connector-bc-fill（亮色）
   },
+  // 独属内容层：层级默认色只是兜底，实际每条 pair 都会带 variant 专属色
+  // （红/绿），见 VARIANT_PAINT。
+  diff: {
+    stroke: "rgba(140, 140, 140, 0.6)",
+    fill: "rgba(140, 140, 140, 0.12)",
+  },
 };
+
+/**
+ * 语义变体的默认配色。与 LAYER_PAINT 同理，这里是 CSS 缺失时的降级值，
+ * 单一事实源仍是 src/compare.css 的 `--diff-connector-added / -removed`。
+ * ⚠ 改 compare.css 的对应变量时请同步这里。
+ *
+ * 【色值来源】直接取自 compare.css 的行级差异色（--diff-line-added-bg /
+ * --diff-line-removed-bg）的同色相、更高透明度版本 —— 这是「连线颜色必须与它
+ * 连接的高亮块同色」这条需求的落点：绿连绿、红连红，用户一眼能看出
+ * 「这条线连的是哪一块」。
+ */
+const VARIANT_PAINT = {
+  added: {
+    // 与 compare.css 的 --diff-added-rgb（= --diff-word-added-bg 的基色）同源，仅 alpha 更高。
+    stroke: "rgba(46, 160, 67, 0.75)",
+    fill: "rgba(46, 160, 67, 0.16)",
+  },
+  removed: {
+    // 与 compare.css 的 --diff-removed-rgb（= --diff-word-removed-bg 的基色）同源。
+    stroke: "rgba(248, 81, 73, 0.75)",
+    fill: "rgba(248, 81, 73, 0.16)",
+  },
+};
+
+/** 允许的层名白名单；未知层名一律归到 'ab'（保持旧行为，不静默丢弃）。 */
+const KNOWN_LAYERS = new Set(["ab", "bc", "diff"]);
+
+/**
+ * 楔形（wedge）尖端的最小高度（px）。
+ *
+ * 插入点端点在几何上是零高度的一个点，但零高度会被 computeGeometry 里
+ * 「两侧同时滚出可见区」的判据（sBot > top && sTop < bottom）在**恰好贴边**时误杀，
+ * 且 SVG 描边在完全退化的路径上有些浏览器不渲染。给尖端撑开 1px 既保证可见，
+ * 又在视觉上仍是一个「点」。
+ */
+const CARET_HEIGHT = 1;
 
 /** 保留两位小数，避免 path 属性里出现超长浮点串。 */
 function round2(n) {
@@ -289,6 +358,34 @@ export function createConnectorPainter(opts) {
   }
 
   /**
+   * 取某 view 上「第 line 行之前」这个**插入点**的视口纵向位置（零高度端点）。
+   *
+   * 语义：楔形连线的尖端指向「这段独属内容应该被插到哪里」，即第 line 行的**行首**。
+   * 当 line 超过文档末行时（内容应追加到文末），取末行的**行尾**。
+   *
+   * 返回的仍是未归一化的视口坐标，且 top === bottom（真正的点）；
+   * 撑开 CARET_HEIGHT 的工作交给调用方，便于与 ribbon 分支共用后续裁剪逻辑。
+   * @returns {{top:number, bottom:number}|null}
+   */
+  function rawCaret(view, line) {
+    try {
+      const doc = view.state.doc;
+      const total = doc.lines;
+      const n = Math.floor(Number(line));
+      if (!Number.isFinite(n) || n < 1) return null;
+      if (n > total) {
+        // 追加到文末：取末行下沿
+        const edge = edgeOf(view, doc.line(total), "bottom");
+        return edge ? { top: edge.bottom, bottom: edge.bottom } : null;
+      }
+      const edge = edgeOf(view, doc.line(n), "top");
+      return edge ? { top: edge.top, bottom: edge.top } : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
    * 取单行的视口上下沿。which 只影响「哪一端更重要」，两端都会返回。
    * @returns {{top:number, bottom:number}|null}
    */
@@ -407,13 +504,13 @@ export function createConnectorPainter(opts) {
       const toGeo = viewGeometry(toView, box);
       if (!fromGeo || !toGeo) continue;
 
-      const layerName = layerItem.layer === "bc" ? "bc" : "ab";
+      const layerName = KNOWN_LAYERS.has(layerItem.layer) ? layerItem.layer : "ab";
       const paint = LAYER_PAINT[layerName];
       // stroke 与 fill 是两个独立的可选覆盖字段：填充必须比描边淡得多，
       // 二者绝不能共用同一个色值（否则半透明连接带糊成实心块，盖住栏间内容）。
       // color 只作为 stroke 的兼容别名参与描边，不再影响填充。
-      const stroke = layerItem.stroke || layerItem.color || paint.stroke;
-      const fill = layerItem.fill || paint.fill;
+      const layerStroke = layerItem.stroke || layerItem.color || paint.stroke;
+      const layerFill = layerItem.fill || paint.fill;
 
       // 行号字段名：调用方只给了 *StartLine，末行由同名的 *EndLine 推出。
       const fromStartKey = layerItem.fromLineKey || "srcStartLine";
@@ -438,18 +535,29 @@ export function createConnectorPainter(opts) {
         const p = pairs[i];
         if (!p) continue;
 
-        const srcRaw = rawSpan(fromView, p[fromStartKey], p[fromEndKey] ?? p[fromStartKey]);
-        const dstRaw = rawSpan(toView, p[toStartKey], p[toEndKey] ?? p[toStartKey]);
+        // 端点形态：caret 端只取一行的行首（插入点），span 端取整块跨度。
+        // 二者返回结构相同，后续裁剪 / 路径生成完全共用。
+        const srcRaw = p.srcCaret
+          ? rawCaret(fromView, p[fromStartKey])
+          : rawSpan(fromView, p[fromStartKey], p[fromEndKey] ?? p[fromStartKey]);
+        const dstRaw = p.dstCaret
+          ? rawCaret(toView, p[toStartKey])
+          : rawSpan(toView, p[toStartKey], p[toEndKey] ?? p[toStartKey]);
         // 两侧都量不出坐标（视图未测量 / 已销毁）→ 无从下笔，跳过。
         // 只有一侧量不出时仍要画：该侧走 ③ 级兜底贴到可见区顶部，至少保住方向指示。
         if (!srcRaw && !dstRaw) continue;
 
         // 归一化到 container 坐标系；③ 级兜底给一条 FALLBACK_BAND 高的贴边细带，
         // 否则退化成零高度线段会被下面的「滚出可见区」规则误判掉。
+        // caret 端本身就是零高度，同样要撑开 CARET_HEIGHT 才不会被误杀（见常量说明）。
         const sTopRaw = srcRaw ? srcRaw.top - box.top : fromGeo.top;
-        const sBotRaw = srcRaw ? srcRaw.bottom - box.top : fromGeo.top + FALLBACK_BAND;
+        const sBotRaw = srcRaw
+          ? Math.max(srcRaw.bottom - box.top, srcRaw.top - box.top + (p.srcCaret ? CARET_HEIGHT : 0))
+          : fromGeo.top + FALLBACK_BAND;
         const dTopRaw = dstRaw ? dstRaw.top - box.top : toGeo.top;
-        const dBotRaw = dstRaw ? dstRaw.bottom - box.top : toGeo.top + FALLBACK_BAND;
+        const dBotRaw = dstRaw
+          ? Math.max(dstRaw.bottom - box.top, dstRaw.top - box.top + (p.dstCaret ? CARET_HEIGHT : 0))
+          : toGeo.top + FALLBACK_BAND;
 
         // 两侧同时完全滚出各自可见区 → 这条带子只会退化成贴边的一根直线，纯噪声，跳过。
         const srcOnScreen = sBotRaw > fromGeo.top && sTopRaw < fromGeo.bottom;
@@ -461,11 +569,16 @@ export function createConnectorPainter(opts) {
         const dTop = clamp(dTopRaw, toGeo.top, toGeo.bottom);
         const dBottom = clamp(dBotRaw, toGeo.top, toGeo.bottom);
 
+        // 逐条取色：pair 自带 > variant 默认 > 层默认。
+        // 「独属内容连线与其高亮块同色」这条需求就落在 variant 这一档上。
+        const variant = typeof p.variant === "string" ? p.variant : "";
+        const vPaint = VARIANT_PAINT[variant];
         specs.push({
           d: ribbonPath(x1, x2, sTop, sBottom, dTop, dBottom),
           layerName,
-          fill,
-          stroke,
+          variant,
+          fill: p.fill || (vPaint && vPaint.fill) || layerFill,
+          stroke: p.stroke || (vPaint && vPaint.stroke) || layerStroke,
           index: i,
         });
       }
@@ -473,8 +586,10 @@ export function createConnectorPainter(opts) {
 
     // 几何指纹：把「画出来会长什么样」压成一个字符串。补绘采样时用它判断
     // spacer 是否已经落定 —— 与上次渲染一致就说明还没动，不必写 DOM。
+    // 必须含 variant：同一层同一下标的连线可能只是换了语义色（例如某块从
+    // 「新增」变成「移动」），几何不变但颜色要变，漏掉它会导致颜色僵在旧值。
     let sig = `${droppedPairs}`;
-    for (const s of specs) sig += `;${s.layerName}:${s.index}:${s.d}`;
+    for (const s of specs) sig += `;${s.layerName}:${s.variant}:${s.index}:${s.d}`;
     return { specs, dropped: droppedPairs, sig };
   }
 
@@ -486,8 +601,13 @@ export function createConnectorPainter(opts) {
     for (const s of geo.specs) {
       const path = document.createElementNS(SVG_NS, "path");
       path.setAttribute("d", s.d);
-      path.setAttribute("class", `cm-move-connector cm-move-connector-${s.layerName}`);
+      // 类名三段：通用钩子 + 层 + 语义变体。变体段只在有 variant 时追加，
+      // 保证既有的 .cm-move-connector-ab / -bc 选择器行为完全不变（向后兼容）。
+      let cls = `cm-move-connector cm-move-connector-${s.layerName}`;
+      if (s.variant) cls += ` cm-diff-connector cm-diff-connector-${s.variant}`;
+      path.setAttribute("class", cls);
       path.setAttribute("data-layer", s.layerName);
+      if (s.variant) path.setAttribute("data-variant", s.variant);
       path.setAttribute("data-pair", String(s.index));
       path.setAttribute("fill", s.fill);
       path.setAttribute("stroke", s.stroke);

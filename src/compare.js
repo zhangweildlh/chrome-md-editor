@@ -152,6 +152,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const btnAcceptTheirs = $("btnAcceptTheirs");
   const btnToggleLocationPane = $("btnToggleLocationPane");
   const locationPaneEl = $("locationPane");
+  const locationPaneResizerEl = $("locationPaneResizer");
   // 「保存」按钮由 compare.html 提供；该按钮可能尚未上线，必须做 null 保护
   const btnSave = $("btnSave");
 
@@ -178,8 +179,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   };
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.8.8（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.8";
+  // 运行时兜底 1.8.9（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.9";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -199,7 +200,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     if (nameEl) {
       nameEl.textContent = file
         ? file.name
-        : (slot.dataset.slot === "a" ? "Yours" : "Theirs") + "（未选择）";
+        : (slot.dataset.slot === "a" ? "本地文件" : "对方文件") + "（未选择）";
     }
   }
 
@@ -313,21 +314,21 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
           if (instance.a)
             files.a = files.a
               ? { ...files.a, content: instance.a.state.doc.toString() }
-              : { name: "Yours", content: instance.a.state.doc.toString() };
+              : { name: "本地", content: instance.a.state.doc.toString() };
           if (instance.b)
             files.b = files.b
               ? { ...files.b, content: instance.b.state.doc.toString() }
-              : { name: "Theirs", content: instance.b.state.doc.toString() };
+              : { name: "对方", content: instance.b.state.doc.toString() };
         } else if (mode === "three") {
           if (instance.a)
             files.a = files.a
               ? { ...files.a, content: instance.a.state.doc.toString() }
-              : { name: "Yours", content: instance.a.state.doc.toString() };
+              : { name: "本地", content: instance.a.state.doc.toString() };
           files.result = instance.b ? instance.b.state.doc.toString() : ""; // 中间结果可编辑，必须回写
           if (instance.theirsView)
             files.b = files.b
               ? { ...files.b, content: instance.theirsView.state.doc.toString() }
-              : { name: "Theirs", content: instance.theirsView.state.doc.toString() };
+              : { name: "对方", content: instance.theirsView.state.doc.toString() };
         }
       } catch (e) {
         console.error("[compare] 保存编辑内容失败:", e);
@@ -342,8 +343,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         if (paneOffState[p]) comparePanes.classList.add("pane-off-" + p);
       }
     }
-    const aFile = files.a || { name: "Yours", content: "" };
-    const bFile = files.b || { name: "Theirs", content: "" };
+    const aFile = files.a || { name: "本地", content: "" };
+    const bFile = files.b || { name: "对方", content: "" };
     const target = viewEls[mode];
     if (!target) return;
     target.hidden = false;
@@ -468,6 +469,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       locationPane = null;
     }
     locationPaneEl.hidden = !locationPaneVisible;
+    // 分隔条与侧栏同生共死：侧栏隐藏时留一根可拖拽的空条会让人误以为侧栏还在。
+    if (locationPaneResizerEl) locationPaneResizerEl.hidden = !locationPaneVisible;
     if (btnToggleLocationPane) {
       btnToggleLocationPane.classList.toggle("active", locationPaneVisible);
     }
@@ -526,6 +529,114 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       if (instance && typeof instance.redrawConnectors === "function") {
         instance.redrawConnectors();
       }
+    });
+  }
+
+  // ── 差异概览侧栏：拖拽调整宽度 ──
+  // 宽度写在 #locationPane 自身的 --lp-width 上（compare.css 里 flex-basis 读它），
+  // 并持久化到 localStorage，刷新/重开对比页后保持用户设定。
+  const LP_WIDTH_KEY = "md-compare-location-pane-width";
+  const LP_WIDTH_DEFAULT = 176;
+  const LP_WIDTH_MIN = 120;
+  // 上限不写死像素：窄窗口下 560px 会把编辑区挤没。取「视图容器宽度的 60%」与 560 的较小值。
+  const LP_WIDTH_MAX_ABS = 560;
+
+  function lpMaxWidth() {
+    const host = locationPaneEl && locationPaneEl.parentElement;
+    const avail = host ? host.clientWidth : 0;
+    if (!avail) return LP_WIDTH_MAX_ABS;
+    return Math.max(LP_WIDTH_MIN, Math.min(LP_WIDTH_MAX_ABS, Math.round(avail * 0.6)));
+  }
+
+  function clampLpWidth(px) {
+    const n = Number(px);
+    if (!Number.isFinite(n)) return LP_WIDTH_DEFAULT;
+    return Math.round(Math.min(lpMaxWidth(), Math.max(LP_WIDTH_MIN, n)));
+  }
+
+  function applyLpWidth(px, { persist = false } = {}) {
+    if (!locationPaneEl) return;
+    const w = clampLpWidth(px);
+    locationPaneEl.style.setProperty("--lp-width", `${w}px`);
+    if (persist) {
+      try {
+        localStorage.setItem(LP_WIDTH_KEY, String(w));
+      } catch (_) {
+        /* storage 不可用：仅本次会话生效 */
+      }
+    }
+    return w;
+  }
+
+  function initLocationPaneResizer() {
+    if (!locationPaneEl || !locationPaneResizerEl) return;
+
+    // 恢复持久化宽度（无记录则沿用 CSS 默认 176px，不写内联样式）
+    let saved = null;
+    try {
+      saved = localStorage.getItem(LP_WIDTH_KEY);
+    } catch (_) {
+      /* 忽略 */
+    }
+    if (saved != null && saved !== "") applyLpWidth(saved);
+
+    let dragging = false;
+
+    // 用 Pointer Capture：捕获到分隔条本身，拖出窗口再松手也能收到 pointerup/pointercancel，
+    // 不会卡在拖拽态（差异概览拖宽是新增交互，必须稳健）。
+    locationPaneResizerEl.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      dragging = true;
+      locationPaneResizerEl.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const startX = e.clientX;
+      const startWidth = locationPaneEl.getBoundingClientRect().width;
+
+      const onPointerMove = (ev) => {
+        if (!dragging) return;
+        // 侧栏在右侧：鼠标左移（dx<0）变宽，故取 startX - clientX。
+        applyLpWidth(startWidth + (startX - ev.clientX));
+      };
+
+      const onPointerUp = (ev) => {
+        if (!dragging) return;
+        dragging = false;
+        locationPaneResizerEl.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        locationPaneResizerEl.removeEventListener("pointermove", onPointerMove);
+        locationPaneResizerEl.removeEventListener("pointerup", onPointerUp);
+        locationPaneResizerEl.removeEventListener("pointercancel", onPointerUp);
+        try { locationPaneResizerEl.releasePointerCapture(ev.pointerId); } catch (_) { /* 未捕获则忽略 */ }
+        applyLpWidth(locationPaneEl.getBoundingClientRect().width, { persist: true });
+        // 宽度变了 ⇒ 编辑区可用宽度变了 ⇒ 软换行重排。概览视口指示器与移动块连线
+        // 依赖同一份布局，必须等下一帧 reflow 完再一起重算（与 toggleLocationPane 同规则）。
+        scheduleAfterLayout(() => {
+          if (locationPane) locationPane.update();
+          if (instance && typeof instance.redrawConnectors === "function") {
+            instance.redrawConnectors();
+          }
+        });
+      };
+
+      try { locationPaneResizerEl.setPointerCapture(e.pointerId); } catch (_) { /* 指针不可用则忽略 */ }
+      locationPaneResizerEl.addEventListener("pointermove", onPointerMove);
+      locationPaneResizerEl.addEventListener("pointerup", onPointerUp);
+      locationPaneResizerEl.addEventListener("pointercancel", onPointerUp);
+    });
+
+    // 双击分隔条恢复默认宽度
+    locationPaneResizerEl.addEventListener("dblclick", () => {
+      applyLpWidth(LP_WIDTH_DEFAULT, { persist: true });
+      scheduleAfterLayout(() => {
+        if (locationPane) locationPane.update();
+        if (instance && typeof instance.redrawConnectors === "function") {
+          instance.redrawConnectors();
+        }
+      });
     });
   }
 
@@ -695,9 +806,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     // 三栏显示三份标题，两栏显示两份；c 栏在两栏下隐藏
     const visiblePanes = mode === "three" ? ["a", "b", "c"] : ["a", "b"];
     const titles = {
-      a: files.a ? files.a.name : "Yours",
-      b: mode === "three" ? "Result" : files.b ? files.b.name : "Theirs",
-      c: files.b ? files.b.name : "Theirs",
+      a: files.a ? files.a.name : "本地",
+      b: mode === "three" ? "合并结果" : files.b ? files.b.name : "对方",
+      c: files.b ? files.b.name : "对方",
     };
     for (const p of ["a", "b", "c"]) {
       const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
@@ -724,16 +835,16 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     const isTwo = mode === "two";
     if (btnAcceptLeft)
       btnAcceptLeft.title = isTwo
-        ? "接受左侧全部块（Yours → Theirs）"
-        : "接受左侧全部块（Yours → 结果）";
+        ? "采纳左侧全部块（本地 → 对方）"
+        : "采纳左侧全部块（本地 → 合并结果）";
     if (btnAcceptAll)
       btnAcceptAll.title = isTwo
-        ? "用左栏覆盖全部（Yours 优先）"
-        : "两侧全部接受（先左后右，右侧覆盖冲突处）";
+        ? "用左栏覆盖全部（本地优先）"
+        : "两侧全部采纳（先左后右，右侧覆盖冲突处）";
     if (btnAcceptRight)
       btnAcceptRight.title = isTwo
-        ? "接受右侧全部块（Theirs → Yours）"
-        : "接受右侧全部块（Theirs → 结果）";
+        ? "采纳右侧全部块（对方 → 本地）"
+        : "采纳右侧全部块（对方 → 合并结果）";
   }
 
   // ── 关闭某栏：仅视觉隐藏该栏（display:none）+ 触发重绘 ──
@@ -1160,6 +1271,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       switchMode,
     };
   }
+
+  // 差异概览侧栏宽度拖拽（必须在首次 render 前恢复宽度，避免首帧按默认宽度量错布局）
+  initLocationPaneResizer();
 
   // 默认渲染两栏（空文档），保证页面有可见内容
   render();

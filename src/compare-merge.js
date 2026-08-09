@@ -47,6 +47,13 @@ import {
   setMoveBlocks,
 } from "./compare/move-decorations.js";
 import { createConnectorPainter } from "./compare/move-connectors.js";
+// 元素级差异（移植自 dandavison/delta）：N↔M 块的同源行配对 + 独属行清单。
+// 仅用于「行数不等的修改块」—— 行数相等的块仍走既有 buildWordDiffData（按下标配对）。
+import {
+  inferEdits,
+  buildExclusiveConnectorPairs,
+  DEFAULT_MAX_LINE_DISTANCE,
+} from "./compare/delta-align.js";
 // 块级「采纳右侧」按钮复用统一的写入原语（单次 dispatch、区间校验），不自己拼 changes。
 import { acceptChunk } from "./compare/chunk-ops.js";
 // MergeView 内的 view.scrollDOM 不是滚动盒（可滚余量恒 0、且收不到 scroll 事件），
@@ -196,7 +203,7 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
   const moveDetect = flags.moveDetect;
   const wordMode =
     flags.wordMode === "off" || flags.wordMode === "char" ? flags.wordMode : "word";
-  const EMPTY = { pairs: [], chunks: [], truncated: false };
+  const EMPTY = { pairs: [], chunks: [], truncated: false, diffPairs: [] };
   if (!viewA || !viewB || !viewA.dom || !viewB.dom) return EMPTY;
   const opt = sides || {};
   const writeA = opt.writeA !== false;
@@ -213,6 +220,11 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
       ? cache.getBuiltChunks(aDoc, bDoc)
       : safeChunks(viewA.state);
 
+    // 独属内容连线对（左侧独有 / 右侧独有）：由下方 wordDiff 分支按块累积，
+    // 供 buildConnectorLayers 构造 'diff' 层绘制「独属内容 → 对侧插入点」同色楔形连线。
+    // 仅在 wordDiff 开启时才有意义；未开启时恒为空数组，不画 diff 层。
+    const exclusivePairs = [];
+
     if (wordDiff) {
       const aData = [];
       const bData = [];
@@ -222,15 +234,40 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
         if (!(c.toA > c.fromA) || !(c.toB > c.fromB)) continue;
         const aLines = aDoc.sliceString(c.fromA, c.toA).split("\n");
         const bLines = bDoc.sliceString(c.fromB, c.toB).split("\n");
-        // 行数不等时跳过。注意理由【不是】会越界或算出错误结果 ——
-        // buildWordDiffData 内部有 Math.min(len) 保护，不会越界比对。
-        // 真正的理由是语义：Chunk.build 已把纯增 / 纯删剥离成独立 chunk，剩下这些
-        // 「N 行 ↔ M 行」的双侧块基本都是整段重写，此时逐行 1:1 配对没有可靠的对应关系，
-        // 算出来是全红全绿的无信息噪音，高亮价值低于噪音成本。
-        // 这与 GitHub 的 intra-line diff 策略一致：只在行能稳定对齐时才做行内高亮。
-        if (aLines.length !== bLines.length) continue;
         const aStart = aDoc.lineAt(c.fromA).number;
         const bStart = bDoc.lineAt(c.fromB).number;
+        // 行数不等（N↔M 块）：改用 delta 移植的 inferEdits 做内容相似度配对，
+        // 既能对任意行数给出元素级高亮，又顺带产出「独属行」清单。
+        // 旧的 `if (aLines.length !== bLines.length) continue;` 会直接放弃这类块的行内高亮，
+        // 退化成大片纯色（见 delta-align.js 文件头的问题描述）。
+        // char 模式下 diff 包按字符细分，且没有同源配对概念，沿用旧行为跳过 N↔M。
+        if (aLines.length !== bLines.length) {
+          if (wordMode === "char") continue;
+          const ie = inferEdits(aLines, bLines, {
+            maxLineDistance: DEFAULT_MAX_LINE_DISTANCE,
+          });
+          // 同源行对 → 行内字词高亮（左侧用 minusRanges、右侧用 plusRanges）。
+          for (const pair of ie.pairs) {
+            if (pair.minusRanges.length) {
+              aData.push({
+                lineNumber: aStart + pair.minusIndex,
+                ranges: pair.minusRanges,
+              });
+            }
+            if (pair.plusRanges.length) {
+              bData.push({
+                lineNumber: bStart + pair.plusIndex,
+                ranges: pair.plusRanges,
+              });
+            }
+          }
+          // 独属行 → 连接带对（左侧独有 / 右侧独有）：尖端指向对侧块尾的插入点。
+          // 用同一份 ie 结果，避免浏览器主线程每 200ms 重算时重复做同源配对。
+          exclusivePairs.push(
+            ...buildExclusiveConnectorPairs(aLines, bLines, aStart, bStart, ie)
+          );
+          continue;
+        }
         aData.push(...buildWordDiffData(aLines, bLines, "before", aStart, wordMode));
         bData.push(...buildWordDiffData(aLines, bLines, "after", bStart, wordMode));
       }
@@ -252,9 +289,14 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
       // 右栏 Theirs 画 dst），避免同一视图被两层同时写入 moveBlockField 而互相覆盖。
       if (writeA && opt.aSide) setMoveBlocks(viewA, pairs, opt.aSide);
       if (writeB && opt.bSide) setMoveBlocks(viewB, pairs, opt.bSide);
-      return { pairs, chunks, truncated: !!truncated };
+      return {
+        pairs,
+        chunks,
+        truncated: !!truncated,
+        diffPairs: exclusivePairs,
+      };
     }
-    return { pairs: [], chunks, truncated: false };
+    return { pairs: [], chunks, truncated: false, diffPairs: exclusivePairs };
   } catch (err) {
     console.error("[compare-merge] 刷新差异装饰失败:", err);
     return EMPTY;
@@ -295,6 +337,7 @@ function createDecorationScheduler(flags) {
       vp.pairs = r.pairs;
       vp.chunks = r.chunks;
       vp.truncated = r.truncated;
+      vp.diffPairs = r.diffPairs;
     }
     for (const fn of listeners) {
       try {
@@ -467,16 +510,17 @@ function makeRevertGroup(onAcceptRight) {
 
   // 非冲突块：单按钮（沿用既有语义与类名 cm-compare-revert）
   box.appendChild(
-    mk("cm-compare-revert cm-compare-revert-single", "⇄ 接受此块", "接受此块（将左侧内容并入结果）")
+    mk("cm-compare-revert cm-compare-revert-single", "⇄ 采纳此块", "采纳此块（将左侧内容并入结果）")
   );
   // 冲突块 / 两栏：双向按钮
+  // 箭头语义 = 内容流向：左栏内容向右写入结果（采纳左 ▶），右栏内容向左写入结果（◀ 采纳右）。
   box.appendChild(
-    mk("cm-compare-revert cm-compare-accept-left", "◀ 采纳左", "ACCEPT LEFT：用左栏内容覆写本块")
+    mk("cm-compare-revert cm-compare-accept-left", "采纳左 ▶", "采纳左侧：用左栏内容覆写本块")
   );
   const right = mk(
     "cm-compare-revert cm-compare-accept-right",
-    "采纳右 ▶",
-    "ACCEPT RIGHT：用右栏内容覆写本块"
+    "◀ 采纳右",
+    "采纳右侧：用右栏内容覆写本块"
   );
   // 掐断冒泡，阻止库的默认 a→b 覆写（理由见上方大段说明）
   right.addEventListener("mousedown", (e) => {
@@ -622,16 +666,34 @@ export function createCompareMergeView(opts) {
    */
   function buildConnectorLayers() {
     if (!scheduler) return [];
-    return scheduler.getPairs().map((vp) => ({
-      layer: vp.layer || "ab",
-      fromView: vp.a,
-      toView: vp.b,
-      pairs: vp.pairs || [],
-      chunks: vp.chunks || [],
-      fromLineKey: "srcStartLine",
-      toLineKey: "dstStartLine",
-      truncated: !!vp.truncated,
-    }));
+    const out = [];
+    for (const vp of scheduler.getPairs()) {
+      out.push({
+        layer: vp.layer || "ab",
+        fromView: vp.a,
+        toView: vp.b,
+        pairs: vp.pairs || [],
+        chunks: vp.chunks || [],
+        fromLineKey: "srcStartLine",
+        toLineKey: "dstStartLine",
+        truncated: !!vp.truncated,
+      });
+      // 独属内容层：把「左侧独有 / 右侧独有」画成 C↔对侧插入点的同色楔形连线。
+      // 与移动块层共用同一 SVG 覆盖层与坐标算法（见 move-connectors.js 顶部说明）。
+      // 端点形态靠 pair 上的 srcCaret / dstCaret 声明，配色靠 variant（added/removed）。
+      if (vp.diffPairs && vp.diffPairs.length) {
+        out.push({
+          layer: "diff",
+          fromView: vp.a,
+          toView: vp.b,
+          pairs: vp.diffPairs,
+          fromLineKey: "srcStartLine",
+          toLineKey: "dstStartLine",
+          truncated: false,
+        });
+      }
+    }
+    return out;
   }
   // 【已知取舍】无 AbortController 的环境下，本函数与 linkPaneScroll 注册的 scroll
   // 监听不会被显式解绑。这些监听挂在随视图一起从 DOM 摘除的滚动盒（.cm-mergeView /
