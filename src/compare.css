@@ -541,8 +541,9 @@
   position: relative;
   z-index: 2;
   /* 库默认 width:1.6em，只够放一个箭头字形；本项目的块级按钮是「⇄ 采纳此块 /
-     采纳左 ▶ / ◀ 采纳右」这类文字按钮，必须放宽，否则每个字都会折行成竖排。 */
-  width: 84px;
+     采纳左 ▶ / ◀ 采纳右」这类文字按钮，需保留足够宽度避免逐字折行。
+     经用户反馈收窄 20%（84px → 67px），按钮仍用 nowrap + ellipsis 兜底不折行。 */
+  width: 67px;
 }
 
 /* ── 块级操作按钮组（renderRevertControl 返回的容器） ──
@@ -829,7 +830,7 @@
 }
 
 /* ── 自定义块级按钮（renderRevertControl：接受此块 / 采纳左 / 采纳右） ──
-   宽度受 .cm-merge-revert 列（84px）约束，故字号压到 11px 并强制 nowrap；
+   宽度受 .cm-merge-revert 列（67px，已收窄 20%）约束，故字号压到 11px 并强制 nowrap；
    否则「⇄ 接受此块」会逐字折行成一条竖排文字。 */
 .cm-compare-revert {
   display: inline-flex;

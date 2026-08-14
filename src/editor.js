@@ -247,6 +247,9 @@ let currentFileHandle = null;
 // 已加载文件名（file:// 打开时没有 FileHandle，用此值作为自动保存/快照键的回退来源，见 Bug #1 修复）
 let currentFileName = 'unsaved';
 let isModified = false;
+// 标记「用户主动跳转（如点击对比/合并按钮打开 compare.html）」，用于抑制
+// beforeunload 的「是否离开网站？」误报；短延迟后复位，保证独立标签页场景仍受保护。
+let intentionalLeave = false;
 // 修复 THM-01：明暗基底的单一事实源是「当前编辑器主题预设的 kind」（applyEditorThemePreset 写 data-theme）。
 // currentTheme 只是该 kind 的派生量，用于驱动 CM6 明暗扩展 / mermaid / 主题图标。
 // 旧实现从独立键 md-editor-theme 读取（默认 'dark'），会与默认预设「豆沙绿（亮）」相互矛盾，
@@ -1318,8 +1321,9 @@ function initPreviewEditing() {
     // 预览区实时 Markdown 渲染（问题 4 修复）：
     // 用户在 contenteditable 预览区输入 Markdown 语法（如 **粗体**、`代码`、# 标题等）时，
     // 实时将输入内容通过 markdown-it 渲染为富文本，实现"所见即所得"预览体验。
-    // 仅在预览编辑模式下生效，且不与编辑→预览的更新冲突。
-    if (!isPreviewEditing) return;
+    // 仅在预览区处于焦点（正在编辑）时生效：改用稳定的「焦点判定」而非易失的
+    // isPreviewEditing 标志，避免重渲染 innerHTML 触发 blur 清零标志后，后续输入不再渲染。
+    if (document.activeElement !== previewContainer) return;
     clearTimeout(previewRenderTimer);
     previewRenderTimer = setTimeout(() => {
       try { renderLivePreviewMarkdown(); } catch (err) {
@@ -1333,7 +1337,7 @@ function initPreviewEditing() {
   // 仅在文本节点内、有选区时跳过、nextChar 为字母/数字时跳过（由 getAutoPairClose 处理）。
   // 程序插入的闭符号不会触发额外 input 事件（避免与上方 sync 监听相互干扰）。
   previewContainer.addEventListener('input', (e) => {
-    if (!isPreviewEditing) return;
+    if (document.activeElement !== previewContainer) return;
     if (e.inputType !== 'insertText' || !e.data || e.data.length !== 1) return;
     const inserted = e.data;
     const sel = window.getSelection();
@@ -1624,7 +1628,9 @@ function normalizeHtml(html) {
 // 这样既能渲染新输入的语法，又能保留已渲染块（如已存在的 <strong>）——往返对 markdown 是保真的。
 function renderLivePreviewMarkdown() {
   const previewContainer = document.getElementById('previewContainer');
-  if (!previewContainer || !isPreviewEditing) return;
+  // 改用稳定的焦点判定：重渲染 innerHTML 会使 contenteditable 短暂失焦（blur 已把
+  // isPreviewEditing 清零），导致后续输入不再渲染；只要预览区仍持有焦点就继续渲染。
+  if (!previewContainer || document.activeElement !== previewContainer) return;
 
   const text = previewContainer.textContent || '';
   // 纯文本（不含任何疑似 Markdown 语法）不渲染，避免打断原生光标
@@ -1651,6 +1657,11 @@ function renderLivePreviewMarkdown() {
   if (normalizeHtml(newHtml) === normalizeHtml(oldHtml)) return;
 
   previewContainer.innerHTML = newHtml;
+
+  // 重新聚焦预览区：innerHTML 置换会使 contenteditable 短暂失焦（blur 已把
+  // isPreviewEditing 清零），此处重新聚焦可让 focus 监听复位标志，并保证后续
+  // 输入继续触发实时渲染；同时让下方光标还原真正生效。
+  try { previewContainer.focus(); } catch (_) {}
 
   // 还原光标（独立容错：即使还原失败也不影响编辑器同步）
   try {
@@ -3010,8 +3021,12 @@ function bindEvents() {
   const btnCompare = document.getElementById('btnCompare');
   if (btnCompare) {
     btnCompare.addEventListener('click', () => {
+      // 标记为「主动跳转」，抑制 beforeunload 的「是否离开网站？」误报；
+      // 100ms 后复位，保证编辑器页在独立标签页场景下后续误关仍受保护。
+      intentionalLeave = true;
       // 在新标签页打开 compare.html（Chrome 扩展中为同源页面）
       window.open('compare.html', '_blank');
+      setTimeout(() => { intentionalLeave = false; }, 100);
     });
   }
 
@@ -3030,7 +3045,7 @@ function bindEvents() {
 
   // 离开提示
   window.addEventListener('beforeunload', (e) => {
-    if (isModified) {
+    if (isModified && !intentionalLeave) {
       e.preventDefault();
       e.returnValue = '';
     }

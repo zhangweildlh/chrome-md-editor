@@ -65,22 +65,23 @@ function acceptToPickerTypes(accept) {
  * @param {string} [accept] 形如 ".md,.txt" 的 accept 过滤串；省略则默认 Markdown/文本。
  * @returns {Promise<{name:string, content:string, target:object|null}[]>}
  */
-export async function pickFiles(accept = DEFAULT_ACCEPT) {
+export async function pickFiles(accept = DEFAULT_ACCEPT, multiple = true) {
   // 桌面端（Tauri）：委派到 compare-shims.js，走 Rust 命令 read_multiple_text_files
   if (isTauriEnv()) {
     const { pickFiles: shimPick } = await import("./compare-shims.js");
-    return shimPick(accept);
+    return shimPick(accept, multiple);
   }
 
   // 浏览器优先分支：File System Access API，可留存句柄用于原地回写。
   if (typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function') {
     try {
       const handles = await window.showOpenFilePicker({
-        multiple: true,
+        multiple,
         types: acceptToPickerTypes(accept),
       });
+      const handleList = Array.isArray(handles) ? handles : [handles];
       return await Promise.all(
-        handles.map(async (h) => {
+        handleList.map(async (h) => {
           const file = await h.getFile();
           return { name: file.name, content: await file.text(), target: { handle: h } };
         })
@@ -95,7 +96,7 @@ export async function pickFiles(accept = DEFAULT_ACCEPT) {
 
   const input = document.createElement('input');
   input.type = 'file';
-  input.multiple = true;
+  input.multiple = multiple;
   if (accept) input.accept = accept;
 
   return new Promise((resolve, reject) => {
@@ -111,6 +112,17 @@ export async function pickFiles(accept = DEFAULT_ACCEPT) {
     input.oncancel = () => reject(new DOMException('用户取消', 'AbortError'));
     input.click();
   });
+}
+
+/**
+ * 弹出系统文件选择框，单选一个文件，返回单个 CompareFile（或 null）。
+ * 用于「对比/合并」界面「选择文件」按钮：把文件载入当前鼠标激活栏。
+ * @param {string} [accept]
+ * @returns {Promise<{name:string, content:string, target:object|null}|null>}
+ */
+export async function pickSingleFile(accept = DEFAULT_ACCEPT) {
+  const files = await pickFiles(accept, false);
+  return files && files.length ? files[0] : null;
 }
 
 /**

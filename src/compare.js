@@ -24,7 +24,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
-import { pickFiles, enableFileDropZone } from "./compare-files.js";
+import { pickFiles, pickSingleFile, enableFileDropZone } from "./compare-files.js";
 import {
   bindCompareEditorView,
   bindImageToolbarButton,
@@ -659,17 +659,34 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   }
 
   // ── 文件选择 ──
+  // 把「聚焦的栏」映射到其源文件槽位（files.a / files.b）：
+  //   a        → 本地(files.a)
+  //   c(三栏)  → 对方(files.b，三栏下 pane c 即「对方」)
+  //   b        → 两栏=对方(files.b)；三栏=合并结果(无源文件)→ 退回本地(files.a)
+  function paneToSlot(pane) {
+    if (pane === "a") return "a";
+    if (pane === "c") return "b";
+    return mode === "two" ? "b" : "a";
+  }
+
   async function onPickFiles() {
     try {
-      const picked = await pickFiles();
-      if (!picked || !picked.length) return;
-      files.a = picked[0] || null;
-      files.b = picked[1] || null;
+      // 单选：把文件载入「当前鼠标激活栏」对应的槽位（需求 #14）
+      const picked = await pickSingleFile();
+      if (!picked) return;
+      const pane = getActivePane(); // 'a' | 'b' | 'c'，由栏聚焦时 setActivePane 维护
+      const slot = paneToSlot(pane);
+      files[slot] = picked;
       files.result = null; // 新选文件 → 重置合并结果
       setSlotText(fileSlots.a, files.a);
       setSlotText(fileSlots.b, files.b);
       skipSaveOnNextRender = true; // 重新载入：跳过 render 的编辑回写，保留刚载入的文件内容
       render();
+      // 让「激活栏描边」跟随用户实际选择的目标栏（render 末尾会把活动栏复位为 'a'）
+      try {
+        setActivePane(pane);
+        applyActivePaneClass();
+      } catch (_) {}
     } catch (e) {
       // 用户取消选择：忽略 AbortError
       if (!(e && e.name === "AbortError")) {
@@ -1121,6 +1138,17 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   // ── 底部全局操作栏：APPLY / ABORT ──
   if (btnApplyMerge) btnApplyMerge.addEventListener("click", onApplyMerge);
   if (btnAbortMerge) btnAbortMerge.addEventListener("click", onAbortMerge);
+
+  // ── 返回主界面（需求 #13）──
+  // compare 页由 editor 经 window.open 打开，可脚本关闭；若部分环境禁止
+  // window.close（页面未真正关闭），则降级跳转到 editor.html，避免用户被困。
+  const btnBackToEditor = document.getElementById('btnBackToEditor');
+  if (btnBackToEditor) {
+    btnBackToEditor.addEventListener("click", () => {
+      try { window.close(); } catch (_) {}
+      window.location.href = 'editor.html';
+    });
+  }
 
   // ── per-pane 标题栏：勾选框（关闭/恢复栏）与关闭按钮 ──
   for (const p of ["a", "b", "c"]) {

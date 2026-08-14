@@ -1525,20 +1525,26 @@ body {
   outline: none;
 }
 
-.editor-container .cm-editor .cm-content {
-  /* 左内边距 3.6em 是块拖拽手柄的预留槽位：块工具栏（+ / 拖拽手柄）用
-     margin-inline-start:-3.2em 挂在行首左侧，若左内边距只有 20px，工具栏会被
-     拉进 .cm-gutters（sticky + z-index:200）下方而完全无法点中，表现为「块拖拽无效」。
-     用 em 而非 px，保证「显示设置 → 编辑器字号」改变时槽位同比缩放。 */
-  padding: 16px 20px 16px 3.6em;
-}
+.editor-container .cm-editor   .cm-content {
+    /* 左内边距 1.8em 是块拖拽手柄的预留槽位（用户反馈需收窄 50%）：
+       块工具栏（+ / 拖拽手柄）用 margin-inline-start:-1.4em 挂在行首左侧，
+       1.8em - 1.4em = 0.4em，手柄恰好露在 .cm-gutters 右缘之外、可点中。
+       若进一步压到 20px，工具栏会被拉进 .cm-gutters（sticky + z-index:200）下方而失效。
+       用 em 而非 px，保证「显示设置 → 编辑器字号」改变时槽位同比缩放。 */
+    padding: 16px 20px 16px 1.8em;
+  }
 
-.editor-container .cm-editor .cm-gutters {
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  font-size: 12px;
-}
+  .editor-container .cm-editor .cm-gutters {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  /* BUG：行号栏（gutter）默认横向内边距偏宽，实测观感过宽。
+     收窄约 20%：将行号/折叠等 gutter 单元格内边距由默认（约 4px/8px）压到 4px/6px。 */
+  .editor-container .cm-editor .cm-gutters .cm-gutterElement {
+    padding: 0 6px 0 4px;
+  }
 
 /* 修复 BUG1：折叠符号(gutter 折叠标记)原沿用 12px 且宽度仅 ~9px，偏小而难点。
    放大折叠标记字号与可点区域，提升可视性与点击命中。 */
