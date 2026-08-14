@@ -3,9 +3,9 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.9.0](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.9.0)**  
-**下载（Chrome 扩展）：** [chrome-md-editor-v1.9.0.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.0/chrome-md-editor-v1.9.0.zip)  
-**下载（Windows 独立 EXE）：** [Markdown.Editor_1.9.0_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.0/Markdown.Editor_1.9.0_portable.exe)  
+**当前版本：[v1.9.1](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.9.1)**  
+**下载（Chrome 扩展）：** [chrome-md-editor-v1.9.1.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.1/chrome-md-editor-v1.9.1.zip)  
+**下载（Windows 独立 EXE）：** [Markdown.Editor_1.9.1_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.1/Markdown.Editor_1.9.1_portable.exe)  
 **许可：** [MIT](./LICENSE)
 
 [English](#english)
@@ -102,13 +102,13 @@ GitHub 风格提示框 `> [!NOTE]` / `> [!WARNING]` / `> [!TIP]` / `> [!CAUTION]
 
 除了 Chrome 扩展，本项目还提供一个**独立 Windows 程序**：用 [Tauri](https://tauri.app/) v2 把同一套 Web 编辑器（CodeMirror 6 + markdown-it + Mermaid）打包成绿色免安装的 EXE，**无需浏览器、无需安装、本地零依赖**（仅依赖系统 WebView2 运行时）。
 
-- **下载**：Release `v1.9.0` 中的 `Markdown.Editor_1.9.0_portable.exe`（便携版，直接拷到任意目录双击运行）。
+- **下载**：Release `v1.9.1` 中的 `Markdown.Editor_1.9.1_portable.exe`（便携版，直接拷到任意目录双击运行）。
 - **双击打开**：把 `.md` 设为默认打开程序后，双击任意 `.md` 文件即由 EXE 直接打开并编辑。
 - **拖入打开**：启动 EXE 后，把 `.md` 文件拖进窗口也能打开。
 - **多实例**：每次双击 / 拖入都启动一个独立 EXE 实例，各自打开对应文件，互不干扰。
 - **保存写回原文件**：底层用 Rust `std::fs` 命令读写（无路径作用域限制），`Ctrl/Cmd+S` 可直接覆盖原文件。
 - **未签名提示**：未签名版本首次运行可能被 Windows SmartScreen 拦截，点「仍要运行」即可；本机需已安装 WebView2 运行时（Win10/11 通常已自带，否则按提示安装）。
-- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.9.0` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
+- **本地零安装构建**：EXE 完全在 GitHub 云端（`windows-latest`）用 Rust + Tauri 构建；一次打 `v1.9.1` 标签即**同时产出扩展 zip 与 EXE 两个资产**，开发者本地无需安装 Rust / Tauri / WebView2。
 
 > 桌面端与 Chrome 扩展共用 `src/editor.html/.js/.css`；仅在检测到 Tauri 环境时由 `src/desktop-shims.js` 注入 `chrome` 与 File System Access API 垫片，对扩展零影响。
 ---
@@ -211,8 +211,8 @@ compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.9.0**）。
-4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.9.0_portable.exe` 覆盖旧文件即可，无需卸载。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.9.1**）。
+4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.9.1_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
 
@@ -307,7 +307,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.9.0**).
+The toolbar should show the release version (currently **v1.9.1**).
 
 ### Features (short)
 
@@ -335,7 +335,7 @@ Editing stays local unless you enable reading translation, which sends text to t
 
 ### Standalone Windows EXE (Tauri)
 
-A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.9.0_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.9.0` release.
+A portable Windows build is also provided: the same web editor packaged with Tauri v2 into a green, install-free `Markdown.Editor_1.9.1_portable.exe`. Double-clicking a `.md` (after setting it as the default opener) or dragging a `.md` into the window opens it directly; each open runs as an independent instance. Saves write back to the original file. The EXE relies on the system WebView2 runtime and is built entirely in GitHub Actions (no local Rust/Tauri toolchain needed). Download from the `v1.9.1` release.
 
 ### License
 

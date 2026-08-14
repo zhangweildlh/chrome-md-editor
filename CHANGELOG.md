@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.1] - 2026-08-14（7 项 BUG 修复：预览实时渲染 / 栏宽收窄 / 跳转弹窗 / 返回按钮 / 激活栏选文件 / 采纳栏收窄 / 默认展开）
+
+> 维护性修补版本，不引入新功能，仅修复 v1.9.0 实测发现的 7 项交互缺陷。
+
+### 修复
+- 预览区所见即所得（#10）：预览栏输入 Markdown 语法（`**粗体**`、`[链接](url)` 等）实时渲染为富文本；采用「往返渲染」（`htmlToMarkdown(oldHtml)` → `md.render`）保证已渲染格式在继续输入时不退化；并同步回写编辑器对应位置。
+- 主界面行号栏收窄约 20%、拖拽栏 `content` `padding-left` 减半并同步块拖拽手柄负偏移（#11）。
+- 点击「对比/合并」打开 compare.html 时消除「是否离开网站？」弹窗（新增 `intentionalLeave` 标志）（#12）。
+- 对比/合并界面新增「返回主界面」按钮（#13）。
+- 对比/合并「选择文件」按当前激活栏打开，新增 `pickSingleFile` 单选（#14）。
+- 对比/合并中间采纳栏收窄 20%（84px→67px）（#15）。
+- 核对对比/合并默认已展开，无需改动（#16）。
+
+### 验证情况
+- 六处 web 版本戳同步至 1.9.1（package/manifest/editor.js/editor.html/compare.js/compare.html）。
+- CI 双端构建（扩展 zip + 便携 EXE）全绿。
+
 ## [1.9.0] - 2026-08-14（粘贴分治 + 打开/保存降级 + Ctrl+G 跳转行号）
 
 > 编辑器输入与文件操作健壮性增强：① 粘贴改为「默认纯文本 + 显式富文本」分治，新增编辑区右键菜单「粘贴为文本 / 粘贴为富文本」，彻底消除从 AI 助手等复制的「伪富文本」（样式 `<span>` 包裹）污染正文；② 打开/保存补齐 File System Access API → `<input type=file>`/下载 降级（新增 `src/file-picker.js`），与 compare 模块对齐，非 Chromium 环境不再静默失败；③ 补 `Ctrl+G` 跳转行号（专业编辑器标配）。
