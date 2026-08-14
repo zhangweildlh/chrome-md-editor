@@ -133,12 +133,13 @@ async function browserSaveFile(path, content) {
 
 // 选择多个文件，返回 CompareFile[]（契约数据结构：{ name, content }）。
 export async function pickFiles(
-  accept = ".md,.markdown,.mdown,.mkd,.mkdn,.txt"
+  accept = ".md,.markdown,.mdown,.mkd,.mkdn,.txt",
+  multiple = true
 ) {
   if (isTauriEnv()) {
     const { dialog, invoke } = await getTauri();
     const selected = await dialog.open({
-      multiple: true,
+      multiple,
       filters: [
         { name: "Markdown / Text", extensions: acceptToExtensions(accept) },
       ],

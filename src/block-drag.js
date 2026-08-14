@@ -971,7 +971,7 @@ const blockDragTheme = EditorView.theme({
   ".cm-markra-block-toolbar": {
     display: "inline-flex",
     gap: "0.15em",
-    marginInlineStart: "-3.2em",
+    marginInlineStart: "-1.4em",
     marginInlineEnd: "0.45em",
     opacity: "0.15",
     verticalAlign: "middle",
