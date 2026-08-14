@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.0] - 2026-08-14（粘贴分治 + 打开/保存降级 + Ctrl+G 跳转行号）
+
+> 编辑器输入与文件操作健壮性增强：① 粘贴改为「默认纯文本 + 显式富文本」分治，新增编辑区右键菜单「粘贴为文本 / 粘贴为富文本」，彻底消除从 AI 助手等复制的「伪富文本」（样式 `<span>` 包裹）污染正文；② 打开/保存补齐 File System Access API → `<input type=file>`/下载 降级（新增 `src/file-picker.js`），与 compare 模块对齐，非 Chromium 环境不再静默失败；③ 补 `Ctrl+G` 跳转行号（专业编辑器标配）。
+
+### 新增
+- 粘贴分治（#1）：`Ctrl+V` / 系统右键粘贴恒为纯文本（与记事本一致，零污染）；仅当用户在编辑区右键菜单显式选择「粘贴为富文本」时才将剪贴板 HTML 经「剥样式标签 + 去 style 属性」清洗后转为 Markdown 插入；图片粘贴（`image/`）保持默认自动插入，不受纯/富文本选择影响。
+- 编辑区右键菜单：复用预览区右键菜单样式与定位范式，新增「粘贴为文本」「粘贴为富文本」两项（已删除与「粘贴为文本」重叠的原「右键粘贴」项）。
+- 打开/保存降级（#3）：新增 `src/file-picker.js`，`openFileViaPicker()` / `saveViaPickerOrDownload()` 优先走 File System Access API，不可用时分别降级到 `<input type=file>` 与 Blob 下载，与 `compare-files.js` 同一检测条件、同一降级手段。
+- `Ctrl+G` 跳转行号（#4）：从 `@codemirror/commands` 引入 `gotoLine` 并绑定 `Mod-g`。
+
+### 修复
+- 粘贴污染根因（#1）：移除默认粘贴对 `text/html` 的自动拦截与 `FORMATTING_SELECTOR` 富文本判定守卫，避免 WorkBuddy 等「纯文本穿 `<span style>` 外衣 + 个别 `<strong>`」被转成「`**…**<span style="…">…</span>`」半 Markdown 半 HTML 的污染文本。
+- 打开/保存内部不一致（#3）：`handleOpen` / `handleSaveAs` 改调统一选择器封装，非 Chromium 环境（如 Firefox）`Ctrl+O`/`Ctrl+S` 由静默失败改为可用；降级打开后 `Ctrl+S` 自动回退「另存为（下载）」，不崩溃。
+
+### 验证情况
+- 六处 web 版本戳同步至 1.9.0（package/manifest/editor.js/editor.html/compare.js/compare.html）。
+- 预览区→源码回写（`html-to-markdown.js`）未改动，工具栏裸 HTML（`<font>`/`<center>`/`<mark>`，维持现状）往返不受影响。
+- 须由 CI 全量单测 + 360Chrome/EXE 真机复验：粘贴纯/富文本分治、打开/保存降级、Ctrl+G。
+
 ## [1.8.8] - 2026-08-08（缺陷修复：编辑器明暗跟随/字体属性白名单 + 对比页 scanLimit 分块/图片拖拽区）
 
 > 对比/合并三期功能的收尾修复闭环：修复编辑器主题明暗切换对 CSS 变量层失效、`<font>` 属性注入无白名单、大文档差异分块退化（scanLimit），以及图片拖拽插入区未挂载等缺陷；并补齐 compare 页 E2E 回归（80 条），确认零遗留真 BUG。
