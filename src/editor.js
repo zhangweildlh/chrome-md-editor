@@ -40,6 +40,57 @@ import { highlightPlugin } from './highlight-plugin.js';
 import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { initToolbarScroll } from './toolbar-scroll.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
+import { openFileViaPicker, saveViaPickerOrDownload } from './file-picker.js';
+
+// Ctrl+G 跳转行号：注意 @codemirror/commands 在当前版本**不导出** gotoLine
+// （CodeMirror 6 无内置「跳行」命令，此前误引入该不存在的导出，导致 vite/rollup 构建失败）。
+// 这里自实现，用轻量内联行号输入浮层（而非 window.prompt），以兼容 Tauri webview 原生对话框缺失的环境。
+let gotoLineOverlay = null;
+function gotoLineCommand(view) {
+  showGotoLineInput(view);
+  return true;
+}
+function showGotoLineInput(view) {
+  hideGotoLineInput();
+  const doc = view.state.doc;
+  const overlay = document.createElement('div');
+  overlay.className = 'preview-context-menu';
+  overlay.style.cssText =
+    'position:fixed;top:46px;right:16px;padding:6px 8px;display:flex;gap:6px;align-items:center;z-index:9999;';
+  overlay.innerHTML = `
+    <span style="font-size:12px;">行号</span>
+    <input id="glInput" type="number" min="1" style="width:60px;" />
+    <button id="glGo" type="button" class="preview-context-item">跳转</button>`;
+  document.body.appendChild(overlay);
+  gotoLineOverlay = overlay;
+  const input = overlay.querySelector('#glInput');
+  const commit = () => {
+    const n = Math.floor(Number(input.value));
+    hideGotoLineInput();
+    if (Number.isFinite(n) && n >= 1) {
+      const line = doc.line(Math.min(n, doc.lines));
+      view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+      view.focus();
+    }
+  };
+  overlay.querySelector('#glGo').addEventListener('click', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); hideGotoLineInput(); }
+  });
+  document.addEventListener('mousedown', onGotoLineOutside, true);
+  input.focus();
+}
+function onGotoLineOutside(e) {
+  if (gotoLineOverlay && !gotoLineOverlay.contains(e.target)) hideGotoLineInput();
+}
+function hideGotoLineInput() {
+  if (gotoLineOverlay) {
+    gotoLineOverlay.remove();
+    gotoLineOverlay = null;
+    document.removeEventListener('mousedown', onGotoLineOutside, true);
+  }
+}
 import { applyViewMode, getStoredViewMode, setStoredViewMode, nextViewMode, initChromeModeButton } from './view-mode.js';
 import { makeSearchPanel } from './search-panel.js';
 import { markraSlashMenu } from './slash-menu.js';
@@ -75,9 +126,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.8.9"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.0"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.8.9";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.0";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -443,6 +494,7 @@ graph LR
       { key: 'Mod-o', run: handleOpen, preventDefault: true },
       { key: 'Mod-b', run: () => wrapSelection('**', '**'), preventDefault: true },
       { key: 'Mod-i', run: () => wrapSelection('*', '*'), preventDefault: true },
+      { key: 'Mod-g', run: gotoLineCommand },
     ]),
     markdown({
       base: markdownLanguage,
@@ -1708,17 +1760,24 @@ async function openWithHandle(fileHandle) {
 }
 
 async function handleOpen() {
-    try {
-    const [fileHandle] = await window.showOpenFilePicker({
-      types: [{
-        description: 'Markdown 文件',
-        accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.mkdn'] },
-      }],
-      multiple: false,
-    });
-
-    await openWithHandle(fileHandle);
-      } catch (err) {
+  try {
+    const { handle, file } = await openFileViaPicker();
+    if (handle) {
+      await openWithHandle(handle);
+    } else if (file) {
+      // 降级路径（非 Chromium 环境）：无持久文件句柄，仅加载内容，
+      // currentFileHandle 保持 null，后续 Ctrl+S 会自动回退「另存为（下载）」。
+      const content = await file.text();
+      currentFileHandle = null;
+      clearCurrentDocumentContext();
+      setEditorContent(content);
+      updateFilename(file.name);
+      markSaved();
+      await rememberCurrentDocument({ filename: file.name });
+      showToast(`已打开: ${file.name}`, 'success');
+      hideOnboarding();
+    }
+  } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('打开文件失败: ' + err.message, 'error');
     }
@@ -1788,26 +1847,24 @@ async function handleSave() {
 }
 
 async function handleSaveAs() {
-    try {
-    const fileHandle = await window.showSaveFilePicker({
-      suggestedName: 'untitled.md',
-      types: [{
-        description: 'Markdown 文件',
-        accept: { 'text/markdown': ['.md'] },
-      }],
-    });
-
-    const writable = await fileHandle.createWritable();
-    await writable.write(editor.state.doc.toString());
-    await writable.close();
-
-    currentFileHandle = fileHandle;
-    clearCurrentDocumentContext();
-    const savedName = (await fileHandle.getFile()).name;
-    updateFilename(savedName);
-    markSaved();
-    await rememberCurrentDocument({ filename: savedName });
-        showToast('文件已保存', 'success');
+  try {
+    const { handle } = await saveViaPickerOrDownload(
+      'untitled.md',
+      editor.state.doc.toString()
+    );
+    if (handle) {
+      currentFileHandle = handle;
+      clearCurrentDocumentContext();
+      const savedName = (await handle.getFile()).name;
+      updateFilename(savedName);
+      markSaved();
+      await rememberCurrentDocument({ filename: savedName });
+      showToast('文件已保存', 'success');
+    } else {
+      // 降级路径（非 Chromium 环境）：已触发浏览器下载，无法自动覆盖原文件。
+      currentFileHandle = null;
+      showToast('已下载到本地下载目录（无法自动覆盖原文件）', 'success');
+    }
   } catch (err) {
     if (err.name !== 'AbortError') {
       showToast('保存失败: ' + err.message, 'error');
@@ -3148,16 +3205,27 @@ function syncFocusModeButtons() {
   if (t) t.classList.toggle('active', isTypewriter());
   }
 
-const FORMATTING_SELECTOR = [
-  'a[href]', 'img', 'b', 'strong', 'i', 'em', 'code', 'pre', 'blockquote',
-  'ul', 'ol', 'li', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 's', 'del', 'strike',
-].join(',');
+// 粘贴模式：由编辑区右键菜单「粘贴为文本 / 粘贴为富文本」显式设置；
+// 普通 Ctrl+V / 系统右键粘贴恒为 null（走 CodeMirror 默认纯文本，零污染）。
+let pasteMode = null;
 
-function hasRichMarkdownFormatting(html) {
-  try {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    return !!doc.body.querySelector(FORMATTING_SELECTOR);
-  } catch { return false; }
+/**
+ * 粘贴「富文本」前对剪贴板 HTML 做样式清洗：
+ *  - 拆掉纯样式包裹标签 <span>/<font>/<center>（保留其内部文本，转 Markdown 时不再产生裸标签）；
+ *  - 全局剥离 style 属性（消除 WorkBuddy 等「伪富文本」带来的内联样式噪音）；
+ *  - 结构性标签（strong/em/a/table/ul 等）原样保留，交由 htmlToMarkdown 正常转换。
+ * 该清洗仅作用于「粘贴为富文本」路径，不影响预览区→源码的回写（不动 html-to-markdown.js）。
+ */
+function cleanStyleHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('span, font, center').forEach((el) => {
+    const parent = el.parentNode;
+    if (!parent) return;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  });
+  doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'));
+  return doc.body.innerHTML;
 }
 
 function initPasteImageSupport() {
@@ -3182,19 +3250,113 @@ function initPasteImageSupport() {
       return;
     }
 
-    // —— 2) 富文本 HTML → Markdown（A-4 新增）——
-    const html = cd.getData('text/html');
-    if (html && hasRichMarkdownFormatting(html)) {
-      const md = htmlToMarkdown(html);
-      const plain = (cd.getData('text/plain') || '').trim();
-      // 仅当转换结果确实比纯文本多了结构化内容时才拦截，避免破坏纯文本粘贴手感
-      if (md && md.trim() && md.trim() !== plain) {
-        event.preventDefault();
-        insertMarkdownSnippet(md);
-        return;
-      }
+    // —— 2) 右键显式模式（粘贴为文本 / 粘贴为富文本）——
+    if (pasteMode === 'text') {
+      event.preventDefault();
+      insertMarkdownSnippet(cd.getData('text/plain') || '');
+      pasteMode = null;
+      return;
     }
-    // —— 3) 其余（纯文本等）放行默认粘贴 ——
+    if (pasteMode === 'rich') {
+      event.preventDefault();
+      const html = cd.getData('text/html');
+      if (html) {
+        insertMarkdownSnippet(htmlToMarkdown(cleanStyleHtml(html)));
+      } else {
+        insertMarkdownSnippet(cd.getData('text/plain') || '');
+      }
+      pasteMode = null;
+      return;
+    }
+
+    // —— 3) 默认（Ctrl+V / 系统右键粘贴）：纯文本 ——
+    // 不拦截、不 preventDefault，交由 CodeMirror 以纯文本插入（与记事本一致，零污染）。
+    // 不再自动把 HTML 转 Markdown，避免 WorkBuddy 等「伪富文本」污染正文。
+  });
+}
+
+// ==========================================
+// 编辑区右键菜单（粘贴为文本 / 粘贴为富文本）
+// 复用预览区右键菜单的样式与定位范式（previewContextMenu）。
+// ==========================================
+function hideEditorContextMenu() {
+  const menu = document.getElementById('editorContextMenu');
+  if (menu) menu.remove();
+}
+
+function showEditorContextMenu(clientX, clientY) {
+  hideEditorContextMenu();
+
+  const menu = document.createElement('div');
+  menu.id = 'editorContextMenu';
+  menu.className = 'preview-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `
+    <button type="button" class="preview-context-item" data-action="paste-text" role="menuitem">粘贴为文本</button>
+    <button type="button" class="preview-context-item" data-action="paste-rich" role="menuitem">粘贴为富文本</button>
+  `;
+
+  document.body.appendChild(menu);
+
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + rect.width > window.innerWidth - pad) {
+    left = window.innerWidth - rect.width - pad;
+  }
+  if (top + rect.height > window.innerHeight - pad) {
+    top = window.innerHeight - rect.height - pad;
+  }
+  menu.style.left = `${Math.max(pad, left)}px`;
+  menu.style.top = `${Math.max(pad, top)}px`;
+
+  menu.querySelectorAll('[data-action]').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => e.preventDefault()); // 保住选区
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      hideEditorContextMenu();
+      triggerPaste(btn.dataset.action === 'paste-rich' ? 'rich' : 'text');
+    });
+  });
+}
+
+// 程序化触发粘贴，复用粘贴事件管线（携带 clipboardData）；
+// execCommand('paste') 在 Chromium 系（扩展页 / Tauri webview）可靠，且在用户手势内调用。
+function triggerPaste(mode) {
+  pasteMode = mode;
+  editor.contentDOM.focus();
+  let fired = false;
+  try {
+    fired = document.execCommand('paste');
+  } catch {
+    fired = false;
+  }
+  // 兜底复位：若 execCommand 未真正派发 paste 事件（返回 false / 沙箱 / 受限 CSP），
+  // pasteMode 会滞留并污染后续普通 Ctrl+V。用一次性超时复位，确保至多生效一次。
+  // 正常派发时，paste 事件处理器会同步把 pasteMode 复位为 null，此处判断失效、无副作用。
+  if (!fired) {
+    setTimeout(() => {
+      if (pasteMode === mode) pasteMode = null;
+    }, 300);
+  }
+}
+
+let editorContextMenuInitialized = false;
+function initEditorContextMenu() {
+  // 幂等保护：init() 若被重复调用，避免 document 级监听被重复堆叠（每次都新增一对 mousedown/keydown）。
+  if (editorContextMenuInitialized) return;
+  editorContextMenuInitialized = true;
+  editor.contentDOM.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    showEditorContextMenu(event.clientX, event.clientY);
+  });
+  document.addEventListener('mousedown', (event) => {
+    const menu = document.getElementById('editorContextMenu');
+    if (menu && !menu.contains(event.target)) hideEditorContextMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hideEditorContextMenu();
   });
 }
 
@@ -3673,6 +3835,8 @@ function init() {
 
   // 初始化编辑区图片粘贴
   initPasteImageSupport();
+  // 初始化编辑区右键菜单（粘贴为文本 / 粘贴为富文本）
+  initEditorContextMenu();
 
   // 初始化文件浏览器侧边栏
   initFileSidebar();
