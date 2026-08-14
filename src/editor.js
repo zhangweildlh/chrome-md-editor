@@ -13,7 +13,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightAc
 import { EditorState, Compartment, Transaction } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { defaultKeymap, history, historyKeymap, indentWithTab, gotoLine } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
@@ -41,6 +41,56 @@ import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { initToolbarScroll } from './toolbar-scroll.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { openFileViaPicker, saveViaPickerOrDownload } from './file-picker.js';
+
+// Ctrl+G 跳转行号：注意 @codemirror/commands 在当前版本**不导出** gotoLine
+// （CodeMirror 6 无内置「跳行」命令，此前误引入该不存在的导出，导致 vite/rollup 构建失败）。
+// 这里自实现，用轻量内联行号输入浮层（而非 window.prompt），以兼容 Tauri webview 原生对话框缺失的环境。
+let gotoLineOverlay = null;
+function gotoLineCommand(view) {
+  showGotoLineInput(view);
+  return true;
+}
+function showGotoLineInput(view) {
+  hideGotoLineInput();
+  const doc = view.state.doc;
+  const overlay = document.createElement('div');
+  overlay.className = 'preview-context-menu';
+  overlay.style.cssText =
+    'position:fixed;top:46px;right:16px;padding:6px 8px;display:flex;gap:6px;align-items:center;z-index:9999;';
+  overlay.innerHTML = `
+    <span style="font-size:12px;">行号</span>
+    <input id="glInput" type="number" min="1" style="width:60px;" />
+    <button id="glGo" type="button" class="preview-context-item">跳转</button>`;
+  document.body.appendChild(overlay);
+  gotoLineOverlay = overlay;
+  const input = overlay.querySelector('#glInput');
+  const commit = () => {
+    const n = Math.floor(Number(input.value));
+    hideGotoLineInput();
+    if (Number.isFinite(n) && n >= 1) {
+      const line = doc.line(Math.min(n, doc.lines));
+      view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+      view.focus();
+    }
+  };
+  overlay.querySelector('#glGo').addEventListener('click', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); hideGotoLineInput(); }
+  });
+  document.addEventListener('mousedown', onGotoLineOutside, true);
+  input.focus();
+}
+function onGotoLineOutside(e) {
+  if (gotoLineOverlay && !gotoLineOverlay.contains(e.target)) hideGotoLineInput();
+}
+function hideGotoLineInput() {
+  if (gotoLineOverlay) {
+    gotoLineOverlay.remove();
+    gotoLineOverlay = null;
+    document.removeEventListener('mousedown', onGotoLineOutside, true);
+  }
+}
 import { applyViewMode, getStoredViewMode, setStoredViewMode, nextViewMode, initChromeModeButton } from './view-mode.js';
 import { makeSearchPanel } from './search-panel.js';
 import { markraSlashMenu } from './slash-menu.js';
@@ -444,7 +494,7 @@ graph LR
       { key: 'Mod-o', run: handleOpen, preventDefault: true },
       { key: 'Mod-b', run: () => wrapSelection('**', '**'), preventDefault: true },
       { key: 'Mod-i', run: () => wrapSelection('*', '*'), preventDefault: true },
-      { key: 'Mod-g', run: gotoLine },
+      { key: 'Mod-g', run: gotoLineCommand },
     ]),
     markdown({
       base: markdownLanguage,
