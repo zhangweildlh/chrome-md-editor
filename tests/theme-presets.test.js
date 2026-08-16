@@ -1,18 +1,28 @@
 // tests/theme-presets.test.js
 // 编辑器主题预设单元测试（不依赖 @codemirror/*，仅用标准 DOM + localStorage 伪造）
 import { parseHTML } from 'linkedom';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EDITOR_THEMES,
   DEFAULT_EDITOR_THEME,
   DEFAULT_DARK_EDITOR_THEME,
+  THEME_VARS_KEYS,
   getStoredEditorTheme,
   setStoredEditorTheme,
   applyEditorThemePreset,
   getThemeKind,
   getCounterpartTheme,
 } from '../src/theme-presets.js';
+
+// 读取 compare.css 用于静态硬约束断言（M3 审计报告：MergeView 层叠禁区 + 窄窗滚动修复）
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const compareCss = readFileSync(join(__dirname, '../src/compare.css'), 'utf8');
+// 去除 /* ... */ 注释（注释中可能含 { } 干扰块解析/属性匹配），供静态断言使用
+const compareCssClean = compareCss.replace(/\/\*[\s\S]*?\*\//g, '');
 
 // 用 linkedom 提供 document（与 syntax-highlight.test.js 一致），并注入内存版
 // localStorage，避免依赖未安装的 jsdom / 真实浏览器 / CM6。
@@ -27,18 +37,33 @@ globalThis.localStorage = {
   clear: () => __store.clear(),
 };
 
-test('EDITOR_THEMES 共 27 项（21 标准 + 豆沙绿亮/暗 + 4 套新增皮肤）', () => {
-  assert.strictEqual(EDITOR_THEMES.length, 27);
+test('EDITOR_THEMES 共 33 项（21 标准 + 豆沙绿亮/暗 + 4 套玻璃皮肤 + 6 套原型玻璃主题）', () => {
+  assert.strictEqual(EDITOR_THEMES.length, 33);
 });
 
-test('4 套新增皮肤（glacier/aurora/fluent/macos）均注册且含全部材质键', () => {
+test('全部 10 套玻璃类主题均注册且含全部 5 个材质键（4 标准玻璃 + 6 原型玻璃）', () => {
   const materialKeys = ['--ambient', '--accent-glow', '--btn-top', '--btn-bot', '--edge'];
-  for (const id of ['glacier', 'aurora', 'fluent', 'macos']) {
+  const glassThemes = [
+    'glacier', 'aurora', 'fluent', 'macos',
+    'github-glass-light', 'github-glass-dark', 'nord-glass',
+    'aurora-glass', 'dou-sha-lv-glass', 'mac-glass',
+  ];
+  for (const id of glassThemes) {
     const t = EDITOR_THEMES.find((x) => x.id === id);
-    assert.ok(t, `应包含 ${id}`);
+    assert.ok(t, `应包含玻璃主题 ${id}`);
     assert.ok(t.vars['--bg-primary'], `${id} 应定义 --bg-primary`);
     for (const k of materialKeys) {
       assert.ok(t.vars[k] !== undefined, `${id} 应定义材质键 ${k}`);
+    }
+  }
+});
+
+// 审计 M3 修复：全部主题（含 6 套新玻璃）必须含 THEME_VARS_KEYS 全部变量键，
+// 防止后续重构删键导致配色/玻璃变量缺失。复用已导出的 THEME_VARS_KEYS。
+test('全部 33 个主题均含 THEME_VARS_KEYS 全部变量键', () => {
+  for (const t of EDITOR_THEMES) {
+    for (const k of THEME_VARS_KEYS) {
+      assert.ok(t.vars[k] !== undefined, `主题 ${t.id} 缺失变量键 ${k}`);
     }
   }
 });
@@ -162,4 +187,36 @@ test('明暗切换链路：连续两次对偶切换后 data-theme 回到原值',
   applyEditorThemePreset(back);
   assert.strictEqual(document.documentElement.getAttribute('data-theme'), 'light');
   assert.strictEqual(back, start, '往返切换应回到起点预设');
+});
+
+// ── 审计 M3 修复：compare.css 功能性硬约束静态回归 ────────────────
+// 防止重构丢失「MergeView 层叠禁区」与「窄窗滚动修复（H1）」两条关键不变量。
+
+test('compare.css 硬约束：MergeView 禁区选择器块不得含层叠/变换属性', () => {
+  // compare.css 为扁平规则（已确认无 @media/@supports 嵌套），按规则块解析安全。
+  const forbidden = ['backdrop-filter', 'transform', 'filter', 'will-change', 'contain'];
+  const cssNoComment = compareCssClean;
+  const blocks = cssNoComment.match(/[^{}]+\{[^{}]*\}/g) || [];
+  const zoneTokens = ['.compare-panes', '.cm-mergeView', '.compare-view'];
+  for (const block of blocks) {
+    const brace = block.indexOf('{');
+    const selector = block.slice(0, brace);
+    const body = block.slice(brace + 1);
+    if (zoneTokens.some((t) => selector.includes(t))) {
+      for (const f of forbidden) {
+        assert.ok(!body.includes(f), `MergeView 禁区选择器「${selector.trim()}」不得含 ${f}`);
+      }
+    }
+  }
+});
+
+test('compare.css 窄窗滚动修复落地（H1）：.toolbar-wrap 包裹态可收缩触发 overflow', () => {
+  assert.ok(
+    /\.toolbar-wrap\s+\.compare-toolbar\s*\{[^}]*flex:\s*1\s+1\s+auto/.test(compareCssClean),
+    'compare.css 应含 .toolbar-wrap .compare-toolbar { flex: 1 1 auto } 以修复窄窗裁切'
+  );
+  assert.ok(
+    /\.compare-toolbar\s*\{[^}]*overflow-x:\s*auto/.test(compareCssClean),
+    'compare.css .compare-toolbar 应保留 overflow-x:auto'
+  );
 });
