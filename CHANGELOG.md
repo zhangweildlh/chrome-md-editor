@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.4] - 2026-08-16（对比页三栏 B↔C 逐块采纳列修复）
+
+> 修复对比/合并页三栏模式下 B↔C 栏间「逐块采纳列」挂载缺陷（此前该列根本无法挂载、三栏视图构造失败），并补充对比页调试钩子与对应单测。
+
+### 缺陷修复
+- 修复 `src/compare-merge.js` 三栏 B↔C 逐块采纳列挂载失败：原 `parent.insertBefore(col, theirsView)` 传入的是 CodeMirror `EditorView` 实例而非真实 DOM 节点 `theirsView.dom`，导致 `insertBefore` 抛 `TypeError`、整个三栏构造被 `render()` 的 catch 吞掉、视图空白；改为 `theirsView.dom` 后三栏逐块采纳功能恢复正常。该缺陷仅 CDP 真机复验可暴露（node 单测无法实例化 `EditorView`）。
+- 修复逐块采纳越界钳制（BUG7 关联），避免采纳索引越界导致的异常。
+
+### 增强
+- 对比页调试钩子（`window.__cmp`，仅 `localStorage.cmp-debug=1` 暴露）新增 `applyFiles` / `setColCount`，便于自动化注入三栏有差异文件并切换栏数验证。
+
+### 测试
+- 新增 `tests/compare-bc-accept.test.js`（三栏 B↔C 逐块采纳）、`tests/compare-pick-target.test.js`（采纳目标选择）；新增 `src/compare/pick-target.js` 模块。
+
 ## [1.9.3] - 2026-08-16（审计报告 23 项缺陷修复 + 对比/合并页 UI 调整）
 
 > 修复 v1.9.3 三份审计报告共 23 项唯一缺陷（2 HIGH / 11 MEDIUM / 10 LOW），并调整对比/合并页视觉。

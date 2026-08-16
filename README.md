@@ -3,9 +3,9 @@
 本地 Markdown 编辑器 Chrome 扩展。
 不上传文件、不依赖后端；在浏览器里直接打开、编辑、预览本地 `.md`。
 
-**当前版本：[v1.9.3](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.9.3)**  
-**下载（Chrome 扩展）：** [chrome-md-editor-v1.9.3.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.3/chrome-md-editor-v1.9.3.zip)  
-**下载（Windows 独立 EXE）：** [Markdown.Editor_1.9.3_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.3/Markdown.Editor_1.9.3_portable.exe)  
+**当前版本：[v1.9.4](https://github.com/zhangweildlh/chrome-md-editor/releases/tag/v1.9.4)**  
+**下载（Chrome 扩展）：** [chrome-md-editor-v1.9.4.zip](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.4/chrome-md-editor-v1.9.4.zip)  
+**下载（Windows 独立 EXE）：** [Markdown.Editor_1.9.4_portable.exe](https://github.com/zhangweildlh/chrome-md-editor/releases/download/v1.9.4/Markdown.Editor_1.9.4_portable.exe)  
 **许可：** [MIT](./LICENSE)
 
 [English](#english)
@@ -211,8 +211,8 @@ compare 页在 EXE 内复用同一套 `src/compare.html`。文件读取与结果
 
 1. 在 `chrome://extensions/` 对该扩展点 **重新加载**。
 2. 关掉所有旧的编辑器标签，再新开一页。
-3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.9.3**）。
-4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.9.3_portable.exe` 覆盖旧文件即可，无需卸载。
+3. 确认左上角版本徽标与 Release 一致（当前应为 **v1.9.4**）。
+4. 桌面 EXE 用户：重新下载 `Markdown.Editor_1.9.4_portable.exe` 覆盖旧文件即可，无需卸载。
 
 ---
 
@@ -307,7 +307,7 @@ No upload for normal editing.
 4. Click the toolbar icon, or drag a `.md` file into Chrome.
 
 After upgrading: **Reload** the extension, close old editor tabs, open a new one.
-The toolbar should show the release version (currently **v1.9.3**).
+The toolbar should show the release version (currently **v1.9.4**).
 
 ### Features (short)
 

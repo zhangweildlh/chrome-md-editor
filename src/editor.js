@@ -133,9 +133,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.3"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.4"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.3";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.4";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -3733,7 +3733,10 @@ function init() {
   // Bug #1 修复：用 resolveFileKey 优先句柄名、回退已加载文件名，避免 file:// 文件串档。
   initAutosave({ editor, getFileId: () => resolveFileKey(currentFileHandle?.name, currentFileName) });
   // A-5：启动后若发现未保存草稿，提示恢复（异步，不阻塞初始化）
-  offerDraftRestore().catch((e) => console.error('[autosave] 草稿恢复检查失败', e));
+  // 已禁用：设计文档 §13 将「自动保存 / 会话恢复」列为 OUT OF SCOPE，
+  // 新开扩展不应再弹出「发现未保存草稿」恢复弹窗（用户反馈 BUG 1）。
+  // 保留函数体（autosave.js）不动，仅不在此处调用，便于后续若重新启用。
+  // offerDraftRestore().catch((e) => console.error('[autosave] 草稿恢复检查失败', e));
 
   // A-8：恢复专注模式 / 显示字号 / 密度 持久化设置
   initDisplaySettings();
