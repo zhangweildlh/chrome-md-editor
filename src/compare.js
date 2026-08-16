@@ -12,31 +12,36 @@
 //   - compare-files.js        → pickFiles                     （UI-B 交付）
 //   - compare-images.js       → insertImagesAtCursor / bindCompareEditorView / bindImageToolbarButton （UI-B 交付）
 //   - compare-export.js       → exportResult                  （逻辑 Agent 交付）
-//   - compare-diff-export.js  → exportDiffReport              （逻辑 Agent 交付）
+//   - compare-diff-export.js  → buildDiffText                 （逻辑 Agent 交付，导出 diff 文本）
 //
 // 禁用类名闸门：
 //   严禁使用方案列明的禁用类名。本文件按钮统一用 compare-toolbar-btn。
 
-import { markdown } from "@codemirror/lang-markdown";
-import { EditorView } from "@codemirror/view";
-import { oneDark } from "@codemirror/theme-one-dark";
-
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
-import { pickFiles, pickSingleFile, enableFileDropZone } from "./compare-files.js";
+import { pickFiles, enableFileDropZone } from "./compare-files.js";
 import {
   bindCompareEditorView,
   bindImageToolbarButton,
   createImageUploadArea,
 } from "./compare-images.js";
 import { exportResult } from "./compare-export.js";
-import { exportDiffReport } from "./compare-diff-export.js";
+import { buildDiffText } from "./compare-diff-export.js";
+// 共享编辑器扩展工厂（编辑页 / 对比·合并页共用同一套 CM6 内核，见设计文档 §8.1/§8.2）
+import { createEditorExtensions } from "./editor-extensions.js";
+// 路径省略工具（保留文件名完整，中间段用 '...' 省略，见 §7）
+import { ellipsizePath } from "./path-ellipsis.js";
+// 保存轮询 + 另存为弹窗（§5）
+import { runSavePoll, showSaveAsDialog } from "./save-poll.js";
+// 可复用多栏滚动同步（§9）；控制器由 createCompareMergeView 内部创建并挂到 instance.scrollSync，
+// 本文件只消费、不再自建（修复 H1：避免三栏下重复监听 / 按钮失效）。
+// 文件读写桥（导出 diff 写盘走 ioBridge.saveAs）
+import { ioBridge } from "./compare/io-bridge.js";
 // 活动栏（用户最后聚焦的栏）状态与保存链路
 import {
   setActivePane,
   getActivePane,
-  saveActivePane,
 } from "./compare/save.js";
 // 批量接受块（chunk-ops 纯函数层）：应用所有非冲突块，单次 dispatch 不漂移
 import { applyNonConflicting } from "./compare/chunk-ops.js";
@@ -51,7 +56,11 @@ import {
 import { createLocationPane } from "./compare/location-pane.js";
 // 主题同步复用主编辑器的权威函数，保证对比页 data-theme/data-editor-theme/data-skin
 // 与「编辑器主题预设 kind」完全一致（而非 light/dark 开关键），缺省回退默认预设/经典配色。
-import { applyEditorThemePreset, getStoredEditorTheme } from "./theme-presets.js";
+import {
+  applyEditorThemePreset,
+  getStoredEditorTheme,
+  getThemeKind,
+} from "./theme-presets.js";
 import { getColorScheme } from "./md-theme-tokens.js";
 import { initToolbarScroll } from "./toolbar-scroll.js";
 
@@ -75,9 +84,15 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   }
 
   // ── 运行时状态 ──
-  /** @type {{a:?{name:string,content:string}, b:?{name:string,content:string}, result?:?string}} */
-  const files = { a: null, b: null, result: null };
-  let mode = "two"; // 'two' | 'three'
+  /** @type {{a:?{name:string,content:string,target?:?object}, b:?{name:string,content:string,target?:?object}, c?:?{name:string,content:string,target?:?object}, result?:?string}} */
+  const files = { a: null, b: null, c: null, result: null };
+  /** @type {{a:?string, b:?string, c:?string, result:?string}} 各栏初始内容快照（D8 脏检查：相对载入内容是否改动） */
+  const loadedContent = { a: null, b: null, c: null, result: null };
+  let mode = "compare"; // 'compare' | 'merge'（§3）
+  let colCount = 2;     // compare 模式下 2|3；merge 模式固定 3
+  let scrollSyncEnabled = true; // 滚动同步开关（§9，默认开）
+  /** @type {object|null} 多栏滚动同步控制器（消费 instance.scrollSync，见 §6/#9，修复 H1） */
+  let scrollSync = null;
   let instance = null; // 当前视图实例
   // 跳过下一次 render 的「编辑回写」：仅在「重新载入文件（onPickFiles / 拖拽）」时置位，
   // 避免 render() 顶部的 saveCurrentEdit 用陈旧/空的编辑器文档覆盖刚载入的文件内容
@@ -110,7 +125,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   // data-color-scheme 在缺省时用默认预设/经典配色。直接复用同一组函数，可保证默认配置与暗色预设下均一致。
   let currentTheme = 'light';
   function applyCompareTheme() {
-    const t = localStorage.getItem('md-editor-theme') || 'light';
+    const t = getThemeKind(getStoredEditorTheme());
     currentTheme = t;                       // 供 baseExtensions() 决定 CM6 oneDark 轴（与主编辑器同一开关键）
     applyEditorThemePreset(getStoredEditorTheme());   // data-theme(预设kind) / data-editor-theme / data-skin=glass
     document.documentElement.setAttribute('data-color-scheme', getColorScheme());  // 与主编辑器同一读取键，缺省 classic
@@ -125,23 +140,25 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   });
 
-  // 公共扩展：markdown 语法高亮 + 行号差异标记
+  // 公共扩展：复用编辑页同款内核（语法高亮彩色 / 查找替换 / / 面板 / 块拖拽 + 选区拖拽）
+  // + 对照/合并专属 diff 行标记 + 活动栏跟踪。Callout 不做盒子渲染（仅源码语法高亮，见 §D12）。
   function baseExtensions() {
-    const ext = [
-      markdown(),
-      EditorView.lineWrapping,
-      applyCompareLineMarkers(),
-      // 每个面板有独立 EditorState，故同一份扩展数组可安全地同时注入 a/b/theirs
-      ...paneActiveExtension(),
+    return [
+      ...createEditorExtensions({ theme: currentTheme }), // 替换原 markdown()+lineWrapping 裸装
+      applyCompareLineMarkers(),   // diff 行标记（对照/合并专属，保留）
+      ...paneActiveExtension(),    // 活动栏跟踪（保留）
     ];
-    if (currentTheme === 'dark') ext.push(oneDark);
-    return ext;
   }
 
   // ── DOM 查询 ──
   const $ = (id) => document.getElementById(id);
-  const btnViewTwo = $("btnViewTwo");
-  const btnViewThree = $("btnViewThree");
+  // 模式切换：对照 / 合并（按钮由 C3 在 compare.html 注入，此处做 null 保护）
+  const btnModeCompare = $("btnModeCompare");
+  const btnModeMerge = $("btnModeMerge");
+  // 列数切换（仅对照模式出现，动态文案「两栏」/「三栏」，由 C3 显隐）
+  const btnColToggle = $("btnColToggle");
+  // 滚动同步开关
+  const btnScroll = $("btnScroll");
   const btnPrevChunk = $("btnPrevChunk");
   const btnNextChunk = $("btnNextChunk");
   const btnPickFiles = $("btnPickFiles");
@@ -165,8 +182,6 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const statusCountEl = $("compareStatusCount");
   const compareViewHeader = $("compareViewHeader");
   const comparePanes = $("comparePanes");
-  const btnApplyMerge = $("btnApplyMerge");
-  const btnAbortMerge = $("btnAbortMerge");
   const paneTitles = {
     a: $("paneTitleA"),
     b: $("paneTitleB"),
@@ -183,15 +198,6 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.1";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
-
-  const viewButtons = {
-    two: btnViewTwo,
-    three: btnViewThree,
-  };
-  const viewEls = {
-    two: mountPoints.two,
-    three: mountPoints.three,
-  };
 
   // ── 文件槽 UI 更新 ──
   function setSlotText(slot, file) {
@@ -237,10 +243,18 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       }
       instance = null;
     }
+    // 滚动同步控制器必须随视图销毁（解绑 scroll/focus 监听，避免对已销毁视图空转）
+    if (scrollSync) {
+      try {
+        scrollSync.destroy();
+      } catch (_) {
+        /* 忽略 */
+      }
+      scrollSync = null;
+    }
     bindCompareEditorView(null);
     activeView = null;
-    for (const key of Object.keys(viewEls)) {
-      const el = viewEls[key];
+    for (const el of Object.values(mountPoints)) {
       if (el) {
         el.innerHTML = "";
         el.hidden = true;
@@ -303,6 +317,191 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     });
   }
 
+  // ── 模式 / 列数 → DOM 类（供 CSS 依据 .mode-compare / .mode-merge 切显隐）──
+  function applyModeClasses() {
+    const body = document.body;
+    // 模式类切在 document.body 上（而非 #compareRoot/main）。<header> 内的 .merge-only
+    // 组与 <main> 均为 body 的后代，.mode-compare .merge-only / .compare-mode-compare
+    // .merge-only 后代选择器才能匹配，从而对照模式下隐藏合并专用控件（§3 / D1 / D10）。
+    // 同时兼容旧命名 .mode-* 与注释约定的 .compare-mode-* 双前缀。
+    // 注：三栏真实类由 compare-merge.js 加在 parent 上的 .compare-three-layout 承担，
+    // 本文件不再写死任何 .three-col 死类（L6）。
+    body.classList.toggle("mode-compare", mode === "compare");
+    body.classList.toggle("mode-merge", mode === "merge");
+    body.classList.toggle("compare-mode-compare", mode === "compare");
+    body.classList.toggle("compare-mode-merge", mode === "merge");
+  }
+
+  // 列数切换按钮文案（对照模式动态：两栏 ↔ 三栏）
+  function updateColToggleLabel() {
+    if (btnColToggle) btnColToggle.textContent = colCount === 2 ? "三栏" : "两栏";
+  }
+
+  // 滚动同步按钮状态
+  function updateScrollButton() {
+    if (btnScroll) {
+      btnScroll.classList.toggle("active", scrollSyncEnabled);
+      btnScroll.title = scrollSyncEnabled
+        ? "滚动同步：开（点击关闭）"
+        : "滚动同步：关（点击开启）";
+    }
+  }
+
+  // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
+  function instanceViews() {
+    if (instance && typeof instance.getPanes === "function") {
+      try {
+        return instance.getPanes().map((p) => p.view).filter(Boolean);
+      } catch (_) {
+        /* 退回兜底 */
+      }
+    }
+    return [instance && instance.a, instance && instance.b, instance && instance.theirsView].filter(
+      Boolean
+    );
+  }
+
+  // 构建保存轮询用的 panes 数组（形状对齐 save-poll.js：[{ key, view, target, content }]）。
+  // 优先用 C2 在实例上暴露的 getPanes()（§10.2 / 共享契约）；不可用时按本文件状态兜底构造。
+  function buildPanes() {
+    if (instance && typeof instance.getPanes === "function") {
+      try {
+        return instance.getPanes();
+      } catch (_) {
+        /* 退回兜底 */
+      }
+    }
+    const out = [];
+    if (instance && instance.a) {
+      out.push({
+        key: "a",
+        view: instance.a,
+        target: files.a ? files.a.target : null,
+        content: instance.a.state.doc.toString(),
+      });
+    }
+    if (instance && instance.b) {
+      // 合并模式 b=合并结果（无源，target 为 null）；对照模式 b=真实文件（带 target）
+      const bTarget = mode === "merge" ? null : files.b ? files.b.target : null;
+      out.push({
+        key: "b",
+        view: instance.b,
+        target: bTarget,
+        content: instance.b.state.doc.toString(),
+      });
+    }
+    if (instance && instance.theirsView) {
+      out.push({
+        key: "c",
+        view: instance.theirsView,
+        target: files.b ? files.b.target : null,
+        content: instance.theirsView.state.doc.toString(),
+      });
+    }
+    return out;
+  }
+
+  // 保存轮询顺序（从左到右）：compare 2 栏 [a,b]；merge / compare 3 栏 [a,b,c]
+  function buildOrder() {
+    return mode === "merge" ? ["a", "b", "c"] : colCount === 3 ? ["a", "b", "c"] : ["a", "b"];
+  }
+
+  // D8 脏检查：任一可见栏当前内容相对其载入快照是否改动
+  function isAnyPaneDirty() {
+    const check = (view, key) => {
+      if (!view) return false;
+      const snap = loadedContent[key];
+      if (snap == null) return false; // 未记录初始内容（如空初始），视为无改动
+      return view.state.doc.toString() !== snap;
+    };
+    if (!instance) return false;
+    if (mode === "merge") {
+      return (
+        check(instance.a, "a") ||
+        check(instance.b, "result") ||
+        check(instance.theirsView, "b")
+      );
+    }
+    if (colCount === 3) {
+      return (
+        check(instance.a, "a") ||
+        check(instance.b, "b") ||
+        check(instance.theirsView, "c")
+      );
+    }
+    return check(instance.a, "a") || check(instance.b, "b");
+  }
+
+  // 保存成功后刷新初始内容快照，使 D8 脏检查复位为「干净」
+  function refreshLoadedSnapshots() {
+    if (!instance) return;
+    if (instance.a) loadedContent.a = instance.a.state.doc.toString();
+    if (instance.b) loadedContent[mode === "merge" ? "result" : "b"] = instance.b.state.doc.toString();
+    if (instance.theirsView) loadedContent[mode === "merge" ? "b" : "c"] = instance.theirsView.state.doc.toString();
+  }
+
+  // 全路径 tooltip：Tauri 用 target.path，浏览器 FSAPI 仅能拿到文件名
+  function fileDisplay(f) {
+    if (!f) return "";
+    const t = f.target;
+    if (t && typeof t.path === "string" && t.path) return t.path;
+    if (t && t.handle && t.handle.name) return t.handle.name;
+    return f.name || "";
+  }
+  function paneFullPath(p) {
+    const f = p === "b" && mode === "merge" ? null : files[p];
+    if (!f) return "";
+    const t = f.target;
+    if (t && typeof t.path === "string" && t.path) return t.path;
+    if (t && t.handle && t.handle.name) return t.handle.name;
+    return f.name || "";
+  }
+
+  // 块对齐未对齐弹窗（§9.2 / createScrollSync.onMisalign）：选项 A 跳到激活栏光标处 / B 维持当前位置
+  function showMisalignDialog() {
+    const overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;";
+    const box = document.createElement("div");
+    box.style.cssText =
+      "min-width:300px;max-width:90vw;background:#1e1e22;color:#e8e8ea;border:1px solid #3a3a40;border-radius:10px;padding:16px 18px;";
+    const title = document.createElement("div");
+    title.textContent = "各栏光标段落未对齐";
+    title.style.cssText = "font-size:14px;font-weight:600;margin-bottom:8px;";
+    const hint = document.createElement("div");
+    hint.textContent =
+      "是否把各栏滚动并移动光标到激活栏所在段落（强制对齐后再联动），还是维持各栏当前位置直接联动？";
+    hint.style.cssText = "font-size:12px;color:#b0b0b8;margin-bottom:12px;line-height:1.5;";
+    const bar = document.createElement("div");
+    bar.style.cssText = "display:flex;gap:8px;";
+    const mk = (label, fn) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.style.cssText =
+        "flex:1;padding:8px;border:1px solid #4a4a52;border-radius:6px;background:#33333a;color:#e8e8ea;cursor:pointer;font-size:13px;";
+      b.onclick = () => {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        fn();
+      };
+      return b;
+    };
+    bar.appendChild(
+      mk("跳到激活栏光标处", () => {
+        if (scrollSync) scrollSync.alignToActive();
+      })
+    );
+    bar.appendChild(
+      mk("维持当前位置", () => {
+        if (scrollSync) scrollSync.keepAsIs();
+      })
+    );
+    box.appendChild(title);
+    box.appendChild(hint);
+    box.appendChild(bar);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
   // ── 渲染当前模式 ──
   function render() {
     // 保存当前编辑内容，避免模式切换 / 重渲染丢失（修复 E1-01/02：无声数据丢失）
@@ -310,7 +509,19 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     // 跳过本次回写，否则会用陈旧编辑器文档覆盖刚载入的文件内容。
     if (!skipSaveOnNextRender && instance) {
       try {
-        if (mode === "two") {
+        if (mode === "merge") {
+          // 合并：a=本地 / b=合并结果(可编辑) / c=对方，三者均可编辑，全部回写
+          if (instance.a)
+            files.a = files.a
+              ? { ...files.a, content: instance.a.state.doc.toString() }
+              : { name: "本地", content: instance.a.state.doc.toString() };
+          files.result = instance.b ? instance.b.state.doc.toString() : (files.result || "");
+          if (instance.theirsView)
+            files.b = files.b
+              ? { ...files.b, content: instance.theirsView.state.doc.toString() }
+              : { name: "对方", content: instance.theirsView.state.doc.toString() };
+        } else if (colCount === 3) {
+          // 对照三栏：a/b/c 三个真实文件
           if (instance.a)
             files.a = files.a
               ? { ...files.a, content: instance.a.state.doc.toString() }
@@ -319,16 +530,20 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
             files.b = files.b
               ? { ...files.b, content: instance.b.state.doc.toString() }
               : { name: "对方", content: instance.b.state.doc.toString() };
-        } else if (mode === "three") {
+          if (instance.theirsView)
+            files.c = files.c
+              ? { ...files.c, content: instance.theirsView.state.doc.toString() }
+              : { name: "文件三", content: instance.theirsView.state.doc.toString() };
+        } else {
+          // 对照两栏：a/b 两个真实文件
           if (instance.a)
             files.a = files.a
               ? { ...files.a, content: instance.a.state.doc.toString() }
               : { name: "本地", content: instance.a.state.doc.toString() };
-          files.result = instance.b ? instance.b.state.doc.toString() : ""; // 中间结果可编辑，必须回写
-          if (instance.theirsView)
+          if (instance.b)
             files.b = files.b
-              ? { ...files.b, content: instance.theirsView.state.doc.toString() }
-              : { name: "对方", content: instance.theirsView.state.doc.toString() };
+              ? { ...files.b, content: instance.b.state.doc.toString() }
+              : { name: "对方", content: instance.b.state.doc.toString() };
         }
       } catch (e) {
         console.error("[compare] 保存编辑内容失败:", e);
@@ -343,41 +558,62 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         if (paneOffState[p]) comparePanes.classList.add("pane-off-" + p);
       }
     }
+    applyModeClasses();
     const aFile = files.a || { name: "本地", content: "" };
     const bFile = files.b || { name: "对方", content: "" };
-    const target = viewEls[mode];
+    const target = colCount === 3 ? mountPoints.three : mountPoints.two;
     if (!target) return;
     target.hidden = false;
 
     try {
-      if (mode === "two") {
+      if (mode === "merge") {
         instance = createCompareMergeView({
-          layout: "two",
-          a: aFile,
-          b: bFile,
-          extensions: baseExtensions(),
-          parent: target,
-        });
-        // 两栏的可编辑目标面板 = MergeView 的 b 面板（与三栏一致）
-        bindCompareEditorView(instance.b);
-        activeView = instance.b;
-        bindPaneFocus(instance.a, "a");
-        bindPaneFocus(instance.b, "b");
-      } else if (mode === "three") {
-        instance = createCompareMergeView({
+          mode: "merge",
           layout: "three",
-          a: aFile,
-          b: bFile, // 作为 Theirs 参考；Result 由 MergeView 生成（空/上次保留，逐步合并）
-          result: files.result,
+          a: aFile, // 本地
+          b: { name: "合并结果", content: files.result || "" }, // 合并结果（无源，target:null）
+          c: bFile, // 对方
           extensions: baseExtensions(),
           parent: target,
+          onMisalign: () => showMisalignDialog(),
         });
-        // 三栏的可编辑结果面板 = MergeView 的 b 面板
+        // 合并结果面板 = MergeView 的 b 面板（图片插入目标）
         bindCompareEditorView(instance.b);
         activeView = instance.b;
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
         bindPaneFocus(instance.theirsView, "c");
+      } else if (colCount === 3) {
+        const cFile = files.c || { name: "文件三", content: "" };
+        instance = createCompareMergeView({
+          mode: "compare",
+          layout: "three",
+          a: aFile, // 文件一
+          b: bFile, // 文件二
+          c: cFile, // 文件三（真实文件，可编辑、可保存）
+          extensions: baseExtensions(),
+          parent: target,
+          onMisalign: () => showMisalignDialog(),
+        });
+        bindCompareEditorView(instance.b);
+        activeView = instance.b;
+        bindPaneFocus(instance.a, "a");
+        bindPaneFocus(instance.b, "b");
+        bindPaneFocus(instance.theirsView, "c");
+      } else {
+        instance = createCompareMergeView({
+          mode: "compare",
+          layout: "two",
+          a: aFile, // 文件一
+          b: bFile, // 文件二
+          extensions: baseExtensions(),
+          parent: target,
+          onMisalign: () => showMisalignDialog(),
+        });
+        bindCompareEditorView(instance.b);
+        activeView = instance.b;
+        bindPaneFocus(instance.a, "a");
+        bindPaneFocus(instance.b, "b");
       }
     } catch (e) {
       console.error("[compare] 渲染视图失败:", e);
@@ -388,11 +624,23 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       target.appendChild(hint);
     }
 
-    // 高亮当前视图按钮
-    for (const key of Object.keys(viewButtons)) {
-      const btn = viewButtons[key];
-      if (btn) btn.classList.toggle("active", key === mode);
+    // 高亮当前模式按钮
+    if (btnModeCompare) btnModeCompare.classList.toggle("active", mode === "compare");
+    if (btnModeMerge) btnModeMerge.classList.toggle("active", mode === "merge");
+    updateColToggleLabel();
+
+    // 滚动同步：控制器由 createCompareMergeView 内部创建并挂在 instance.scrollSync，
+    // 本文件只消费、不再自建（修复 H1：避免三栏下重复监听 / 按钮失效）。
+    // 重建实例后重新取引用，并按当前本地开关态同步控制器（setEnabled 写回实例内部开关）。
+    if (instance) {
+      try {
+        scrollSync = instance.scrollSync || null;
+      } catch (e) {
+        console.error("[compare] 初始化滚动同步失败:", e);
+        scrollSync = null;
+      }
     }
+    updateScrollButton();
 
     // 同步折叠状态与按钮文案（跨模式切换保持一致）
     if (instance && typeof instance.setCollapse === "function") {
@@ -404,8 +652,14 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 
     // M3：「接受 Theirs 块」仅在三栏模式可用（两栏实例返回 false）
     if (btnAcceptTheirs) {
-      btnAcceptTheirs.disabled = mode !== "three";
-      btnAcceptTheirs.classList.toggle("disabled", mode !== "three");
+      btnAcceptTheirs.disabled = colCount !== 3;
+      btnAcceptTheirs.classList.toggle("disabled", colCount !== 3);
+      // M5：文案随模式变化（合并=并入结果；对照=插入中栏文件二），避免语义误导。
+      // 启用逻辑保持不变（仅三栏启用）。
+      btnAcceptTheirs.title =
+        mode === "merge"
+          ? "把光标所在的对方块并入合并结果"
+          : "把光标所在的对方块插入到中栏（文件二）";
     }
 
     // 活动栏复位：旧视图已随 teardown 销毁，若沿用上次的活动栏（如三栏切两栏后仍指向 'c'），
@@ -640,13 +894,18 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     });
   }
 
-  // ── 视图切换 ──
+  // ── 视图切换（模式状态机，§3）──
+  //   'compare' → 对照模式（colCount 保持或默认 2，显示 btnColToggle，隐藏 .merge-only）
+  //   'merge'   → 合并模式（固定三栏 a=本地 / b=合并结果 / c=对方，隐藏 btnColToggle，显示 .merge-only）
   function switchMode(next) {
+    if (next !== "compare" && next !== "merge") return;
     if (next === mode) {
       render();
       return;
     }
     mode = next;
+    if (mode === "merge") colCount = 3;
+    else colCount = colCount || 2; // 对照模式保持上次列数，默认 2
     render();
   }
 
@@ -658,32 +917,40 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     if (instance && instance.navView) bindChunkNavigation(instance.navView).prev();
   }
 
-  // ── 文件选择 ──
-  // 把「聚焦的栏」映射到其源文件槽位（files.a / files.b）：
-  //   a        → 本地(files.a)
-  //   c(三栏)  → 对方(files.b，三栏下 pane c 即「对方」)
-  //   b        → 两栏=对方(files.b)；三栏=合并结果(无源文件)→ 退回本地(files.a)
-  function paneToSlot(pane) {
-    if (pane === "a") return "a";
-    if (pane === "c") return "b";
-    return mode === "two" ? "b" : "a";
+  // ── 记录初始内容快照（D8 脏检查）──
+  function snapshotLoaded() {
+    loadedContent.a = files.a ? files.a.content : null;
+    loadedContent.b = files.b ? files.b.content : null;
+    loadedContent.c = files.c ? files.c.content : null;
+    loadedContent.result = mode === "merge" ? (files.result || null) : null;
   }
 
+  // ── 文件选择 ──
+  // compare 模式：多选 2 或 3 个文件（a/b/c 三个真实文件）；
+  // merge 模式：选 2 个文件（a=本地 / c=对方，合并结果重置为空）。
   async function onPickFiles() {
     try {
-      // 单选：把文件载入「当前鼠标激活栏」对应的槽位（需求 #14）
-      const picked = await pickSingleFile();
-      if (!picked) return;
-      const pane = getActivePane(); // 'a' | 'b' | 'c'，由栏聚焦时 setActivePane 维护
-      const slot = paneToSlot(pane);
-      files[slot] = picked;
-      files.result = null; // 新选文件 → 重置合并结果
+      const picked = await pickFiles(undefined, true); // 多选
+      if (!picked || !picked.length) return;
+      if (mode === "merge") {
+        files.a = picked[0] || files.a; // 本地
+        files.b = picked[1] || files.b; // 对方
+        files.c = null;
+        files.result = null; // 新选文件 → 重置合并结果
+      } else {
+        files.a = picked[0] || files.a; // 文件一
+        files.b = picked[1] || files.b; // 文件二
+        if (picked[2]) files.c = picked[2]; // 文件三（仅三栏对照用到）
+        else if (colCount < 3) files.c = null;
+      }
+      snapshotLoaded(); // 记录初始内容快照（D8）
       setSlotText(fileSlots.a, files.a);
       setSlotText(fileSlots.b, files.b);
       skipSaveOnNextRender = true; // 重新载入：跳过 render 的编辑回写，保留刚载入的文件内容
       render();
       // 让「激活栏描边」跟随用户实际选择的目标栏（render 末尾会把活动栏复位为 'a'）
       try {
+        const pane = getActivePane();
         setActivePane(pane);
         applyActivePaneClass();
       } catch (_) {}
@@ -709,12 +976,21 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   }
 
-  // ── 导出 diff 报告（增量 F） ──
+  // ── 导出 diff 报告（D17）：生成 git 风格统一 diff 文本，经「另存为」弹窗写盘（非逐栏轮询）──
   async function onExportDiff() {
-    const a = files.a ? files.a.content : "";
-    const b = instance ? instance.getResult() : files.b ? files.b.content : "";
+    if (!instance) return;
     try {
-      await exportDiffReport(a, b, "diff.diff");
+      const panes = buildPanes();
+      const getContent = (k) => {
+        const p = panes.find((x) => x.key === k);
+        return p ? p.content : "";
+      };
+      // a=首栏；b=第二栏（合并模式下为合并结果），缺则取 c
+      const a = getContent("a");
+      const b = getContent("b") || getContent("c") || "";
+      const diffText = buildDiffText(a, b);
+      const target = await showSaveAsDialog({ suggestedName: "diff.txt" });
+      if (target) await ioBridge.saveAs(target, diffText); // 写入新文件，不覆盖源
     } catch (e) {
       // 用户取消保存：忽略 AbortError
       if (!(e && e.name === "AbortError")) {
@@ -723,44 +999,33 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   }
 
-  // ── 活动栏保存（第二期）：Ctrl/Cmd+S 或工具栏「保存」落到当前活动栏 ──
-  // panes 的形状对齐 save.js 的契约：{ a:{view,target}, b:{...}, c:{...} }，
-  // target 为 io-bridge 的目标描述符（浏览器 { handle } / 桌面 { path }）；
-  // 未关联源文件时 target 为空，saveActivePane 会返回 no-target，由本文件降级到「另存为」。
+  // ── 保存轮询（D6/D8）：Ctrl/Cmd+S 或工具栏「保存」→ 从左到右逐栏弹窗（保存/另存为/不保存/取消）──
+  // panes 形状对齐 save-poll.js：[{ key, view, target, content }]；order 决定从左到右顺序。
+  // L4：currentPanes() 统一为与 instance.getPanes() 一致的 [{key,view,target,content}] 形状，
+  // 直接委托实例；c 栏始终映射到 instance.theirsView（与 paneViewMap 保持一致）。
   function currentPanes() {
-    if (!instance) return {};
-    const panes = {
-      a: { view: instance.a, target: files.a && files.a.target },
-    };
-    if (mode === "two") {
-      panes.b = { view: instance.b, target: files.b && files.b.target };
-    } else {
-      // 三栏：b = Result（合并产物，无关联源文件，只能另存）；c = Theirs（对应 files.b）
-      panes.b = { view: instance.b, target: null };
-      if (instance.theirsView) {
-        panes.c = { view: instance.theirsView, target: files.b && files.b.target };
-      }
+    if (instance && typeof instance.getPanes === "function") {
+      return instance.getPanes();
     }
-    return panes;
+    // 兜底（实例尚未就绪）：构造最小 [{key,view,target,content}] 列表，
+    // c 栏用 instance.theirsView 映射，保持与 paneViewMap 一致。
+    const out = [];
+    if (instance && instance.a)
+      out.push({ key: "a", view: instance.a, target: files.a && files.a.target });
+    if (instance && instance.b)
+      out.push({ key: "b", view: instance.b, target: null });
+    if (instance && instance.theirsView)
+      out.push({ key: "c", view: instance.theirsView, target: files.b && files.b.target });
+    return out;
   }
 
-  async function onSaveActive() {
+  async function onSave() {
     if (!instance) return;
+    const panes = buildPanes();
+    const order = buildOrder();
     try {
-      const r = await saveActivePane(currentPanes());
-      if (r && r.saved === false && r.reason === "no-target") {
-        // 未关联源文件（如三栏 Result、或浏览器端未持有 handle）：降级走「另存为」对话框
-        const panes = currentPanes();
-        const entry = panes[r.pane];
-        const content = entry && entry.view ? entry.view.state.doc.toString() : "";
-        const suggested =
-          r.pane === "a" && files.a
-            ? files.a.name
-            : r.pane === "c" && files.b
-              ? files.b.name
-              : "merged.md";
-        await exportResult(content, suggested);
-      }
+      const r = await runSavePoll(panes, order); // 逐栏弹窗（§5）
+      if (r && !r.aborted) refreshLoadedSnapshots(); // 保存成功 → 复位 D8 脏检查
     } catch (e) {
       // 用户取消保存框：忽略 AbortError
       if (!(e && e.name === "AbortError")) console.error("[compare] 保存失败:", e);
@@ -813,19 +1078,21 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     statusCountEl.classList.toggle("has-conflict", conflicts > 0);
   }
 
-  // ── per-pane 标题栏：根据当前模式与文件动态设置标题（Yours / Result / Theirs）──
+  // ── per-pane 标题栏：根据当前模式与文件动态设置标题（§4）──
+  // compare：a/b/(c) 三个真实文件 → 用 ellipsizePath 显示省略后的文件名（tooltip 显完整路径）；
+  // merge：a=本地路径 / b=「合并结果」(固定) / c=对方路径。
   function updatePaneHeader() {
     if (!compareViewHeader || !comparePanes) return;
     // 修复中-1：#compareViewHeader 在 compare.html 中初始带 hidden，必须显式解除，
     // 否则整条标题栏被 CSS `.compare-view-header[hidden]{display:none}` 永久隐藏，
     // 三栏的 Yours / Result / Theirs 标题永不显示。
     compareViewHeader.hidden = false;
-    // 三栏显示三份标题，两栏显示两份；c 栏在两栏下隐藏
-    const visiblePanes = mode === "three" ? ["a", "b", "c"] : ["a", "b"];
+    // 三栏 / 合并显示三份标题，两栏显示两份；c 栏在两栏下隐藏
+    const visiblePanes = mode === "merge" || colCount === 3 ? ["a", "b", "c"] : ["a", "b"];
     const titles = {
-      a: files.a ? files.a.name : "本地",
-      b: mode === "three" ? "合并结果" : files.b ? files.b.name : "对方",
-      c: files.b ? files.b.name : "对方",
+      a: files.a ? ellipsizePath(fileDisplay(files.a)) : "本地",
+      b: mode === "merge" ? "合并结果" : files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
+      c: files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
     };
     for (const p of ["a", "b", "c"]) {
       const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
@@ -836,7 +1103,12 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       // 可能在上一轮 render 前就被改过，这里统一以状态为准，保证幂等）
       el.classList.toggle("is-off", !!paneOffState[p]);
       const titleEl = paneTitles[p];
-      if (titleEl) titleEl.textContent = titles[p];
+      if (titleEl) {
+        titleEl.textContent = titles[p];
+        // tooltip 显示完整绝对路径（不省略），方便用户确认真实位置
+        const full = paneFullPath(p);
+        if (full) titleEl.title = full;
+      }
     }
   }
 
@@ -847,9 +1119,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   }
 
   // ── 方向选择器文案（按模式动态，修复低-1：两栏 left/right 实为 Yours↔Theirs）──
-  // 三栏：left=Yours→结果、right=Theirs→结果；两栏：left=Yours→Theirs、right=Theirs→Yours。
+  // 合并/三栏：left=Yours→结果、right=Theirs→结果；对照两栏：left=Yours→Theirs、right=Theirs→Yours。
   function syncDirectionTooltips() {
-    const isTwo = mode === "two";
+    const isTwo = mode === "compare" && colCount === 2;
     if (btnAcceptLeft)
       btnAcceptLeft.title = isTwo
         ? "采纳左侧全部块（本地 → 对方）"
@@ -904,7 +1176,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     const chunks = instance.getChunks() || [];
     const nonConf = chunks.filter((c) => !c.conflict);
     if (!nonConf.length) return;
-    if (mode === "three") {
+    if (colCount === 3) {
       const abViews = instance.getLayerViews("ab");
       const bcViews = instance.getLayerViews("bc");
       const ab = nonConf.filter((c) => c.layer === "ab");
@@ -955,7 +1227,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   function acceptAllDir(dir) {
     if (!instance || typeof instance.getChunks !== "function") return;
     const chunks = instance.getChunks() || [];
-    const isTwo = mode === "two";
+    const isTwo = colCount === 2;
 
     function bulkTo(srcView, dstView, layerChunks) {
       if (!srcView || !dstView || !layerChunks.length) return;
@@ -1065,23 +1337,23 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   }
 
-  // ── 底部 APPLY / ABORT ──
-  function onApplyMerge() {
-    // APPLY：导出 / 保存当前合并结果（复用现有导出逻辑）
-    onExportResult();
-  }
-  function onAbortMerge() {
-    // ABORT：放弃本次合并并关闭对比页（对比页通过 window.open 打开）
-    try {
-      window.close();
-    } catch (_) {
-      /* 某些环境禁止脚本关闭窗口：静默忽略 */
-    }
-  }
-
   // ── 绑定工具栏按钮 ──
-  if (btnViewTwo) btnViewTwo.addEventListener("click", () => switchMode("two"));
-  if (btnViewThree) btnViewThree.addEventListener("click", () => switchMode("three"));
+  // 模式切换（§3）：对照 / 合并；列数切换（仅对照模式）；滚动同步开关
+  if (btnModeCompare)
+    btnModeCompare.addEventListener("click", () => switchMode("compare"));
+  if (btnModeMerge) btnModeMerge.addEventListener("click", () => switchMode("merge"));
+  if (btnColToggle)
+    btnColToggle.addEventListener("click", () => {
+      if (mode !== "compare") return; // 合并模式不出现该按钮
+      colCount = colCount === 2 ? 3 : 2;
+      updateColToggleLabel();
+      render();
+    });
+  if (btnScroll)
+    btnScroll.addEventListener("click", () => {
+      if (scrollSync) scrollSync.toggle(); // 切换 instance.scrollSync（含三栏 B↔C / A↔C）；开关态由控制器经 setEnabled 回写 scrollSyncEnabled，开启瞬间触发块对齐检查（onMisalign）
+      updateScrollButton();
+    });
   if (btnPrevChunk) btnPrevChunk.addEventListener("click", navPrev);
   if (btnNextChunk) btnNextChunk.addEventListener("click", navNext);
 
@@ -1094,9 +1366,10 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   if (btnAcceptTheirs) btnAcceptTheirs.addEventListener("click", onAcceptTheirs);
   if (btnToggleLocationPane)
     btnToggleLocationPane.addEventListener("click", toggleLocationPane);
-  if (btnSave) btnSave.addEventListener("click", onSaveActive);
+  if (btnSave) btnSave.addEventListener("click", onSave);
 
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
+  // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。
   if (btnApplyNonConflicting)
     btnApplyNonConflicting.addEventListener("click", applyNonConflictingChunks);
   // 修复 R7：CSS 已定义 .compare-dir-btn.active（选中态压在相邻按钮之上），此前无人添加该类，
@@ -1135,16 +1408,26 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   if (selHighlightWords)
     selHighlightWords.addEventListener("change", onHighlightWordsChange);
 
-  // ── 底部全局操作栏：APPLY / ABORT ──
-  if (btnApplyMerge) btnApplyMerge.addEventListener("click", onApplyMerge);
-  if (btnAbortMerge) btnAbortMerge.addEventListener("click", onAbortMerge);
-
-  // ── 返回主界面（需求 #13）──
+  // ── 返回主界面（D8）：有未保存改动 → 先走保存轮询；取消则留页内；否则关闭/返回 ──
   // compare 页由 editor 经 window.open 打开，可脚本关闭；若部分环境禁止
   // window.close（页面未真正关闭），则降级跳转到 editor.html，避免用户被困。
   const btnBackToEditor = document.getElementById('btnBackToEditor');
   if (btnBackToEditor) {
-    btnBackToEditor.addEventListener("click", () => {
+    btnBackToEditor.addEventListener("click", async () => {
+      // 任一栏相对初始内容 dirty → 必须先走保存轮询（§5.1 / D8）
+      if (instance && isAnyPaneDirty()) {
+        const panes = buildPanes();
+        const order = buildOrder();
+        try {
+          const r = await runSavePoll(panes, order);
+          if (r && r.aborted) return; // 用户「取消」→ 中止返回、留页内（不关窗）
+          if (r && !r.aborted) refreshLoadedSnapshots();
+        } catch (e) {
+          if (!(e && e.name === "AbortError")) console.error("[compare] 返回前保存失败:", e);
+          return; // 出错也留在页内，避免丢失改动
+        }
+      }
+      // 全部处理完（或本就无改动）→ 关闭 / 返回主界面
       try { window.close(); } catch (_) {}
       window.location.href = 'editor.html';
     });
@@ -1226,7 +1509,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       e.key.toLowerCase() === "s"
     ) {
       e.preventDefault(); // 阻止浏览器「保存网页」
-      onSaveActive();
+      onSave();
     }
   });
 
@@ -1268,9 +1551,17 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       accept: ".md,.markdown,.mdown,.mkd,.mkdn,.txt",
       onFiles: (dropped) => {
         if (!dropped || !dropped.length) return;
-        files.a = dropped[0] || files.a;
-        files.b = dropped[1] || files.b;
-        files.result = null; // 新载入 → 重置合并结果
+        if (mode === "merge") {
+          files.a = dropped[0] || files.a; // 本地
+          files.b = dropped[1] || files.b; // 对方
+          files.c = null;
+          files.result = null; // 新载入 → 重置合并结果
+        } else {
+          files.a = dropped[0] || files.a; // 文件一
+          files.b = dropped[1] || files.b; // 文件二
+          if (dropped[2]) files.c = dropped[2]; // 文件三（仅三栏对照）
+        }
+        snapshotLoaded(); // 记录初始内容快照（D8）
         setSlotText(fileSlots.a, files.a);
         setSlotText(fileSlots.b, files.b);
         skipSaveOnNextRender = true; // 拖入新文件：跳过 render 编辑回写，保留刚拖入的文件内容

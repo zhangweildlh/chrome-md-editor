@@ -8,9 +8,12 @@
 // 设计要点：
 //   - layout='two'   ：纯两栏对照，a=Yours（可编辑或只读，默认可编辑）、b=Theirs（可编辑）。
 //                      差异块红绿高亮 + 行号差异标记（由调用方在 extensions 注入 applyCompareLineMarkers）。
-//   - layout='three' ：三栏合并：左 a=Yours(只读) / 中 b=Result(可编辑) / 右 Theirs(可编辑，独立编辑器)。
-//                      第三期起 Theirs 默认可编辑（opts.theirsReadonly===true 才锁定），并挂载
-//                      B↔C 第二层差异装饰；移动块以 SVG 覆盖层跨栏连线（A↔B / B↔C 双层）。
+//   - layout='three' ：三栏。按 mode 区分（§0 / D3 / D6）：
+//                      合并(merge)    ：左 a=本地(可编辑) / 中 b=合并结果(可编辑,无源) / 右 c=对方(可编辑)。
+//                                      三栏全部可编辑（§6 已推翻本地只读）；B↔C 第二层差异装饰 + A↔B/B↔C 连线。
+//                      对照三栏(compare)：a/b/c 为三个真实独立文件（b 在 MergeView 的 b 面板，c 为独立编辑器），
+//                                      无合并结果栏；连线组 A-B / B-C / A-C 三组（见 createDecorationScheduler）。
+//                      Theirs/第三文件 默认可编辑（opts.theirsReadonly===true 才锁定）。
 //                      「接受此块」按钮用自定义 renderRevertControl（类名 cm-compare-revert，中文「⇄ 接受此块」），
 //                      把 Yours 的当前块拷入 Result（revertControls: 'a-to-b'）；
 //                      Theirs→Result 通过实例方法 acceptTheirsAt(pos?) 逐块拷贝（基于 Chunk.build 对齐）。
@@ -33,7 +36,7 @@
 //   opts.enableMoveDetect  是否启用块移动检测蓝色标识（默认 true，仅 === false 时关闭）
 
 import { MergeView, getChunks, Chunk } from "@codemirror/merge";
-import { EditorState, Text } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import {
@@ -59,6 +62,8 @@ import { acceptChunk } from "./compare/chunk-ops.js";
 // MergeView 内的 view.scrollDOM 不是滚动盒（可滚余量恒 0、且收不到 scroll 事件），
 // 取滚动盒一律走 scrollBoxOf —— 理由见 compare/scroll-box.js 顶部说明。
 import { scrollBoxOf } from "./compare/scroll-box.js";
+// 共享滚动同步模块（编辑页 edit↔preview / 对照·合并多栏共用，§9 / D16）
+import { createScrollSync } from "./scroll-sync.js";
 
 /**
  * 安全读取差异块数组。
@@ -317,9 +322,10 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
  */
 function createDecorationScheduler(flags) {
   /**
-   * 视图对数组。两栏：[ {a, b, layer:'ab', moveSides:{aSide:'a',bSide:'b'}} ]；
-   * 三栏：[ {a:Yours,b:Result,layer:'ab',...}, {a:Result,b:Theirs,layer:'bc',moveSides:{aSide:null,bSide:'b'}} ]。
-   * moveSides.aSide/bSide 为 null 表示该侧不画移动块蓝底（避免中栏 Result 被两层互相覆盖）。
+   * 视图对数组。两栏：[ {a, b, layer:'ab'} ]；
+   * 合并三栏：[ {a,b,layer:'ab'}, {b,c,layer:'bc'} ]（结果作为中间栏）；
+   * 对照三栏：[ {a,b,layer:'ab'}, {b,c,layer:'bc'}, {a,c,layer:'ac'} ]（a/b/c 三个真实独立文件）。
+   * moveSides.aSide/bSide 为 null 表示该侧不画移动块蓝底（避免中栏被两层互相覆盖）。
    * @type {Array<{a:EditorView,b:EditorView,layer?:string,moveSides?:{aSide?:'a'|'b',bSide?:'a'|'b'},pairs?:any[]}>}
    */
   let viewPairs = [];
@@ -442,9 +448,11 @@ function createDecorationScheduler(flags) {
 
 /**
  * @typedef {Object} CompareMergeOptions
+ * @property {'compare'|'merge'} [mode]  模式（默认 'compare'）；merge 固定三栏，compare 两/三栏
  * @property {'two'|'three'} [layout]
- * @property {CompareFile} [a]
- * @property {CompareFile} [b]
+ * @property {CompareFile} [a]  左栏 / 本地（含 name/content/target）
+ * @property {CompareFile} [b]  右栏 / 合并结果（merge 时作结果或对方，取决于是否有 opts.c）
+ * @property {CompareFile} [c]  对照三栏的第三个真实文件（仅 compare && layout==='three' 时使用）
  * @property {string} [oldContent]  兼容别名（= a.content）
  * @property {string} [newContent]  兼容别名（= b.content）
  * @property {any[]} [extensions]
@@ -594,10 +602,28 @@ function createRevertGroupSync(parent, getDualIndexes) {
  * @returns {CompareMergeInstance}
  */
 export function createCompareMergeView(opts) {
+  const mode = opts.mode || "compare";
   const layout = opts.layout || "two";
   const aFile = opts.a || { name: "Yours", content: opts.oldContent || "" };
   const bFile = opts.b || { name: "Theirs", content: opts.newContent || "" };
+  const cFile = opts.c || null;
+  // 块对齐未对齐回调：由调用方（compare.js）传入，用于弹窗询问对齐策略（§9.2）。
+  // 缺省静默忽略。修复 H1：统一由调用方注入，避免三栏下静默吞掉对齐提示。
+  const onMisalign = typeof opts.onMisalign === "function" ? opts.onMisalign : () => {};
   const baseExtensions = Array.isArray(opts.extensions) ? opts.extensions : [];
+  // 栏目标描述符（供 getPanes 暴露给保存轮询）：merge 的 b=合并结果无源（target=null）。
+  const aTarget = (opts.a && opts.a.target) || null;
+  const bTarget = (opts.b && opts.b.target) || null;
+  const cTarget = (opts.c && opts.c.target) || null;
+  /** 视图引用（供 getPanes / 滚动同步闭包捕获；各分支构造完回填） */
+  let aView = null,
+    bView = null,
+    cView = null;
+  /** 滚动同步开关与控制器（共用 scroll-sync.js，§9 / D16） */
+  let scrollSync = null;
+  let scrollSyncEnabled = true;
+  /** 三栏下 b 是否为「合并结果」派生栏（无源 → getPanes 的 target=null）；compare 三栏为真实文件 */
+  let bIsDerivedResult = false;
   const collapse =
     opts.collapseUnchanged === undefined
       ? { margin: 3, minSize: 6 }
@@ -695,10 +721,10 @@ export function createCompareMergeView(opts) {
     }
     return out;
   }
-  // 【已知取舍】无 AbortController 的环境下，本函数与 linkPaneScroll 注册的 scroll
-  // 监听不会被显式解绑。这些监听挂在随视图一起从 DOM 摘除的滚动盒（.cm-mergeView /
-  // 独立编辑器的 .cm-scroller）上，视图销毁后整棵子树不可达、可被 GC 连同监听一并回收，
-  // 且不再产生 scroll 事件，故危害有限，本轮不做改造。
+  // 【已知取舍】无 AbortController 的环境下，本函数与 createScrollSync 注册的 scroll
+  // 监听不会被显式解绑（createScrollSync.destroy 依赖 connectorAC 解绑；无 AC 时退化为 GC）。
+  // 这些监听挂在随视图一起从 DOM 摘除的滚动盒（.cm-mergeView / 独立编辑器的 .cm-scroller）上，
+  // 视图销毁后整棵子树不可达、可被 GC 连同监听一并回收，且不再产生 scroll 事件，故危害有限。
   // ResizeObserver 情况不同（观察器由浏览器强引用、会持续回调），见 R8。
   // 【必须绑在滚动盒上】scroll 事件不冒泡：MergeView 里派发 scroll 的是 .cm-mergeView，
   // 栏内 scrollDOM 永远收不到，连线在滚动时就不会重绘（端点全部停在旧位置）。
@@ -732,51 +758,9 @@ export function createCompareMergeView(opts) {
     );
     resizeObserver.observe(parent);
   }
-  // B↔C 滚动同步（MergeView 已负责 A↔B 行对齐）。按可见比例对齐对侧 scrollTop，
-  // 用 lock 防止双向递归触发；signal 随 connectorAC 统一解绑。
-  //
-  // 为何是「比例对齐」而非「行对齐」：中栏 Result 与右栏 Theirs 是两个互不相干的
-  // 编辑器实例（不共享 MergeView 的行间距填充），没有可用的公共行映射；且中栏挂了
-  // collapseUnchanged 占位、右栏没有，行号根本不可能一一对应。比例对齐是此约束下
-  // 「恒定不出错」的最优解：两端到顶到底一致，中间线性插值。
-  //
-  // 【共享 lock，不是每方向一个 lock】：若两个方向各持独立 lock，x→y 写入后 y 的
-  // scroll 事件（浏览器异步派发，可能晚于释放锁的 rAF）会反向写回 x；由于比例换算
-  // 存在浮点舍入，写回值常与原值差 1px 以内但不相等，于是再次触发 x→y……形成肉眼
-  // 可见的持续抖动。共享 lock 保证「一次用户滚动只产生一次跨栏写入」。
-  //
-  // 【两端都必须取滚动盒，不能用 scrollDOM】中栏 Result 在 MergeView 内，它的 scrollDOM
-  // 被库置为 height:auto —— scrollHeight - clientHeight 恒 0，上面的 `sMax <= 0` 会在
-  // 每一次事件里直接 return，同步逻辑整体成为死代码（且因为 scroll 事件不冒泡，
-  // 连监听本身都收不到事件）。中栏的真滚动盒是 .cm-mergeView，右栏 Theirs 是独立编辑器、
-  // 滚动盒就是它自己的 .cm-scroller。
-  // 附带效果：滚动盒被 Yours 与 Result 共用，故拖动 Theirs 会带着左中两栏一起走，
-  // 这与「MergeView 内 A↔B 本就同步」是一致的，不是额外副作用。
-  function linkPaneScroll(x, y) {
-    const bx = scrollBoxOf(x);
-    const by = scrollBoxOf(y);
-    if (!bx || !by || bx === by) return; // 同一个滚动盒无需同步（也避免自己驱动自己）
-    let lock = false;
-    const make = (src, dst) => () => {
-      if (lock) return;
-      const sMax = src.scrollHeight - src.clientHeight;
-      const dMax = dst.scrollHeight - dst.clientHeight;
-      if (sMax <= 0 || dMax <= 0) return;
-      const next = (src.scrollTop / sMax) * dMax;
-      if (Math.abs(dst.scrollTop - next) < 1) return; // 已对齐，避免无谓写入
-      lock = true;
-      dst.scrollTop = next;
-      if (typeof requestAnimationFrame === "function") {
-        requestAnimationFrame(() => {
-          lock = false;
-        });
-      } else {
-        lock = false;
-      }
-    };
-    bx.addEventListener("scroll", make(bx, by), acOpts);
-    by.addEventListener("scroll", make(by, bx), acOpts);
-  }
+  // B↔C 滚动同步已迁移到共享 createScrollSync（见各分支视图就绪后的调用）。
+  // 其「比例对齐 + 共享 lock 防回环 + 必须取真滚动盒」逻辑现由 scroll-sync.js 统一承载（§9 / D16）；
+  // MergeView 仍负责 A↔B 行对齐，createScrollSync 补 B↔C（合并）或 B↔C / A↔C（对照三栏）。
   /** 统一销毁连线相关资源 */
   function teardownConnectors() {
     // R8：无条件断开，不依赖 connectorAC 是否存在
@@ -792,19 +776,25 @@ export function createCompareMergeView(opts) {
   }
 
   if (layout === "three") {
-    // ── 三栏合并：左 Yours(只读) / 中 Result(可编辑) / 右 Theirs(只读) ──
-    // 左 + 中 用 MergeView 承载 diff 与「接受此块(Yours→Result)」；右 Theirs 为独立只读编辑器。
-    const theirsInitial = bFile.content;
-    // 结果从（上次保留的）内容开始，由用户接受 Yours / Theirs 块逐步合并（修复 E1：模式切换不丢编辑）
-    const resultInitial = opts.result || "";
+    // ── 三栏：合并(merge) 或 对照三栏(compare) 共用结构 ──
+    // merge   ：左 本地(Yours,可编辑) / 中 合并结果(Result,可编辑,无源) / 右 对方(Theirs,可编辑)。
+    // compare ：a/b/c 为三个真实独立文件（b 在 MergeView 的 b 面板，c 为独立编辑器），无合并结果栏。
+    // 三栏全部可编辑（§6 / D3、D6：合并本地栏推翻只读；对照各栏本就可编辑）。
+    const isCompareThree = mode === "compare" && !!cFile;
+    bIsDerivedResult = !isCompareThree; // merge（含旧版三栏调用）的 b=派生结果栏，无源
+    // 栏位语义按 mode 归一（兼容旧调用：无 opts.c 的三栏视为 merge）：
+    //   merge   → 结果 = opts.b(或 opts.result)，对方 = opts.c(或旧 opts.b-对方)
+    //   compare → a=opts.a, b=opts.b(真实文件), c=opts.c(真实文件)
+    const theirsInitial = isCompareThree
+      ? cFile.content
+      : (cFile && cFile.content) || bFile.content;
+    const resultInitial = isCompareThree
+      ? bFile.content
+      : opts.result !== undefined
+        ? opts.result || ""
+        : (opts.b ? opts.b.content : "");
 
-    const readOnlyYours = [
-      EditorState.readOnly.of(true),
-      EditorView.editable.of(false),
-    ];
-    // 第三期：右栏 Theirs 由「只读参考」升级为可编辑面板（opts.theirsReadonly 显式为 true 时才锁定）。
-    // 理由：三栏合并的真实工作流里，用户常需要在采纳前先就地微调 Theirs 片段；
-    // 且 B↔C 第二层 diff 只有在 Theirs 可变时才有持续意义。
+    // 右栏 Theirs/第三文件 默认可编辑（opts.theirsReadonly 显式为 true 时才锁定，D3/D6 全可编辑）。
     const theirsExtras =
       opts.theirsReadonly === true
         ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
@@ -813,7 +803,7 @@ export function createCompareMergeView(opts) {
     const mv = new MergeView({
       a: {
         doc: aFile.content,
-        extensions: [...baseExtensions, ...readOnlyYours, ...decoExtA],
+        extensions: [...baseExtensions, ...decoExtA],
       },
       b: {
         doc: resultInitial,
@@ -848,14 +838,31 @@ export function createCompareMergeView(opts) {
     // 视图全部就绪后回填两层视图对并首次调度（diff 异步落定，内部有 rAF 轮询兜底）。
     // A↔B 层走 MergeView 自带 chunks；B↔C 层两视图分属不同实例，必须 computeChunks 自算。
     if (scheduler) {
-      scheduler.attach([
+      const attachPairs = [
         {
           a: mv.a,
           b: mv.b,
           layer: "ab",
           sides: { aSide: "a", bSide: "b", writeA: true, writeB: true },
         },
-        {
+      ];
+      if (isCompareThree) {
+        // 对照三栏：A-B / B-C / A-C 三组（a/b/c 均为真实独立文件，无合并结果栏）
+        attachPairs.push({
+          a: mv.b,
+          b: theirsView,
+          layer: "bc",
+          sides: { aSide: null, bSide: "b", writeA: false, writeB: true, computeChunks: true },
+        });
+        attachPairs.push({
+          a: mv.a,
+          b: theirsView,
+          layer: "ac",
+          sides: { aSide: null, bSide: "b", writeA: false, writeB: true, computeChunks: true },
+        });
+      } else {
+        // 合并三栏：仅 A-B / B-C（结果作为中间栏）
+        attachPairs.push({
           a: mv.b,
           b: theirsView,
           layer: "bc",
@@ -866,8 +873,9 @@ export function createCompareMergeView(opts) {
             writeB: true,
             computeChunks: true,
           },
-        },
-      ]);
+        });
+      }
+      scheduler.attach(attachPairs);
       scheduler.scheduleRefresh();
     }
 
@@ -879,7 +887,22 @@ export function createCompareMergeView(opts) {
     bindConnectorScroll(mv.a);
     bindConnectorScroll(mv.b);
     bindConnectorScroll(theirsView);
-    linkPaneScroll(mv.b, theirsView); // MergeView 已管 A↔B，此处补 B↔C
+    // 视图引用回填（供 getPanes / 滚动同步闭包捕获）
+    aView = mv.a;
+    bView = mv.b;
+    cView = theirsView;
+    // 滚动同步改用共享 createScrollSync（§9 / D16）：比例对齐 + 共享 lock 防回环，
+    // 配对组按 mode 选择（对照三栏 A-B/B-C/A-C；合并三栏 A-B/B-C）。
+    const scrollPairs = isCompareThree ? [[0, 1], [1, 2], [0, 2]] : [[0, 1], [1, 2]];
+    scrollSync = createScrollSync({
+      views: () => [aView, bView, cView].filter(Boolean),
+      isEnabled: () => scrollSyncEnabled,
+      setEnabled: (v) => {
+        scrollSyncEnabled = v;
+      },
+      onMisalign,
+      pairs: scrollPairs,
+    });
     if (scheduler) scheduler.onRefresh(() => connectorPainter && connectorPainter.draw());
     bindConnectorResize();
 
@@ -991,7 +1014,9 @@ export function createCompareMergeView(opts) {
         const resultState = mv.b.state;
         const cursor =
           typeof pos === "number" ? pos : resultState.selection.main.head;
-        const aText = Text.of(aFile.content.split("\n"));
+        // 用实时 a 栏文档（三栏下 a = aView），避免用户编辑 a 栏后用构造时 aFile.content
+        // 对齐导致插错块（L3）。
+        const aText = aView.state.doc;
         const theirsDoc = theirsView.state.doc;
 
         // 1) 光标在 Result(b) 的位置 → 反推其在 Yours(a) 的对应位置
@@ -1110,9 +1135,11 @@ export function createCompareMergeView(opts) {
       },
       /** 某层的写入端点（供调用方直接喂给 chunk-ops）：ab = Yours→Result，bc = Theirs→Result */
       getLayerViews(layer) {
-        return layer === "bc"
-          ? { srcView: theirsView, dstView: mv.b }
-          : { srcView: mv.a, dstView: mv.b };
+        // L7：显式处理 'right'（对方 → 本地，与两栏分支 'right' 语义一致：src=对方, dst=本地）。
+        // 其余：'bc' = Theirs→Result，默认 'ab' = Yours→Result。
+        if (layer === "bc") return { srcView: theirsView, dstView: mv.b };
+        if (layer === "right") return { srcView: theirsView, dstView: mv.a };
+        return { srcView: mv.a, dstView: mv.b };
       },
       /** 切换行内字词高亮粒度：'off' | 'word' | 'char'，立即重算 */
       setWordDiffMode(m) {
@@ -1142,7 +1169,29 @@ export function createCompareMergeView(opts) {
       redrawConnectors() {
         if (connectorPainter) connectorPainter.draw();
       },
+      /**
+       * 暴露各栏引用与目标描述符，供保存轮询 / 返回主界面使用（与 C1 约定一致）。
+       * content 实时取文档字符串；target 为文件目标描述符（merge 的 b=合并结果无源 → null）。
+       * @returns {Array<{key:string, view:EditorView, target:object|null, content:string}>}
+       */
+      getPanes() {
+        const panes = [
+          { key: "a", view: aView, target: aTarget, content: aView.state.doc.toString() },
+          {
+            key: "b",
+            view: bView,
+            target: bIsDerivedResult ? null : bTarget,
+            content: bView.state.doc.toString(),
+          },
+        ];
+        if (cView)
+          panes.push({ key: "c", view: cView, target: cTarget, content: cView.state.doc.toString() });
+        return panes;
+      },
+      /** 共享滚动同步控制器（供「滚动」按钮 toggle，见 §9 / D16） */
+      scrollSync,
       destroy() {
+        if (scrollSync) scrollSync.destroy();
         if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图
         revertSync.dispose(); // MutationObserver 由浏览器强引用，必须显式断开
         teardownConnectors(); // 解绑滚动/ResizeObserver 并移除 SVG 覆盖层
@@ -1240,6 +1289,21 @@ export function createCompareMergeView(opts) {
   bindConnectorScroll(mv.b);
   if (scheduler) scheduler.onRefresh(() => connectorPainter && connectorPainter.draw());
   bindConnectorResize();
+
+  // 视图引用回填（供 getPanes / 滚动同步闭包捕获）
+  aView = mv.a;
+  bView = mv.b;
+  // 滚动同步改用共享 createScrollSync（§9 / D16）。两栏 a↔b 同属一个 MergeView 滚动盒，
+  // 配对 [[0,1]] 在该共享盒上自动 no-op；此处建立控制器以便「滚动」按钮统一 toggle。
+  scrollSync = createScrollSync({
+    views: () => [aView, bView, cView].filter(Boolean),
+    isEnabled: () => scrollSyncEnabled,
+    setEnabled: (v) => {
+      scrollSyncEnabled = v;
+    },
+    onMisalign,
+    pairs: [[0, 1]],
+  });
 
   return {
     /** @type {MergeView} */
@@ -1341,7 +1405,20 @@ export function createCompareMergeView(opts) {
     redrawConnectors() {
       if (connectorPainter) connectorPainter.draw();
     },
+    /**
+     * 暴露各栏引用与目标描述符，供保存轮询 / 返回主界面使用（与 C1 约定一致）。
+     * @returns {Array<{key:string, view:EditorView, target:object|null, content:string}>}
+     */
+    getPanes() {
+      return [
+        { key: "a", view: aView, target: aTarget, content: aView.state.doc.toString() },
+        { key: "b", view: bView, target: bTarget, content: bView.state.doc.toString() },
+      ];
+    },
+    /** 共享滚动同步控制器（供「滚动」按钮 toggle，见 §9 / D16） */
+    scrollSync,
     destroy() {
+      if (scrollSync) scrollSync.destroy();
       if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图
       revertSyncTwo.dispose();
       teardownConnectors();
@@ -1379,5 +1456,7 @@ export function countChunks(state) {
  * @property {() => Array<Object>} getConnectorLayers 双层连线图层数据（供 Location Pane）
  * @property {(fn:()=>void) => (()=>void)} onRefresh 订阅装饰重算完成事件，返回解绑函数
  * @property {() => void} redrawConnectors 强制重绘移动块连线
+ * @property {() => Array<{key:string, view:EditorView, target:object|null, content:string}>} getPanes 暴露各栏引用/目标/内容（供保存轮询）
+ * @property {object} scrollSync 共享滚动同步控制器（供「滚动」按钮 toggle）
  * @property {() => void} destroy
  */

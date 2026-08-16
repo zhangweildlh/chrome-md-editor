@@ -897,7 +897,7 @@
   background: var(--bg-hover);
 }
 
-/* ── 底部全局操作栏（APPLY / ABORT） ──
+/* ── 底部全局操作栏 ──
    body 是 flex column，.compare-main 已 flex:1，本栏 flex:0 0 auto 即自然贴底，
    无需 position:fixed（fixed 会脱离流、盖住编辑器最后一行，且要额外给 main 补 padding）。 */
 .compare-footer {
@@ -930,20 +930,6 @@
 }
 .compare-footer-btn:active {
   transform: scale(0.98);
-}
-/* APPLY 是本页的最终落地动作，用强调色实心；ABORT 是危险/放弃动作，悬停才转红 */
-.compare-footer-apply {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-.compare-footer-apply:hover {
-  filter: brightness(1.08);
-}
-.compare-footer-abort:hover {
-  border-color: var(--danger);
-  background: var(--bg-hover);
-  color: var(--danger);
 }
 .compare-footer-btn:disabled {
   opacity: 0.45;
@@ -1069,4 +1055,150 @@
 #compareRoot .cm-editor.cmp-pane-active {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* ==========================================
+   模式状态机可见性（§3 / D1 / D10）
+   ------------------------------------------
+   C1（compare.js）在 document.body 上切换 compare-mode-compare /
+   compare-mode-merge 类（同时兼容旧命名 .mode-compare）。
+   合并专用控件组（.merge-only：应用非冲突 + 方向选择器 + 行内高亮 +
+   状态计数）仅在合并模式可见；对照模式整体隐藏。
+   ========================================== */
+.merge-only {
+  /* 默认可见；仅对照模式由下方规则隐藏 */
+}
+.mode-compare .merge-only,
+.compare-mode-compare .merge-only {
+  display: none !important;
+}
+
+/* D1：合并模式（body.compare-mode-merge / body.mode-merge）下隐藏栏数切换按钮，
+   该按钮仅对照模式有意义。用 !important 覆盖 .toolbar-group 可能设置的 display。 */
+.compare-mode-merge #btnColToggle,
+body.mode-merge #btnColToggle {
+  display: none !important;
+}
+
+/* ── 模式入口按钮组（对照 / 合并）──
+   复用 .compare-toolbar-btn；.active 高亮态由 .compare-toolbar-btn.active
+   统一提供，此处仅补充分段控件的相邻边框折叠，避免两枚按钮间出现 2px 粗缝。 */
+.compare-mode-group .compare-toolbar-btn + .compare-toolbar-btn {
+  margin-left: -1px;
+}
+.compare-mode-group .compare-toolbar-btn:not(:first-child) {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.compare-mode-group .compare-toolbar-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+/* ── 滚动同步按钮（btnScroll，D16）──
+   active（启用同步）= 高亮；inactive（默认）= 普通次级按钮外观。
+   两种态直接复用 .compare-toolbar-btn / .compare-toolbar-btn.active，无需额外声明。 */
+
+/* ── 第三期：块拖拽 / 选区拖拽手柄与 diff 采纳按钮层级分离（§8.5）──
+   风险：block-drag 的 SelectionDragWidget（.markra-selection-drag-handle，
+   零宽 absolute 外壳浮在行内）可能与 revert 列的「⇄ 接受此块 / ◀▶」按钮
+   同处一个层叠上下文而误触。revert 列按钮已设 z-index:2，这里把按钮组再提
+   一档并给按钮间留 1px 间距，进一步降低贴边误点；拖拽手柄沿用 block-drag.js
+   自身样式（不在此跨界改写，避免与库 specificity 冲突）。 */
+#compareRoot .cm-merge-revert .cm-compare-revert-group {
+  z-index: 3;
+}
+#compareRoot .cm-merge-revert .cm-compare-revert-group button {
+  margin: 0 1px;
+}
+
+/* ==========================================
+   保存轮询 / 另存为弹窗（§5.3 / D10.2 ④）
+   ------------------------------------------
+   DOM 由 src/save-poll.js 动态创建，实际使用的类名（已对齐，勿改名）：
+     .save-poll-overlay   遮罩层
+     .save-poll-modal     居中对话框卡片
+     .save-poll-path      绝对路径 + 文件名展示区
+     .save-poll-hint      说明文字
+     .save-poll-input     另存为文件名输入
+   按钮（保存/另存为/不保存/取消）由 save-poll.js 用内联 flex 容器承载，
+   此处统一外观。save-poll.js 当前用内联 style 占位，下面用 !important 覆盖，
+   使弹窗走本项目的明暗主题变量（避免硬编码深色）。
+   ========================================== */
+.save-poll-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  font-family: var(--font-sans) !important;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.save-poll-modal {
+  min-width: 360px !important;
+  max-width: 90vw !important;
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 18px 20px !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.save-poll-path {
+  margin: 10px 0 !important;
+  padding: 8px 10px !important;
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-sm) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  word-break: break-all !important;
+  line-height: 1.5 !important;
+  color: var(--text-accent) !important;
+}
+.save-poll-hint {
+  font-size: 12px !important;
+  color: var(--text-secondary) !important;
+  margin-bottom: 12px !important;
+  line-height: 1.5 !important;
+}
+.save-poll-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 8px 10px !important;
+  margin: 10px 0 14px !important;
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+}
+/* 四个按钮（保存/另存为/不保存/取消）统一外观；首枚（保存）用 accent 强调，
+   末枚（取消）用 danger 警示，便于一眼区分主/次动作。 */
+.save-poll-overlay button {
+  flex: 1 1 auto !important;
+  margin: 0 4px !important;
+  padding: 8px 10px !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  background: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  font-family: var(--font-sans) !important;
+  transition: all var(--transition-fast);
+}
+.save-poll-overlay button:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+.save-poll-overlay button:first-child {
+  border-color: var(--accent) !important;
+  color: var(--text-accent) !important;
+}
+.save-poll-overlay button:last-child {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
 }

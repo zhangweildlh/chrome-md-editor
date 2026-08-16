@@ -18,7 +18,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const src = readFileSync(new URL('../src/editor.js', import.meta.url), 'utf8');
+// 重构后扩展定义迁移到 editor-extensions.js（createEditorExtensions 工厂，承载
+// selectedBracketHighlight 裸用 / languageData.of 返回数组函数等 C1/C2 守卫）；
+// 而 DOMPurify 净化守卫（M1）仍在 editor.js。拼接两者文本以满足全部契约守卫。
+const editorSrc = readFileSync(new URL('../src/editor.js', import.meta.url), 'utf8');
+const extSrc = readFileSync(new URL('../src/editor-extensions.js', import.meta.url), 'utf8');
+const src = editorSrc + '\n' + extSrc;
 
 // ─── C1: selectedBracketHighlight 不得被 `()` 调用 ───────────────────────────
 
@@ -70,4 +75,47 @@ test('M1: markdown preview HTML is sanitized by DOMPurify before innerHTML', () 
     src.includes('DOMPurify.sanitize'),
     '净化须经由 DOMPurify.sanitize 实现'
   );
+});
+
+// ─── T1: init() 必须接入扩展工厂 + 追加编辑页专属 updateListener 胶水 ─────────
+// 背景：既有守卫（C1/C2/M1）只锁「库函数契约」（selectedBracketHighlight 裸用、
+// languageData.of 返回函数、DOMPurify 净化），不锁「业务调用点」。若 init() 漏调
+// createEditorExtensions() 或漏追加 EditorView.updateListener.of(...)，编辑器仍会
+// 建出来但缺预览联动 / 状态更新 / 自动保存，且旧守卫仍绿。本组在编辑器源码层面锁死
+// 这两个业务调用点（§8 / §8.3）。
+
+test('T1: init() 调用 createEditorExtensions() 工厂接入共享扩展', () => {
+  assert.ok(
+    editorSrc.includes('createEditorExtensions('),
+    'init 应通过 createEditorExtensions(...) 接入共享扩展工厂（§8）'
+  );
+  // 且是「真正调用工厂」而非仅 import：应存在 const extensions = createEditorExtensions({...})
+  assert.ok(
+    /const extensions = createEditorExtensions\(\{/.test(editorSrc),
+    '应以 `const extensions = createEditorExtensions({...})` 形式真正调用工厂'
+  );
+});
+
+test('T1: init() 在 new EditorView 前追加编辑页专属 EditorView.updateListener.of(...) 胶水', () => {
+  const idxUpdate = editorSrc.indexOf('EditorView.updateListener.of(');
+  const idxNew = editorSrc.indexOf('new EditorView(');
+  assert.ok(idxUpdate > -1, 'init 应保留 EditorView.updateListener.of(...) 编辑页胶水');
+  assert.ok(idxNew > -1, 'init 应构造 new EditorView(...)');
+  // 胶水必须在 new EditorView 之前（即作为 extensions 数组的 push 项被消费），
+  // 否则即便写了 updateListener 也进不了编辑器扩展链，预览/状态/自动保存全部失效。
+  assert.ok(
+    idxUpdate < idxNew,
+    'updateListener 应在 new EditorView 之前追加，确保进入编辑器扩展链'
+  );
+  // 且该胶水确实是「追加」到 extensions 数组（而非被误删 / 孤立）。
+  assert.ok(
+    editorSrc.includes('extensions.push('),
+    'updateListener 应通过 extensions.push(...) 追加进扩展数组'
+  );
+});
+
+test('T1: 工厂输出与 updateListener 两者俱在（编辑页扩展链路完整）', () => {
+  assert.ok(editorSrc.includes('createEditorExtensions('));
+  assert.ok(editorSrc.includes('EditorView.updateListener.of('));
+  assert.ok(editorSrc.includes('new EditorView('));
 });

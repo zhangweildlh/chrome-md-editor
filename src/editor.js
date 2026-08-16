@@ -9,8 +9,8 @@
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
 import './desktop-shims.js';
 
-import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars, ViewPlugin, Decoration } from '@codemirror/view';
-import { EditorState, Compartment, Transaction } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
+import { EditorState, Transaction } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -41,6 +41,13 @@ import { rememberLastFile, loadLastFile } from './session-restore.js';
 import { initToolbarScroll } from './toolbar-scroll.js';
 import { htmlToMarkdown } from './html-to-markdown.js';
 import { openFileViaPicker, saveViaPickerOrDownload } from './file-picker.js';
+// 共享内核：从 editor.js 抽取，供 editor.js 与 editor-extensions.js 复用（避免工厂反向依赖 editor.js）
+import { themeCompartment, lightTheme } from './editor-theme-base.js';
+import { selectedBracketHighlight } from './bracket-highlight.js';
+// 新建共享模块接入：扩展工厂（§8）+ 滚动同步（§9），均由本文件 import，二者不反向 import editor.js
+import { createEditorExtensions } from './editor-extensions.js';
+import { createScrollSync, scrollAdapter } from './scroll-sync.js';
+import { showConfirm } from './confirm-dialog.js';
 
 // Ctrl+G 跳转行号：注意 @codemirror/commands 在当前版本**不导出** gotoLine
 // （CodeMirror 6 无内置「跳行」命令，此前误引入该不存在的导出，导致 vite/rollup 构建失败）。
@@ -257,6 +264,8 @@ let intentionalLeave = false;
 let currentTheme = getThemeKind(getStoredEditorTheme());
 let currentViewMode = localStorage.getItem('md-editor-view-mode') || 'split';
 let scrollSyncEnabled = true;
+// 模块级滚动同步控制器（由 initScrollSync 赋值，bindEvents 的滚动按钮需引用）
+let scrollSync = null;
 let isPreviewEditing = false; // 防止预览编辑时循环更新
 let previewEditReleaseTimer = null; // 智能释放 isPreviewEditing 的计时器（替代固定 120ms）
 let mermaidCounter = 0; // mermaid 图表 ID 计数器
@@ -268,41 +277,13 @@ let translateBusy = false;
 let translateRunId = 0;
 let translateSettingsCache = null;
 
-// Theme compartment for dynamic switching
-const themeCompartment = new Compartment();
+// Theme compartment for dynamic switching（themeCompartment 现已提取到 ./editor-theme-base.js，见顶部 import）
 
 // A+B 方案 Phase 1/4：应用启动即把持久化的配色方案同步到 <html data-color-scheme>，
 // 使编辑区(CM6)与预览区(hljs)的令牌色随配色方案即时生效（无需 reconfigure 高亮）。
 applyStoredColorScheme();
 
-// Custom light theme
-const lightTheme = EditorView.theme({
-  '&': {
-    backgroundColor: '#ffffff',
-    color: '#1f2328',
-  },
-  '.cm-content': {
-    caretColor: '#0969da',
-  },
-  '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: '#0969da',
-  },
-  '.cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'rgba(9, 105, 218, 0.2)',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'rgba(9, 105, 218, 0.04)',
-  },
-  '.cm-gutters': {
-    backgroundColor: '#f6f8fa',
-    color: '#8c959f',
-    borderRight: '1px solid #e8eaed',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: '#f0f2f5',
-    color: '#656d76',
-  },
-}, { dark: false });
+// Custom light theme（lightTheme 现已提取到 ./editor-theme-base.js，见顶部 import）
 
 // ==========================================
 // 符号配对高亮：选中单个配对符号时高亮其另一半
@@ -314,50 +295,7 @@ import { BRACKETS_STR } from './close-brackets-config.js';
 // 预览区符号自动配对（与编辑器 closeBrackets 行为对齐）
 import { getAutoPairClose } from './auto-pair.js';
 
-const selectedBracketHighlight = ViewPlugin.fromClass(
-  class {
-    constructor(view) {
-      this.cachedDoc = null;
-      this.decorations = this.build(view);
-    }
-    update(update) {
-      // S3-A：符号配对高亮触发入口
-      
-      if (update.selectionSet || update.docChanged) {
-        if (update.docChanged) this.cachedDoc = null;
-        this.decorations = this.build(update.view);
-      }
-    }
-    build(view) {
-      const sel = view.state.selection.main;
-      if (sel.empty) { this.cachedDoc = null; return Decoration.none; }
-      const doc = view.state.doc;
-      const selText = doc.sliceString(sel.from, sel.to);
-      // 仅当选区恰好为一个配对字符时，高亮其另一半
-      if (selText.length !== 1) { this.cachedDoc = null; return Decoration.none; }
-      const ch = selText;
-      const info = bracketMatchMap[ch];
-      if (!info) { this.cachedDoc = null; return Decoration.none; }
-      const docText = this.cachedDoc ?? (this.cachedDoc = doc.toString());
-      // S3-B：findPairedBracket 配对计算结果
-      const matchPos = findPairedBracket(docText, ch, info, sel.from);
-      
-      if (matchPos == null) return Decoration.none;
-      const deco = Decoration.mark({ class: 'cm-bracket-match-active' });
-      // 必须传 sort=true：选中的是「闭符号」时（`)]}>”’）` 或处于偶数序位的
-      // 自配对 ' " ` ），findPairedBracket 走 dir=-1 / findSelfPair 反向分支，
-      // 返回的 matchPos < sel.from，数组即为逆序。RangeSet.of 不排序会直接抛
-      // 「Ranges must be added sorted by `from` position and `startSide`」，
-      // 整个 ViewPlugin 被 CM6 卸载（控制台 "CodeMirror plugin crashed"），
-      // 连带该 EditorView 上后续依赖装饰的交互（如选区拖拽手柄）一起失效。
-      return Decoration.set([
-        deco.range(sel.from, sel.to),
-        deco.range(matchPos, matchPos + 1),
-      ], true);
-    }
-  },
-  { decorations: (v) => v.decorations }
-);
+// 符号配对高亮（selectedBracketHighlight 现已提取到 ./bracket-highlight.js，见顶部 import）
 
 // ==========================================
 // 编辑器初始化
@@ -438,79 +376,22 @@ graph LR
 *开始编辑你的 Markdown 文档吧！*
 `;
 
-  const extensions = [
-    lineNumbers(),
-    highlightActiveLineGutter(),
-    highlightSpecialChars(),
-    history(),
-    foldGutter(),
-    drawSelection(),
-    dropCursor(),
-    EditorState.allowMultipleSelections.of(true),
-    indentOnInput(),
-    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    // A+B 方案 Phase 2：编辑区 Markdown 语法彩色字体（class 驱动）+ 行底色。
-    // 叠加在通用高亮之上，不冲突（前者管通用 token，后者管 markdown tag 的 cm-md-* 类）。
-    ...mdEditorHighlightExtensions,
-    bracketMatching(),
-    // 中文符号自动配对：closeBrackets 本身不接受配置参数（配置经 languageDataAt 读取）。
-    // 【关键约束】CodeMirror 6 的 closeBrackets 把 `brackets` 视为「连续成对」字符串：
-    //   索引 0&1 为一对、2&3 为一对……；自配对符号需将同一字符连续写两次。
-    //   若给成数组且长度非偶数对，或把开/闭符号混排（例 `[('(', '[')]`），CM6 会按相邻两位强
-    //   行配对，导致 `(` 闭合到 `[`、`“` 闭合到 `` ` ``、`‘` 闭合到 `（` 等完全错乱的组合。
-    // BRACKETS_STR 已在 ./close-brackets-config.js 由唯一权威的 BRACKET_PAIRS 派生，
-    // 本处仅消费；测试在 tests/close-brackets-config.test.js 验证字符串正确性。
-    // 反引号保留自身配对以支持 Markdown 行内代码输入。
-    EditorState.languageData.of((state, pos) => [
-      {
-        closeBrackets: {
-          brackets: BRACKETS_STR,
-        },
-      },
-    ]),
-    closeBrackets(),
-    autocompletion(),
-    rectangularSelection(),
-    crosshairCursor(),
-    highlightActiveLine(),
-    highlightSelectionMatches(),
-    search({ createPanel: makeSearchPanel }),
-    selectedBracketHighlight,
-    ...initBase64Fold(),
-    // === MARKRA_HOOK: SLASH_MENU === 斜杠菜单：在此行之后插入斜杠菜单扩展
-    markraSlashMenu(),
-    // === MARKRA_HOOK: BLOCK_DRAG === 块拖拽：在此行之后插入块拖拽扩展
-    codeMirrorBlockDragPlugin(),
-    // === MARKRA_HOOK: VIEW_MODE === 视图模式：在此行之后插入视图模式扩展
-    // === MARKRA_HOOK: WORKSPACE_SEARCH === 工作区搜索：在此行之后插入工作区搜索扩展
-    keymap.of([
-      ...closeBracketsKeymap,
-      ...defaultKeymap,
-      ...searchKeymap,
-      ...historyKeymap,
-      ...foldKeymap,
-      ...completionKeymap,
-      ...lintKeymap,
-      indentWithTab,
-      // 自定义快捷键
+  // 共享扩展工厂接入（设计文档 §8）：原内联扩展数组整体迁入 createEditorExtensions，
+  // 自定义快捷键经 extraKeymap 注入；编辑页专属 updateListener 不进工厂（§8.3），下方单独追加。
+  const extensions = createEditorExtensions({
+    theme: currentTheme,
+    extraKeymap: [
       { key: 'Mod-s', run: handleSave, preventDefault: true },
       { key: 'Mod-o', run: handleOpen, preventDefault: true },
       { key: 'Mod-b', run: () => wrapSelection('**', '**'), preventDefault: true },
       { key: 'Mod-i', run: () => wrapSelection('*', '*'), preventDefault: true },
       { key: 'Mod-g', run: gotoLineCommand },
-    ]),
-    markdown({
-      base: markdownLanguage,
-      codeLanguages: languages,
-      extensions: [
-        markdownLanguage.data.of({ autocomplete: codeBlockLanguageCompletions }),
-      ],
-    }),
-    EditorView.lineWrapping,
-    themeCompartment.of(currentTheme === 'dark' ? oneDark : lightTheme),
-    // 内容变化时更新预览
+    ],
+  });
+  // 编辑页专属胶水（更新预览 / 状态 / 自动保存 / 居中活动行），由 editor.js 保留，不进工厂。
+  extensions.push(
     EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
+      if (update.docChanged) {
         updatePreview();
         updateStatus();
         markModified();
@@ -521,8 +402,8 @@ graph LR
         updateCursorStatus();
         maybeCenterActiveLine(editor);
       }
-    }),
-  ];
+    })
+  );
 
   editor = new EditorView({
     state: EditorState.create({
@@ -2706,32 +2587,14 @@ function initScrollSync() {
   const editorContainer = document.getElementById('editorContainer');
   const previewContainer = document.getElementById('previewContainer');
 
-  // 简单比例同步
-  const editorScroller = editorContainer.querySelector('.cm-scroller');
-  if (!editorScroller) return;
-
-  let isSyncing = false;
-
-  editorScroller.addEventListener('scroll', () => {
-    if (!scrollSyncEnabled || isSyncing || currentViewMode !== 'split') return;
-    isSyncing = true;
-    
-
-    const scrollPercent = editorScroller.scrollTop / (editorScroller.scrollHeight - editorScroller.clientHeight || 1);
-    previewContainer.scrollTop = scrollPercent * (previewContainer.scrollHeight - previewContainer.clientHeight);
-
-    requestAnimationFrame(() => { isSyncing = false; });
-  });
-
-  previewContainer.addEventListener('scroll', () => {
-    if (!scrollSyncEnabled || isSyncing || currentViewMode !== 'split') return;
-    isSyncing = true;
-    
-
-    const scrollPercent = previewContainer.scrollTop / (previewContainer.scrollHeight - previewContainer.clientHeight || 1);
-    editorScroller.scrollTop = scrollPercent * (editorScroller.scrollHeight - editorScroller.clientHeight);
-
-    requestAnimationFrame(() => { isSyncing = false; });
+  // 编辑页滚动同步接入共享模块（设计文档 §9）：原 editorScroller↔previewContainer 双向比例同步
+  // 迁入 createScrollSync；scrollSync 为模块级变量（bindEvents 的滚动按钮需引用）。
+  const previewAdapter = scrollAdapter(previewContainer);
+  scrollSync = createScrollSync({
+    views: () => [editor, previewAdapter],
+    isEnabled: () => scrollSyncEnabled,
+    setEnabled: (v) => { scrollSyncEnabled = v; },
+    onMisalign: () => { /* 编辑页默认静默对齐，无需弹窗 */ },
   });
 }
 
@@ -2764,6 +2627,10 @@ function bindEvents() {
   if (btnFind) btnFind.addEventListener('click', () => {
     openSearchPanel(editor);
   });
+
+  // 滚动同步开关（编辑↔预览联动，设计文档 §9/D16）
+  const btnScrollEl = document.getElementById('btnScroll');
+  if (btnScrollEl) btnScrollEl.addEventListener('click', () => scrollSync.toggle());
 
   // 查找/替换面板里的「工作区搜索」结果被点击：把对应文件载入编辑器并跳到命中行。
   // 面板（search-panel.js）不直接依赖 editor.js，通过自定义事件解耦，避免循环导入。
@@ -3774,7 +3641,7 @@ async function openSnapshotsDialog() {
       restoreBtn.className = 'modal-btn modal-btn-primary';
       restoreBtn.textContent = '恢复此版本';
       restoreBtn.addEventListener('click', async () => {
-        if (window.confirm('恢复此快照将覆盖当前编辑区内容（不会自动写入磁盘文件）。是否继续？')) {
+        if (await showConfirm('恢复此快照将覆盖当前编辑区内容（不会自动写入磁盘文件）。是否继续？')) {
           const ok = await restoreSnapshot(snap.id);
           if (ok) {
             dialog.hidden = true;
@@ -3830,6 +3697,7 @@ function init() {
 
   // A-8：恢复专注模式 / 显示字号 / 密度 持久化设置
   initDisplaySettings();
+
   syncFocusModeButtons();
 
   // 绑定事件

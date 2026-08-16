@@ -78,6 +78,7 @@ export async function pickFiles(accept = DEFAULT_ACCEPT, multiple = true) {
       const handles = await window.showOpenFilePicker({
         multiple,
         types: acceptToPickerTypes(accept),
+        writable: true,
       });
       const handleList = Array.isArray(handles) ? handles : [handles];
       return await Promise.all(
