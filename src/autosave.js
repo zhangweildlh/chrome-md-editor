@@ -98,6 +98,9 @@ export async function pushSnapshot(key, content) {
   const recKey = `snapshots::${key}`;
   try {
     const { [recKey]: arr = [] } = await chrome.storage.local.get(recKey);
+    // 去重（M3）：若最新快照（arr[0]）内容与本次相同则跳过压栈，避免长时间无实质变化
+    // 或反复撤销回同一内容时迅速占满 30 槽、挤出有效版本。不改变 MAX_SNAPSHOTS 上限语义。
+    if (arr.length > 0 && arr[0].content === content) return;
     // aurorae-haven 范式：unshift 到头部 + 截断到 MAX_SNAPSHOTS
     arr.unshift({
       id: Date.now(),

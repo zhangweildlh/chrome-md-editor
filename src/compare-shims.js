@@ -25,12 +25,9 @@
 // 无导出），为避免覆盖破坏编辑器功能，本文件独立命名 compare-shims.js。
 // ---------------------------------------------------------------------------
 
-// 判定是否运行在 Tauri 桌面壳内（与现有 desktop-shims.js 判定保持一致，
-// 并兼容 window.isTauri / window.__TAURI__ 两种写法）。
-export function isTauriEnv() {
-  if (typeof window === "undefined") return false;
-  return !!(window.__TAURI_INTERNALS__ || window.isTauri || window.__TAURI__);
-}
+// 判定是否运行在 Tauri 桌面壳内。统一复用 src/tauri-env.js 的实现，
+// 保证与 desktop-shims.js（编辑器垫片）口径一致，避免双端判定分歧。
+export { isTauriEnv } from "./tauri-env.js";
 
 // 延迟加载 Tauri API（仅桌面端调用，浏览器端永不触发 import，避免打包报错）。
 let _tauri = null;
@@ -120,11 +117,15 @@ async function browserSaveFile(path, content) {
     return;
   }
   const blob = new Blob([content], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(a.href);
+  // Firefox 等浏览器的 <a download> 下载是异步的：a.click() 后立即 revoke
+  // 会让浏览器拿到已失效的 blob URL，导致下载静默失败。与 compare-export.js
+  // 保持一致，延迟回收（1000ms 足够覆盖大多数浏览器的异步下载落地）。
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ===========================================================================

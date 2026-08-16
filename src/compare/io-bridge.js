@@ -116,7 +116,29 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
     if (!('handle' in target) || !target.handle) {
       throw new Error('ioBridge.read: 浏览器模式目标描述符必须含 handle');
     }
-    return target.handle.getFile().then((file) => file.text());
+    return target.handle.getFile().then(async (file) => {
+      // 编码兜底（L4）：浏览器 File.text() 永远按 UTF-8 解码，遇到非 UTF-8（如 GBK/GB2312）
+      // 的 .md/.txt 会静默产生乱码并随保存固化。这里优先用原始字节做「UTF-8 严格解码」，
+      // 失败（含非法字节序列）再回退常见中文编码 GBK，仍失败才宽松 UTF-8（保留替换符）返回，
+      // 避免把乱码当作正常内容写回。无 arrayBuffer（旧环境/桩件）时退回 file.text()。
+      if (typeof file.arrayBuffer === 'function') {
+        try {
+          const buf = await file.arrayBuffer();
+          try {
+            return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+          } catch (_) {
+            try {
+              return new TextDecoder('gbk').decode(buf);
+            } catch (_) {
+              return new TextDecoder('utf-8').decode(buf);
+            }
+          }
+        } catch (_) {
+          // arrayBuffer 读取失败，退回 text() 兜底
+        }
+      }
+      return file.text();
+    });
   }
 
   // 写入目标内容。

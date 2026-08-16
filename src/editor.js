@@ -488,6 +488,22 @@ function buildEnvSnapshot() {
   return snap;
 }
 
+// M11 修复：轻量字符串哈希（cyrb53），作为预览防闪烁的稳健内容指纹。
+// 旧实现仅取「长度 + 首尾各 50 字符」，当两次变更等长且首尾相同时会误判未变，
+// 从而跳过重渲染、预览陈旧。cyrb53 对全文取哈希，碰撞概率可忽略。
+function cyrb53(str, seed = 0) {
+  let h1 = 0xdeadbeef ^ seed;
+  let h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
 // 预览区上一帧渲染内容的哈希（用于跳过无变化渲染，消除闪烁）
 let lastRenderedHash = '';
 
@@ -497,9 +513,10 @@ async function doUpdatePreview() {
   const content = editor.state.doc.toString();
     let html = sanitizePreviewHtml(md.render(content));
 
-  // 防闪烁优化：如果渲染结果与上帧完全相同，跳过 DOM 替换（消除视觉闪烁）
-  // 使用简单哈希（长度+首尾字符）避免大字符串全量比较的开销
-  const quickHash = html.length + ':' + html.slice(0, 50) + ':' + html.slice(-50);
+  // 防闪烁优化：如果渲染结果与上帧完全相同，跳过 DOM 替换（消除视觉闪烁）。
+  // M11 修复：改用 cyrb53 全文哈希替代「长度 + 首尾 50 字符」，避免等长且首尾相同的
+  // 中部变更被误判为未变而跳过重渲染（预览陈旧）。cyrb53 为 O(n) 轻量哈希，开销可控。
+  const quickHash = cyrb53(html);
   if (quickHash === lastRenderedHash && lastRenderedHash !== '') {
     return; // 内容未变，跳过渲染
   }
@@ -535,7 +552,9 @@ async function doUpdatePreview() {
       div.setAttribute('data-md-source', mermaidSource);
       // 渲染结果为不可编辑整体：避免用户在预览区误改 SVG 内部结构后回写出脏数据
       div.setAttribute('contenteditable', 'false');
-      div.innerHTML = svg;
+      // M8 修复：mermaid 返回的 svg 也必须过 DOMPurify，复用项目已引入的 DOMPurify
+      // （见顶部 import）。mermaid 自身 securityLevel:'strict' 仅为缓解，不可作为唯一防线。
+      div.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
       pre.replaceWith(div);
     } catch (err) {
       // 渲染失败时显示错误
@@ -2593,9 +2612,25 @@ function initScrollSync() {
   scrollSync = createScrollSync({
     views: () => [editor, previewAdapter],
     isEnabled: () => scrollSyncEnabled,
-    setEnabled: (v) => { scrollSyncEnabled = v; },
+    setEnabled: (v) => {
+      scrollSyncEnabled = v;
+      // M1 修复：同步滚动同步按钮的 active 高亮态与 title 文案
+      const btnScrollSync = document.getElementById('btnScroll');
+      if (btnScrollSync) {
+        btnScrollSync.classList.toggle('active', v);
+        btnScrollSync.title = '滚动同步：' + (v ? '开' : '关');
+      }
+    },
     onMisalign: () => { /* 编辑页默认静默对齐，无需弹窗 */ },
   });
+
+  // M1 修复：按初值同步滚动同步按钮高亮态。bindEvents 时 scrollSync 尚为 null，
+  // 此处创建完成后补一次初始态，保证首屏按钮与 scrollSyncEnabled 一致。
+  const btnScrollInit = document.getElementById('btnScroll');
+  if (btnScrollInit) {
+    btnScrollInit.classList.toggle('active', scrollSyncEnabled);
+    btnScrollInit.title = '滚动同步：' + (scrollSyncEnabled ? '开' : '关');
+  }
 }
 
 // 工具栏弹层定位：.style-popover 用 position:fixed（宿主 .toolbar 是
@@ -2613,11 +2648,16 @@ function positionStylePopover(anchorBtn, popover) {
 // 事件绑定
 // ==========================================
 function bindEvents() {
-  
+  // M2 修复：统一按钮绑定辅助函数，带 null 守卫——单个按钮 HTML 改名不再导致整页初始化失败。
+  const bindBtn = (id, handler) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', handler);
+  };
+
   // 文件操作
-  document.getElementById('btnOpen').addEventListener('click', handleOpen);
-  document.getElementById('btnSave').addEventListener('click', handleSave);
-  document.getElementById('btnNew').addEventListener('click', handleNew);
+  bindBtn('btnOpen', handleOpen);
+  bindBtn('btnSave', handleSave);
+  bindBtn('btnNew', handleNew);
 
   // 自动保存（定时落盘副本）：开关按钮 + 间隔秒数输入框
   initAutosaveDiskUI();
@@ -2630,7 +2670,7 @@ function bindEvents() {
 
   // 滚动同步开关（编辑↔预览联动，设计文档 §9/D16）
   const btnScrollEl = document.getElementById('btnScroll');
-  if (btnScrollEl) btnScrollEl.addEventListener('click', () => scrollSync.toggle());
+  if (btnScrollEl) btnScrollEl.addEventListener('click', () => { if (!scrollSync) return; scrollSync.toggle(); });
 
   // 查找/替换面板里的「工作区搜索」结果被点击：把对应文件载入编辑器并跳到命中行。
   // 面板（search-panel.js）不直接依赖 editor.js，通过自定义事件解耦，避免循环导入。
@@ -2670,10 +2710,10 @@ function bindEvents() {
   }
 
   // 格式化按钮
-  document.getElementById('btnBold').addEventListener('click', () => wrapSelection('**', '**'));
-  document.getElementById('btnItalic').addEventListener('click', () => wrapSelection('*', '*'));
-  document.getElementById('btnStrike').addEventListener('click', () => wrapSelection('~~', '~~'));
-  document.getElementById('btnCode').addEventListener('click', () => wrapSelection('`', '`'));
+  bindBtn('btnBold', () => wrapSelection('**', '**'));
+  bindBtn('btnItalic', () => wrapSelection('*', '*'));
+  bindBtn('btnStrike', () => wrapSelection('~~', '~~'));
+  bindBtn('btnCode', () => wrapSelection('`', '`'));
 
   // ===== 样式工具栏：居中 / 加粗 / 高亮 / 颜色 / 字号 =====
   // 复用 wrapSelection：包裹后选区被重定位到内层文本，因此连续点击多个按钮会
@@ -2798,20 +2838,20 @@ function bindEvents() {
   }
 
   // 标题
-  document.getElementById('btnH1').addEventListener('click', () => insertAtLineStart('# '));
-  document.getElementById('btnH2').addEventListener('click', () => insertAtLineStart('## '));
-  document.getElementById('btnH3').addEventListener('click', () => insertAtLineStart('### '));
+  bindBtn('btnH1', () => insertAtLineStart('# '));
+  bindBtn('btnH2', () => insertAtLineStart('## '));
+  bindBtn('btnH3', () => insertAtLineStart('### '));
 
   // 列表和引用
-  document.getElementById('btnUL').addEventListener('click', () => insertAtLineStart('- '));
-  document.getElementById('btnOL').addEventListener('click', () => insertAtLineStart('1. '));
-  document.getElementById('btnQuote').addEventListener('click', () => insertAtLineStart('> '));
+  bindBtn('btnUL', () => insertAtLineStart('- '));
+  bindBtn('btnOL', () => insertAtLineStart('1. '));
+  bindBtn('btnQuote', () => insertAtLineStart('> '));
 
   // 代码块
-  document.getElementById('btnCodeBlock').addEventListener('click', () => insertBlock('```\n\n```'));
+  bindBtn('btnCodeBlock', () => insertBlock('```\n\n```'));
 
   // 链接
-  document.getElementById('btnLink').addEventListener('click', () => {
+  bindBtn('btnLink', () => {
     const sel = editor.state.selection.main;
     const selectedText = editor.state.sliceDoc(sel.from, sel.to);
     if (selectedText) {
@@ -2829,12 +2869,12 @@ function bindEvents() {
   });
 
   // 表格
-  document.getElementById('btnTable').addEventListener('click', () => {
+  bindBtn('btnTable', () => {
     insertBlock('| 列1 | 列2 | 列3 |\n|------|------|------|\n| 内容 | 内容 | 内容 |');
   });
 
   // 水平线
-  document.getElementById('btnHR').addEventListener('click', () => insertBlock('---'));
+  bindBtn('btnHR', () => insertBlock('---'));
 
   // 上传图片：复用粘贴图片的落盘 / data URL 逻辑，插入到光标处
   const btnImage = document.getElementById('btnImage');
@@ -2867,7 +2907,7 @@ function bindEvents() {
   });
 
   // 主题切换
-  document.getElementById('btnTheme').addEventListener('click', toggleTheme);
+  bindBtn('btnTheme', toggleTheme);
 
   // 阅读翻译（预览双语对照）
   const btnTranslate = document.getElementById('btnTranslate');

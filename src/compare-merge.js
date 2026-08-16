@@ -858,7 +858,11 @@ export function createCompareMergeView(opts) {
           a: mv.a,
           b: theirsView,
           layer: "ac",
-          sides: { aSide: null, bSide: "b", writeA: false, writeB: true, computeChunks: true },
+          // M7：ac 层不得再向 C 栏（theirsView）写 setWordDiffEffect。runAll() 按 [ab,bc,ac]
+          // 顺序执行，ac 在末尾后写会整体覆盖先写的 bc 层，导致 B↔C 行内字词高亮被静默顶替丢失。
+          // 取舍：C 栏只画与其相邻中间栏的 B↔C 差异（bc 层），A↔C 关系仍由连线层/块模型表达，
+          // 不再用内联高亮覆盖 C 栏。故 writeB 置 false（writeA 本就 false，ac 层不再写任何内联装饰）。
+          sides: { aSide: null, bSide: "b", writeA: false, writeB: false, computeChunks: true },
         });
       } else {
         // 合并三栏：仅 A-B / B-C（结果作为中间栏）

@@ -318,6 +318,12 @@ export function createScrollSync(opts) {
   // ---- 块对齐检查（§9.2） ----
   function checkAligned(panes) {
     const paras = panes.map(paneParagraph).filter(Boolean);
+    // 不足两栏「可取得段落」时视为已对齐（返回 true）。
+    // 注意：编辑页 [editorView, previewAdapter] 中预览适配器无 CM 视图、paneParagraph 恒返回 null，
+    // 故 paras 恒只有编辑栏 1 项 → 此处恒为 true，编辑↔预览的「块对齐提示」因此有意不生效。
+    // 这是设计取舍：编辑↔预览靠比例同步（linkPair）联动，二者内容形态不同（源码行 vs 渲染 HTML），
+    // 段落光标位置比本身无意义，块对齐弹窗只在对照/合并页（各栏并行行结构）才有意义。
+    // 若未来需要编辑页也做块对齐提示，应给预览适配器接一个 getCursorParagraph（由预览滚动比例/选区推导）。
     if (paras.length < 2) return true; // 不足两栏无法判定未对齐
     const ratios = paras.map((p) => p.ratio);
     const min = Math.min(...ratios);

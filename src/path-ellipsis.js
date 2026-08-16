@@ -2,8 +2,16 @@
 // 处理函数可能含 '/' 或 '\' 两种分隔符。
 // 设计文档：.workbuddy/memory/对比合并重构设计文档.md §7
 export function ellipsizePath(fullPath, maxLen = 32) {
-  const sep = fullPath.includes('/') ? '/' : '\\';
-  const idx = Math.max(fullPath.lastIndexOf('/'), fullPath.lastIndexOf('\\'));
+  // 容错：maxLen 过小（<6）无法塞入 '...' + 至少 3 字符文件名，直接返回原路径，
+  // 避免 file.slice(file.length-(maxLen-3)) 在 maxLen<3 时返回空串或产出比 maxLen 还长的 '...'。
+  if (maxLen < 6) return fullPath;
+  // sep 必须与「真正命中的分隔符」一致：混合分隔符路径（如 'C:\\a/b.md'）下，
+  // 边界由 Math.max(lastIndexOf('/'), lastIndexOf('\\')) 决定，sep 应跟随该分隔符而非仅看是否含 '/'，
+  // 否则会出现 dir 用 '\'、拼接用 '/' 的不一致重建。
+  const slashIdx = fullPath.lastIndexOf('/');
+  const backIdx = fullPath.lastIndexOf('\\');
+  const idx = Math.max(slashIdx, backIdx);
+  const sep = backIdx > slashIdx ? '\\' : '/';
   const dir = idx >= 0 ? fullPath.slice(0, idx) : '';
   const file = idx >= 0 ? fullPath.slice(idx + 1) : fullPath;
   if (fullPath.length <= maxLen) return fullPath;

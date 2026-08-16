@@ -2,6 +2,9 @@
 // ---------------------------------------------------------------------------
 // 兼容垫片：让同一套 Web 源码（src/editor.* 等）既能在 Chrome 扩展运行，
 // 也能在 Tauri 桌面壳里运行。
+
+// 与 compare-shims.js（对比合并垫片）共用同一 Tauri 环境判定，避免双端口径分歧。
+import { isTauriEnv } from "./tauri-env.js";
 //
 // 判定逻辑：
 //   - 在 Chrome 扩展中：window.chrome 与 window.showOpenFilePicker 均原生存在
@@ -15,7 +18,10 @@
 (function () {
   if (typeof window === "undefined") return;
 
-  const isTauri = "__TAURI_INTERNALS__" in window;
+  // 与原生 `window.__TAURI_INTERNALS__ in window` 判定不同：改为复用共享的
+  // isTauriEnv()，兼容 window.isTauri / window.__TAURI__ 写法，且与
+  // compare-shims.js 判定口径统一（详见 src/tauri-env.js）。
+  const isTauri = isTauriEnv();
 
   // =========================================================================
   // 1. chrome 垫片

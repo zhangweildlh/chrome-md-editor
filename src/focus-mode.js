@@ -52,7 +52,10 @@ export function getEditorFontSize() { return parseInt(localStorage.getItem(LS.ed
 export function getPreviewFontSize() { return parseInt(localStorage.getItem(LS.previewFont) || '0', 10); }
 export function getDensity() { return localStorage.getItem(LS.density) || 'standard'; }
 
-const DENSITY_GAP = { compact: '4px', standard: '8px', comfortable: '14px' };
+// 界面密度间距。注意：editor.css :root 默认 --ui-gap:4px（未设置密度时的观感），
+// 故把 standard 对齐到 4px，使「标准」等于默认观感（标准=默认，语义一致，修复 L9）。
+// compact 相应收紧到 2px，保持三档（2/4/14）区分度，避免与 standard 塌缩为同一值。
+const DENSITY_GAP = { compact: '2px', standard: '4px', comfortable: '14px' };
 
 export function applyDisplaySettings() {
   const root = document.documentElement.style;
