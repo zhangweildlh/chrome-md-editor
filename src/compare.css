@@ -142,6 +142,11 @@
    flex-grow:1 作用在**纵轴**上——工具栏会被撑满整屏高度，把下方内容全挤没。 */
 .compare-toolbar {
   flex: 0 0 auto;
+  /* 修复窄窗裁切：启用横向滚动，已接好的 .toolbar-scroll-btn 在内容超宽时自动出现并可达
+     （叠加 html,body{overflow:hidden}，原无 overflow-x 时右侧按钮被裁切不可达，高危缺陷） */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 /* 错位②：body 是 flex column，但 .compare-main 此前没有任何布局声明，
@@ -1262,4 +1267,77 @@ body.mode-merge #btnColToggle {
 .save-poll-overlay button:last-child {
   border-color: var(--danger) !important;
   color: var(--danger) !important;
+}
+
+/* === GLASS_SKIN: compare view === */
+/* 对比视图玻璃皮肤：门控 [data-skin="glass"]，风格对齐 editor.css 主视图玻璃块。
+   ⚠ 硬约束：绝不对 .compare-panes / .cm-mergeView / .compare-view / .compare-view-two
+   / .compare-view-three（含任意后代）加 backdrop-filter / transform / filter /
+   will-change / contain —— 它们是 MergeView 连线层与 revert 列的共同祖先，任何
+   层叠/变换都会把块级「采纳此块」按钮划花（B2 缺陷复发，compare.css 多处注释强调）。
+   玻璃只允许落在 .compare-toolbar / .compare-footer / .compare-location-pane /
+   .toolbar-scroll-btn / .compare-main（仅半透明底，无 blur）上。
+   环境光晕复用 editor.css 的 [data-skin="glass"] body::before（全局已生效），本页不重定义。 */
+
+/* .compare-main 仅加半透明底：它是 .compare-panes 的祖先，绝不可加 backdrop-filter
+   （blur 会穿透到 MergeView）。背景本身不新建层叠上下文，安全。 */
+[data-skin="glass"] .compare-main {
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+}
+
+/* 工具栏玻璃：非 MergeView 祖先，允许 blur */
+[data-skin="glass"] .compare-toolbar {
+  background: color-mix(in srgb, var(--bg-toolbar) 74%, transparent);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid color-mix(in srgb, var(--edge) 60%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 6px 24px rgba(0, 0, 0, 0.22);
+}
+
+/* 立体玻璃按钮：与 .compare-toolbar-btn 自带的 transition:all 兼容
+   （hover 的 translateY 与 :active 的 scale 不同时触发，不冲突） */
+[data-skin="glass"] .compare-toolbar-btn {
+  background: linear-gradient(180deg, var(--btn-top, rgba(255, 255, 255, 0.9)), var(--btn-bot, rgba(225, 238, 248, 0.7)));
+  border: 1px solid var(--edge, transparent);
+  color: var(--text-secondary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 2px rgba(0, 0, 0, 0.25), 0 2px 5px var(--shadow-sm);
+}
+[data-skin="glass"] .compare-toolbar-btn:hover {
+  transform: translateY(-2px);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 14px var(--accent-glow), 0 4px 10px var(--shadow-md);
+}
+[data-skin="glass"] .compare-toolbar-btn:active {
+  transform: translateY(0) scale(0.96);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+[data-skin="glass"] .compare-toolbar-btn.active {
+  border-color: var(--accent);
+  color: var(--text-accent);
+  background: var(--bg-active);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.25), 0 2px 5px var(--shadow-sm);
+}
+
+/* 滚动箭头玻璃：与 editor.css 同向，确保对比页一致（非 MergeView 祖先） */
+[data-skin="glass"] .toolbar-scroll-btn {
+  background: color-mix(in srgb, var(--bg-toolbar) 72%, transparent);
+  border-color: var(--edge);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
+
+/* 底部返回按钮轻玻璃：非 MergeView 祖先，允许轻 blur */
+[data-skin="glass"] .compare-footer-btn {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
+  border-color: var(--edge);
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+}
+
+/* 位置概览侧栏轻玻璃：与 .compare-panes 平级（非 MergeView 祖先），允许轻 blur */
+[data-skin="glass"] .compare-location-pane {
+  background: color-mix(in srgb, var(--lp-bg) 78%, transparent);
+  border-color: var(--edge);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
 }

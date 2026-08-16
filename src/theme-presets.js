@@ -344,7 +344,7 @@ const DOU_SHA_LV_LIGHT = {
     '--accent': '#2e7d32', '--accent-hover': '#1b5e20',
     '--danger': '#c62828', '--success': '#2e7d32', '--warning': '#f9a825',
     ...LIGHT_SHADOW, ...RADIUS,
-    '--ambient': 'rgba(46,125,50,.30)', '--accent-glow': 'rgba(46,125,50,.16)', '--btn-top': 'rgba(255,255,255,.7)', '--btn-bot': 'rgba(199,237,204,.6)', '--edge': 'rgba(255,255,255,.7)',
+    '--ambient': 'rgba(46,125,50,.36)', '--accent-glow': 'rgba(46,125,50,.20)', '--btn-top': 'rgba(255,255,255,.80)', '--btn-bot': 'rgba(199,237,204,.55)', '--edge': 'rgba(255,255,255,.78)',
   },
 };
 const DOU_SHA_LV_DARK = {
@@ -360,7 +360,7 @@ const DOU_SHA_LV_DARK = {
     '--danger': '#ff6b6b', '--success': '#4caf6a', '--warning': '#ffd166',
     '--shadow-sm': '0 1px 2px rgba(0,0,0,.3)', '--shadow-md': '0 4px 12px rgba(0,0,0,.4)', '--shadow-lg': '0 8px 24px rgba(0,0,0,.5)',
     '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
-    '--ambient': 'rgba(80,200,120,.22)', '--accent-glow': 'rgba(80,200,120,.20)', '--btn-top': 'rgba(60,110,80,.5)', '--btn-bot': 'rgba(20,40,30,.6)', '--edge': 'rgba(120,200,150,.2)',
+    '--ambient': 'rgba(80,200,120,.28)', '--accent-glow': 'rgba(80,200,120,.26)', '--btn-top': 'rgba(72,122,92,.56)', '--btn-bot': 'rgba(16,34,26,.66)', '--edge': 'rgba(120,200,150,.24)',
   },
 };
 
@@ -378,7 +378,7 @@ const GLACIER_THEME = {
     '--danger': '#e5484d', '--success': '#2e9e5b', '--warning': '#d99e0b',
     '--shadow-sm': '0 1px 2px rgba(0,0,0,.06)', '--shadow-md': '0 4px 12px rgba(0,0,0,.1)', '--shadow-lg': '0 8px 24px rgba(0,0,0,.15)',
     '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
-    '--ambient': 'rgba(120,195,235,.55)', '--accent-glow': 'rgba(31,156,240,.18)', '--btn-top': 'rgba(255,255,255,.92)', '--btn-bot': 'rgba(225,238,248,.72)', '--edge': 'rgba(255,255,255,.85)',
+    '--ambient': 'rgba(120,195,235,.62)', '--accent-glow': 'rgba(31,156,240,.24)', '--btn-top': 'rgba(255,255,255,.96)', '--btn-bot': 'rgba(208,226,242,.66)', '--edge': 'rgba(255,255,255,.92)',
   },
 };
 const AURORA_THEME = {
@@ -394,7 +394,7 @@ const AURORA_THEME = {
     '--danger': '#ff6b8a', '--success': '#5be0a0', '--warning': '#ffd166',
     '--shadow-sm': '0 1px 2px rgba(0,0,0,.3)', '--shadow-md': '0 4px 12px rgba(0,0,0,.4)', '--shadow-lg': '0 8px 24px rgba(0,0,0,.5)',
     '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
-    '--ambient': 'rgba(150,105,255,.42)', '--accent-glow': 'rgba(160,107,255,.32)', '--btn-top': 'rgba(86,64,140,.65)', '--btn-bot': 'rgba(40,28,72,.7)', '--edge': 'rgba(160,135,255,.22)',
+    '--ambient': 'rgba(150,105,255,.50)', '--accent-glow': 'rgba(160,107,255,.38)', '--btn-top': 'rgba(98,74,158,.70)', '--btn-bot': 'rgba(36,24,66,.76)', '--edge': 'rgba(174,149,255,.26)',
   },
 };
 const FLUENT_THEME = {
@@ -410,7 +410,7 @@ const FLUENT_THEME = {
     '--danger': '#ff5f57', '--success': '#28c840', '--warning': '#febc2e',
     '--shadow-sm': '0 1px 2px rgba(0,0,0,.3)', '--shadow-md': '0 4px 12px rgba(0,0,0,.4)', '--shadow-lg': '0 8px 24px rgba(0,0,0,.5)',
     '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
-    '--ambient': 'rgba(0,120,212,.30)', '--accent-glow': 'rgba(76,194,255,.24)', '--btn-top': 'rgba(255,255,255,.14)', '--btn-bot': 'rgba(255,255,255,.06)', '--edge': 'rgba(255,255,255,.14)',
+    '--ambient': 'rgba(0,120,212,.37)', '--accent-glow': 'rgba(76,194,255,.30)', '--btn-top': 'rgba(255,255,255,.18)', '--btn-bot': 'rgba(255,255,255,.05)', '--edge': 'rgba(255,255,255,.18)',
   },
 };
 const MACOS_THEME = {
@@ -426,11 +426,99 @@ const MACOS_THEME = {
     '--danger': '#ff3b30', '--success': '#34c759', '--warning': '#ff9f0a',
     '--shadow-sm': '0 1px 2px rgba(0,0,0,.06)', '--shadow-md': '0 4px 12px rgba(0,0,0,.1)', '--shadow-lg': '0 8px 24px rgba(0,0,0,.15)',
     '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
-    '--ambient': 'rgba(120,160,255,.40)', '--accent-glow': 'rgba(10,132,255,.18)', '--btn-top': 'rgba(255,255,255,.95)', '--btn-bot': 'rgba(228,228,234,.75)', '--edge': 'rgba(255,255,255,.9)',
+    '--ambient': 'rgba(120,160,255,.48)', '--accent-glow': 'rgba(10,132,255,.24)', '--btn-top': 'rgba(255,255,255,.97)', '--btn-bot': 'rgba(212,212,220,.70)', '--edge': 'rgba(255,255,255,.94)',
   },
 };
 
-// 完整 27 项主题列表：21 标准 + 豆沙绿亮/暗 + 4 套新增
+// 6 套新增原型玻璃主题（oklch 翻译为 hex/rgba；玻璃键用 accent 派生写法，随主题自适应）
+const GITHUB_GLASS_DARK = {
+  id: 'github-glass-dark', label: 'GitHub 玻璃（暗）', kind: 'dark',
+  vars: {
+    '--bg-primary': '#010409', '--bg-secondary': '#0d1117', '--bg-tertiary': '#161b22',
+    '--bg-toolbar': '#010409', '--bg-statusbar': '#010409', '--bg-panel-header': '#161b22',
+    '--bg-hover': '#30363d', '--bg-active': '#388bfd26',
+    '--border-primary': '#30363d', '--border-subtle': '#21262d',
+    '--text-primary': '#c9d1d9', '--text-secondary': '#8b949e', '--text-muted': '#484f58', '--text-accent': '#58a6ff',
+    '--accent': '#58a6ff', '--accent-hover': '#79c0ff', '--danger': '#f85149', '--success': '#3fb950', '--warning': '#d29922',
+    ...DARK_SHADOW, '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
+    '--ambient': 'rgba(88,166,255,.30)', '--accent-glow': 'rgba(88,166,255,.22)',
+    '--btn-top': 'rgba(70,90,120,.55)', '--btn-bot': 'rgba(20,28,40,.65)', '--edge': 'rgba(120,160,210,.22)',
+  },
+};
+const GITHUB_GLASS_LIGHT = {
+  id: 'github-glass-light', label: 'GitHub 玻璃（亮）', kind: 'light',
+  vars: {
+    '--bg-primary': '#ffffff', '--bg-secondary': '#f6f8fa', '--bg-tertiary': '#eaeef2',
+    '--bg-toolbar': '#f6f8fa', '--bg-statusbar': '#f6f8fa', '--bg-panel-header': '#eaeef2',
+    '--bg-hover': '#e8eaed', '--bg-active': '#0969da1a',
+    '--border-primary': '#d0d7de', '--border-subtle': '#e8eaed',
+    '--text-primary': '#1f2328', '--text-secondary': '#656d76', '--text-muted': '#8c959f', '--text-accent': '#0969da',
+    '--accent': '#0969da', '--accent-hover': '#0550ae', '--danger': '#cf222e', '--success': '#1a7f37', '--warning': '#9a6700',
+    ...LIGHT_SHADOW, '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
+    '--ambient': 'rgba(9,105,218,.28)', '--accent-glow': 'rgba(9,105,218,.20)',
+    '--btn-top': 'rgba(255,255,255,.92)', '--btn-bot': 'rgba(225,232,240,.70)', '--edge': 'rgba(255,255,255,.85)',
+  },
+};
+const NORD_GLASS = {
+  id: 'nord-glass', label: 'Nord 玻璃', kind: 'dark',
+  vars: {
+    '--bg-primary': '#2e3440', '--bg-secondary': '#3b4252', '--bg-tertiary': '#434c5e',
+    '--bg-toolbar': '#2e3440', '--bg-statusbar': '#2e3440', '--bg-panel-header': '#3b4252',
+    '--bg-hover': '#434c5e', '--bg-active': '#4c566a33',
+    '--border-primary': '#3b4252', '--border-subtle': '#2e3440',
+    '--text-primary': '#eceff4', '--text-secondary': '#d8dee9', '--text-muted': '#4c566a', '--text-accent': '#88c0d0',
+    '--accent': '#88c0d0', '--accent-hover': '#8fbcbb', '--danger': '#bf616a', '--success': '#a3be8c', '--warning': '#ebcb8b',
+    ...DARK_SHADOW, '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
+    '--ambient': 'rgba(136,192,208,.32)', '--accent-glow': 'rgba(136,192,208,.24)',
+    '--btn-top': 'rgba(90,104,128,.55)', '--btn-bot': 'rgba(40,48,66,.65)', '--edge': 'rgba(143,188,187,.24)',
+  },
+};
+// aurora-glass 与既有 aurora(紫晶极光) 区分：采用青绿极光配色，id 唯一
+const AURORA_GLASS = {
+  id: 'aurora-glass', label: '极光玻璃（青）', kind: 'dark',
+  vars: {
+    '--bg-primary': '#0e1b1a', '--bg-secondary': '#0a1514', '--bg-tertiary': '#132625',
+    '--bg-toolbar': '#0a1514', '--bg-statusbar': '#0a1514', '--bg-panel-header': '#132625',
+    '--bg-hover': '#1b3634', '--bg-active': 'rgba(64,224,208,.16)',
+    '--border-primary': '#1f3b39', '--border-subtle': '#132625',
+    '--text-primary': '#d6f5ee', '--text-secondary': '#a9d6cd', '--text-muted': '#6fae9e', '--text-accent': '#5be0c8',
+    '--accent': '#3ad0b8', '--accent-hover': '#5be0c8', '--danger': '#ff6b8a', '--success': '#5be0a0', '--warning': '#ffd166',
+    ...DARK_SHADOW, '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
+    '--ambient': 'rgba(58,208,184,.30)', '--accent-glow': 'rgba(58,208,184,.24)',
+    '--btn-top': 'rgba(45,90,84,.55)', '--btn-bot': 'rgba(14,30,28,.65)', '--edge': 'rgba(91,224,200,.22)',
+  },
+};
+const DOU_SHA_LV_GLASS = {
+  id: 'dou-sha-lv-glass', label: '豆沙绿玻璃', kind: 'light',
+  vars: {
+    '--bg-primary': '#C7EDCC', '--bg-secondary': '#d6f2d9', '--bg-tertiary': '#cfeccf',
+    '--bg-toolbar': '#bfe6c4', '--bg-statusbar': '#bfe6c4', '--bg-panel-header': '#cfeccf',
+    '--bg-hover': '#b9e0bf', '--bg-active': '#2e7d3233',
+    '--border-primary': '#a9d6b0', '--border-subtle': '#c2e6c8',
+    '--text-primary': '#1f3d1f', '--text-secondary': '#3a5a3a', '--text-muted': '#557a55', '--text-accent': '#1f6b3a',
+    '--accent': '#2e7d32', '--accent-hover': '#1b5e20', '--danger': '#c62828', '--success': '#2e7d32', '--warning': '#f9a825',
+    ...LIGHT_SHADOW, '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
+    '--ambient': 'rgba(46,125,50,.32)', '--accent-glow': 'rgba(46,125,50,.22)',
+    '--btn-top': 'rgba(255,255,255,.85)', '--btn-bot': 'rgba(199,237,204,.58)', '--edge': 'rgba(255,255,255,.80)',
+  },
+};
+// mac-glass 与既有 macos(亮) 区分：采用 macOS 暗色模式配色，id 唯一
+const MAC_GLASS = {
+  id: 'mac-glass', label: 'macOS 玻璃（暗）', kind: 'dark',
+  vars: {
+    '--bg-primary': '#1d1d1f', '--bg-secondary': '#2c2c2e', '--bg-tertiary': '#3a3a3c',
+    '--bg-toolbar': '#2c2c2e', '--bg-statusbar': '#1d1d1f', '--bg-panel-header': '#3a3a3c',
+    '--bg-hover': '#48484a', '--bg-active': 'rgba(10,132,255,.16)',
+    '--border-primary': '#3a3a3c', '--border-subtle': '#2c2c2e',
+    '--text-primary': '#f5f5f7', '--text-secondary': '#d6d6da', '--text-muted': '#9a9aa0', '--text-accent': '#0a84ff',
+    '--accent': '#0a84ff', '--accent-hover': '#409cff', '--danger': '#ff453a', '--success': '#32d74b', '--warning': '#ffd60a',
+    ...DARK_SHADOW, '--radius-sm': '6px', '--radius-md': '10px', '--radius-lg': '14px',
+    '--ambient': 'rgba(10,132,255,.32)', '--accent-glow': 'rgba(10,132,255,.24)',
+    '--btn-top': 'rgba(90,90,96,.55)', '--btn-bot': 'rgba(28,28,32,.65)', '--edge': 'rgba(120,160,210,.24)',
+  },
+};
+
+// 完整 33 项主题列表：21 标准 + 豆沙绿亮/暗 + 4 套玻璃 + 6 套原型玻璃
 export const EDITOR_THEMES = [
   ...STANDARD_THEMES,
   DOU_SHA_LV_LIGHT,
@@ -439,6 +527,12 @@ export const EDITOR_THEMES = [
   AURORA_THEME,
   FLUENT_THEME,
   MACOS_THEME,
+  GITHUB_GLASS_DARK,
+  GITHUB_GLASS_LIGHT,
+  NORD_GLASS,
+  AURORA_GLASS,
+  DOU_SHA_LV_GLASS,
+  MAC_GLASS,
 ];
 
 // 默认主题：豆沙绿（亮）

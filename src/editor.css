@@ -3500,6 +3500,19 @@ body {
   --editor-gap: 4px;
 }
 
+/* 标准主题玻璃变量兜底：21 套标准主题（含 one-dark/nord 等暗色）未在
+   theme-presets.js 内联定义 --ambient/--accent-glow/--btn-top/--btn-bot/--edge，
+   此处基于主题自身配色派生，暗色主题自动变暗；4 套玻璃主题的内联值优先级更高，
+   仍会覆盖本规则。注意：必须用 [data-skin="glass"] 选择器，不能用 :root，
+   否则会干扰主题内联值。 */
+[data-skin="glass"] {
+  --ambient: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 15%, transparent);
+  --btn-top: color-mix(in srgb, var(--bg-secondary) 72%, #fff 18%);
+  --btn-bot: color-mix(in srgb, var(--bg-tertiary) 90%, #000 10%);
+  --edge: color-mix(in srgb, var(--border-primary) 55%, transparent);
+}
+
 /* 单色相环境光晕背景：需让 body 成为独立层叠上下文，
    否则 z-index:-1 的 ::before 会被 html/body 背景盖住而不可见 */
 [data-skin="glass"] body {
@@ -3582,6 +3595,19 @@ body {
     inset 0 1px 0 rgba(255,255,255,.45),
     inset 0 -1px 2px rgba(0,0,0,.30),
     0 2px 5px var(--shadow-sm);
+}
+
+/* 工具栏横向滚动箭头按钮：与主视图 .toolbar-btn 一致玻璃质感，
+   供主视图与对比视图共用（compare.html 同样引入 editor.css） */
+[data-skin="glass"] .toolbar-scroll-btn {
+  background: color-mix(in srgb, var(--bg-toolbar) 72%, transparent);
+  border-color: var(--edge);
+  backdrop-filter: blur(10px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 2px 6px var(--shadow-sm);
+}
+[data-skin="glass"] .toolbar-scroll-btn:hover {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
 }
 
 /* ============================================================

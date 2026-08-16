@@ -27,8 +27,8 @@ globalThis.localStorage = {
   clear: () => __store.clear(),
 };
 
-test('EDITOR_THEMES 共 27 项（21 标准 + 豆沙绿亮/暗 + 4 套新增皮肤）', () => {
-  assert.strictEqual(EDITOR_THEMES.length, 27);
+test('EDITOR_THEMES 共 33 项（21 标准 + 豆沙绿亮/暗 + 4 套玻璃皮肤 + 6 套原型玻璃主题）', () => {
+  assert.strictEqual(EDITOR_THEMES.length, 33);
 });
 
 test('4 套新增皮肤（glacier/aurora/fluent/macos）均注册且含全部材质键', () => {
