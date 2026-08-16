@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.3] - 2026-08-16（审计报告 23 项缺陷修复 + 对比/合并页 UI 调整）
+
+> 修复 v1.9.3 三份审计报告共 23 项唯一缺陷（2 HIGH / 11 MEDIUM / 10 LOW），并调整对比/合并页视觉。
+
+### 缺陷修复
+- H1 compare.js acceptAllDir 三栏仅压非冲突块（避免误删未解决冲突）
+- H2 translate.js / background.js 引入 withTimeout + AbortController 超时保护（避免翻译请求挂死）
+- M1–M11 编辑器/对比合并/横切模块多项修复：滚动同步按钮高亮与守卫、SN 去重、scrollSync 控制器唯一性、焦点跟随、SVG DOMPurify 净化、URL 延迟释放、统一 isTauriEnv、全文哈希替换首尾采样等
+- L1/L3–L9 多项 LOW 修复：分隔符跟随、c 栏兜底、utf-8/gbk 回退、deepl 源语言映射、轻量混淆存储、LRU 缓存、file: 协议收敛、密度对齐
+
+### UI 调整
+- 对比/合并页隐藏文件名标签栏「本地文件/对方文件」（保留 #compareFiles 拖拽容器）
+- 三栏右侧栏由硬编码白改为随主题色（var(--bg-primary)）
+- 三栏标题改为「文件一/二/三」
+
 ## [1.9.2] - 2026-08-16（对照合并双模式重构 + 初始化期 confirm 死锁修复）
 
 > 对照/合并双模式重构，并修复初始化期阻塞式 confirm 导致的编辑器页死锁与对照页滚动同步失效。
