@@ -11,6 +11,7 @@ import {
   replaceInWorkspace,
   getWorkspaceFileHandle,
 } from './workspace-search.js';
+import { showConfirm } from './confirm-dialog.js';
 
 // 轻量 DOM 构造器（typster 风格）。
 function el(tag, props = {}, children = []) {
@@ -239,7 +240,7 @@ export function makeSearchPanel(view) {
       return;
     }
 
-    const ok = window.confirm(
+    const ok = await showConfirm(
       `即将把工作区所有 Markdown 文件中的「${q}」替换为「${replaceInput.value}」。\n` +
       '该操作会直接写入磁盘且无法撤销，是否继续？'
     );

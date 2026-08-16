@@ -269,13 +269,45 @@ export async function offerDraftRestore() {
     return;
   }
   const when = new Date(draft.savedAt).toLocaleString();
-  if (
-    window.confirm(
-      `发现未保存草稿（自动保存于 ${when}），是否恢复上次编辑内容？\n（仅恢复编辑区内容，不会覆盖磁盘文件）`
-    )
-  ) {
+  // 非阻塞确认：改用页内弹窗替代 window.confirm。
+  // 原因：window.confirm 是阻塞式模态对话框，在初始化阶段调用会锁死渲染进程主线程
+  // （headless 下 CDP handleJavaScriptDialog 与此相互死锁，表现为「renderer 卡死/崩溃」误判；
+  // 真实 GUI 下也会在启动即强弹对话框、阻塞首屏）。非阻塞弹窗不卡主线程，两种环境均安全。
+  showDraftRestorePrompt(when, () => {
     editorRef.dispatch({
       changes: { from: 0, to: editorRef.state.doc.length, insert: draft.content },
     });
-  }
+  });
+}
+
+// 非阻塞的草稿恢复确认弹窗（替代 window.confirm，避免初始化阶段阻塞渲染进程主线程）。
+// 返回即用，不依赖额外 CSS；点击「恢复」回调 onRestore，点击「忽略」或遮罩外区域关闭。
+function showDraftRestorePrompt(when, onRestore) {
+  if (document.getElementById('draftRestorePrompt')) return; // 防重复
+  const overlay = document.createElement('div');
+  overlay.id = 'draftRestorePrompt';
+  overlay.setAttribute('role', 'dialog');
+  overlay.style.cssText =
+    'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4)';
+  const box = document.createElement('div');
+  box.style.cssText =
+    'background:#fff;color:#1f2328;border-radius:8px;padding:20px;max-width:360px;box-shadow:0 8px 24px rgba(0,0,0,0.2);font-family:sans-serif';
+  box.innerHTML = `
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px;">发现未保存草稿</div>
+    <div style="font-size:13px;line-height:1.6;margin-bottom:16px;">自动保存于 ${when}，是否恢复上次编辑内容？<br>（仅恢复编辑区，不覆盖磁盘文件）</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="draftIgnore" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;cursor:pointer;">忽略</button>
+      <button id="draftRestore" style="padding:6px 14px;border:none;border-radius:6px;background:#0969da;color:#fff;cursor:pointer;">恢复</button>
+    </div>`;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  const ignore = document.getElementById('draftIgnore');
+  const restore = document.getElementById('draftRestore');
+  if (ignore) ignore.addEventListener('click', close);
+  if (restore)
+    restore.addEventListener('click', () => {
+      onRestore();
+      close();
+    });
 }
