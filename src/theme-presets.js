@@ -564,6 +564,17 @@ const THEME_COUNTERPARTS = {
   'catppuccin-mocha': 'catppuccin-latte',
   'dou-sha-lv-light': 'dou-sha-lv-dark',
   'dou-sha-lv-dark': 'dou-sha-lv-light',
+  // ── 审计 M1 修复：6 套原型玻璃主题明暗对偶（尽量同族/同色系，均留在玻璃家族内） ──
+  // github 玻璃同族完美配对；其余暗色玻璃无原生亮色玻璃版，配对到色系最近的亮色玻璃，
+  // 避免明暗切换回退默认时跳出玻璃家族（data-theme kind 仍正确翻转）。
+  'github-glass-light': 'github-glass-dark',
+  'github-glass-dark': 'github-glass-light',
+  'dou-sha-lv-glass': 'nord-glass',
+  'nord-glass': 'dou-sha-lv-glass',
+  'aurora-glass': 'glacier',
+  'glacier': 'aurora-glass',
+  'mac-glass': 'macos',
+  'macos': 'mac-glass',
 };
 
 // 读取预设的明暗归属；未知 id 视为 light（与 applyEditorThemePreset 的兜底保持一致）。
