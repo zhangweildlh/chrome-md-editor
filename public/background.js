@@ -23,11 +23,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   (async () => {
+    // 超时保护：外部翻译 API 挂起时中断连接并返回错误，避免代理与前景侧都空等。
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const res = await fetch(url, {
         method: method || 'POST',
         headers: headers || {},
         body: body ?? undefined,
+        signal: controller.signal,
       });
       const text = await res.text();
       sendResponse({
@@ -48,6 +52,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         status: 0,
         error: hint,
       });
+    } finally {
+      clearTimeout(timer);
     }
   })();
 

@@ -313,6 +313,13 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         /* 非法 pane 值：忽略，保持上一次活动栏，且不刷新描边（避免与实际保存目标错位） */
         return;
       }
+      // M6：图片插入/落图目标跟随实际聚焦的栏（a→instance.a、b→instance.b、c→instance.theirsView），
+      // 否则永远写在 b 栏，与用户聚焦的 a/c 栏不一致。
+      const target = paneViewMap()[pane];
+      if (target) {
+        activeView = target;
+        bindCompareEditorView(target);
+      }
       applyActivePaneClass();
     });
   }
@@ -394,7 +401,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       out.push({
         key: "c",
         view: instance.theirsView,
-        target: files.b ? files.b.target : null,
+        target: files.c ? files.c.target : null,
         content: instance.theirsView.state.doc.toString(),
       });
     }
@@ -577,9 +584,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
           parent: target,
           onMisalign: () => showMisalignDialog(),
         });
-        // 合并结果面板 = MergeView 的 b 面板（图片插入目标）
-        bindCompareEditorView(instance.b);
-        activeView = instance.b;
+        // M6：图片插入/落图目标不再硬绑 instance.b，改为跟随活动栏
+        // （见 bindPaneFocus 的 focusin 与下方 setActivePane 复位后的绑定）。
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
         bindPaneFocus(instance.theirsView, "c");
@@ -595,8 +601,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
           parent: target,
           onMisalign: () => showMisalignDialog(),
         });
-        bindCompareEditorView(instance.b);
-        activeView = instance.b;
+        // M6：图片插入/落图目标不再硬绑 instance.b，改为跟随活动栏
+        // （见 bindPaneFocus 的 focusin 与下方 setActivePane 复位后的绑定）。
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
         bindPaneFocus(instance.theirsView, "c");
@@ -610,8 +616,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
           parent: target,
           onMisalign: () => showMisalignDialog(),
         });
-        bindCompareEditorView(instance.b);
-        activeView = instance.b;
+        // M6：图片插入/落图目标不再硬绑 instance.b，改为跟随活动栏
+        // （见 bindPaneFocus 的 focusin 与下方 setActivePane 复位后的绑定）。
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
       }
@@ -639,6 +645,12 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         console.error("[compare] 初始化滚动同步失败:", e);
         scrollSync = null;
       }
+    }
+    // M5（补充）：重建后控制器内部开关被重置为默认开，需用 compare.js 的本地开关态覆盖，
+    // 保证「滚动」按钮的高亮与真实生效状态一致。
+    if (scrollSync) {
+      if (scrollSyncEnabled) scrollSync.enable();
+      else scrollSync.disable();
     }
     updateScrollButton();
 
@@ -670,6 +682,14 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     // 视图刚重建，描边随旧 DOM 一起消失了，必须按复位后的活动栏重新打上，
     // 否则重渲染后会出现「没有任何栏带描边、但 Ctrl+S 仍会写 A 栏」的静默不一致。
     applyActivePaneClass();
+
+    // M6：图片插入/落图目标跟随活动栏。render 后活动栏已复位为 'a'，故初始绑定 instance.a；
+    // 用户聚焦 a/b/c 时由 bindPaneFocus 的 focusin 实时改写 activeView 与 bindCompareEditorView。
+    {
+      const map = paneViewMap();
+      activeView = (instance && (map[getActivePane()] || instance.b)) || null;
+      if (activeView) bindCompareEditorView(activeView);
+    }
 
     // 补齐 UI：刷新 per-pane 标题（Yours / Result / Theirs）与差异/冲突计数。
     // 首帧 diff 尚未落定，计数可能为 0；onRefresh 订阅后会在 diff 算完时再刷一次。
@@ -1089,11 +1109,16 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     compareViewHeader.hidden = false;
     // 三栏 / 合并显示三份标题，两栏显示两份；c 栏在两栏下隐藏
     const visiblePanes = mode === "merge" || colCount === 3 ? ["a", "b", "c"] : ["a", "b"];
-    const titles = {
-      a: files.a ? ellipsizePath(fileDisplay(files.a)) : "本地",
-      b: mode === "merge" ? "合并结果" : files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
-      c: files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
-    };
+    // 三栏（对照/合并）：标题固定为「文件一/文件二/文件三」，文件名保留为 tooltip（见下方 titleEl.title）。
+    // 两栏：保留原有「本地/合并结果」或「本地/对方」语义。
+    const titles =
+      colCount === 3
+        ? { a: "文件一", b: "文件二", c: "文件三" }
+        : {
+            a: files.a ? ellipsizePath(fileDisplay(files.a)) : "本地",
+            b: mode === "merge" ? "合并结果" : files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
+            c: files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
+          };
     for (const p of ["a", "b", "c"]) {
       const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
       if (!el) continue;
@@ -1288,7 +1313,11 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       // dir === "all" 三栏：在下面统一处理。
     }
 
-    // 三栏「全部」：把 ab + bc 两层 changes 合并为单次 dispatch，原因同 applyNonConflictingChunks。
+    // 三栏「全部」：把 ab + bc 两层 changes 合并为单次 dispatch（同 applyNonConflictingChunks）。
+    // 关键修复（H1）：冲突块在 ab 层与 bc 层都映射到【同一个 Result 区域】；若两层都压入，
+    // 区间重叠会触发下方重叠守卫整轮 return，导致冲突文档点「全部」完全无反应（合并核心失效）。
+    // 按 tooltip「右侧覆盖冲突处」语义：ab 层只压【非冲突】块，冲突块改由 bc 层（右/Theirs）压入并覆盖，
+    // 使每个 Result 区域仅被表示一次，单次 dispatch 满足 CM6 非重叠约束。
     if (!isTwo && dir === "all") {
       const abViews = instance.getLayerViews("ab");
       const bcViews = instance.getLayerViews("bc");
@@ -1308,7 +1337,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
           });
         }
       };
-      pushAll(abViews.srcView, abViews.dstView, chunks.filter((c) => c.layer === "ab"));
+      pushAll(abViews.srcView, abViews.dstView, chunks.filter((c) => c.layer === "ab" && !c.conflict));
       pushAll(bcViews.srcView, bcViews.dstView, chunks.filter((c) => c.layer === "bc"));
       allChanges.sort((a, b) => a.from - b.from);
       for (let i = 1; i < allChanges.length; i++) {
@@ -1351,7 +1380,14 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     });
   if (btnScroll)
     btnScroll.addEventListener("click", () => {
-      if (scrollSync) scrollSync.toggle(); // 切换 instance.scrollSync（含三栏 B↔C / A↔C）；开关态由控制器经 setEnabled 回写 scrollSyncEnabled，开启瞬间触发块对齐检查（onMisalign）
+      // M5（补充）：compare.js 持有本地开关态 scrollSyncEnabled，按钮翻转它并推给唯一控制器
+      // instance.scrollSync（含三栏 B↔C / A↔C）；不再直接 toggle 控制器内部态，否则按钮高亮
+      // （updateScrollButton 只读 compare.js 的 scrollSyncEnabled）会与真实开关脱钩。
+      scrollSyncEnabled = !scrollSyncEnabled;
+      if (scrollSync) {
+        if (scrollSyncEnabled) scrollSync.enable();
+        else scrollSync.disable();
+      }
       updateScrollButton();
     });
   if (btnPrevChunk) btnPrevChunk.addEventListener("click", navPrev);
