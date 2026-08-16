@@ -5,31 +5,38 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
-## [1.9.4] - 2026-08-16（对比页三栏逐块采纳列修复 + 对比视图玻璃皮肤 + 审计 6 项修复）
+## [1.9.5] - 2026-08-16（对比视图玻璃皮肤 + 审计 6 项修复）
 
-> 修复对比/合并页三栏 B↔C 栏间「逐块采纳列」挂载缺陷；补全对比视图玻璃皮肤（glass）并对齐主视图玻璃体系；修复玻璃皮肤审计发现的 6 项问题（窄窗工具栏裁切 / 明暗对偶 / 性能 / 测试缺口）。
+> 补全对比视图玻璃皮肤（glass）并对齐主视图玻璃体系；修复玻璃皮肤审计发现的 6 项问题（窄窗工具栏裁切 / 明暗对偶 / 性能 / 测试缺口）。
 
 ### 特性
-- 对比视图玻璃皮肤（`data-skin="glass"`）：为对比工具栏、对比页脚、定位面板、滚动箭头、主区域新增半透明玻璃材质，复用主视图 `[data-skin="glass"]` 选择器派生兜底（21 套标准主题自动 `color-mix` 适配，10 套玻璃主题显式定义 `--ambient/--accent-glow/--btn-top/--btn-bot/--edge`）；`data-editor-theme` 33 套配色与玻璃材质正交叠加，由 `applyEditorThemePreset()` 默认挂载。
+- 对比视图玻璃皮肤（data-skin="glass"）：为对比工具栏、对比页脚、定位面板、滚动箭头、主区域新增半透明玻璃材质，复用主视图 [data-skin="glass"] 选择器派生兜底（21 套标准主题自动 color-mix 适配，10 套玻璃主题显式定义 --ambient/--accent-glow/--btn-top/--btn-bot/--edge）；data-editor-theme 33 套配色与玻璃材质正交叠加，由 pplyEditorThemePreset() 默认挂载。
 
 ### 缺陷修复
-- 修复 `src/compare-merge.js` 三栏 B↔C 逐块采纳列挂载失败：原 `parent.insertBefore(col, theirsView)` 传入的是 CodeMirror `EditorView` 实例而非真实 DOM 节点 `theirsView.dom`，导致 `insertBefore` 抛 `TypeError`、整个三栏构造被 `render()` 的 catch 吞掉、视图空白；改为 `theirsView.dom` 后三栏逐块采纳功能恢复正常。该缺陷仅 CDP 真机复验可暴露（node 单测无法实例化 `EditorView`）。
-- 修复逐块采纳越界钳制（BUG7 关联），避免采纳索引越界导致的异常。
 - 玻璃皮肤审计 6 项修复：
-  - **H1 窄窗工具栏裁切**：对比工具栏经 `toolbar-scroll.js` 包入 `.toolbar-wrap`（作为 `body` flex 子项 `align-items:stretch` 占满视口宽），新增 `.toolbar-wrap .compare-toolbar{flex:1 1 auto;flex-shrink:1;min-width:0}` 允许收缩并触发自身 `overflow-x:auto` 横向滚动，修复窄窗按钮被 `body{overflow:hidden}` 裁切不可达。
-  - **M1 明暗对偶**：为 6 套玻璃主题补齐 `THEME_COUNTERPARTS` 对偶（github-glass-light↔github-glass-dark、dou-sha-lv-glass↔nord-glass、aurora-glass↔glacier、mac-glass↔macos，含双向），测试断言全 33 主题「对偶必为已知预设且 kind 相反」全绿。
-  - **M2 定位面板性能**：`.compare-location-pane` 移除 `backdrop-filter: blur(12px) saturate(150%)`，`background` 改 `color-mix(in srgb, var(--lp-bg) 90%, transparent)`，降低合成开销。
-  - **M3 测试缺口**：新增 2 条 compare.css 静态断言（MergeView 禁区 `.compare-panes/.cm-mergeView/.compare-view*` 严禁 `backdrop-filter/transform/filter/will-change/contain`；H1 滚动修复规则存活）；玻璃材质键断言由 4 套扩至全部 10 套；新增「全部 33 主题含 `THEME_VARS_KEYS` 全部键」。
-  - **L1 玻璃模糊强度**：对比工具栏 `backdrop-filter: blur(20px)` → `blur(16px)` 收敛。
-  - **L2 WebKit 前缀**：滚动箭头 `.toolbar-scroll-btn` 补 `-webkit-backdrop-filter`，与主视图对齐。
-
-### 增强
-- 对比页调试钩子（`window.__cmp`，仅 `localStorage.cmp-debug=1` 暴露）新增 `applyFiles` / `setColCount`，便于自动化注入三栏有差异文件并切换栏数验证。
+  - **H1 窄窗工具栏裁切**：对比工具栏经 	oolbar-scroll.js 包入 .toolbar-wrap（作为 ody flex 子项 lign-items:stretch 占满视口宽），新增 .toolbar-wrap .compare-toolbar{flex:1 1 auto;flex-shrink:1;min-width:0} 允许收缩并触发自身 overflow-x:auto 横向滚动，修复窄窗按钮被 ody{overflow:hidden} 裁切不可达。
+  - **M1 明暗对偶**：为 6 套玻璃主题补齐 THEME_COUNTERPARTS 对偶（github-glass-light↔github-glass-dark、dou-sha-lv-glass↔nord-glass、aurora-glass↔glacier、mac-glass↔macos，含双向），测试断言全 33 主题「对偶必为已知预设且 kind 相反」全绿。
+  - **M2 定位面板性能**：.compare-location-pane 移除 ackdrop-filter: blur(12px) saturate(150%)，ackground 改 color-mix(in srgb, var(--lp-bg) 90%, transparent)，降低合成开销。
+  - **M3 测试缺口**：新增 2 条 compare.css 静态断言（MergeView 禁区 .compare-panes/.cm-mergeView/.compare-view* 严禁 ackdrop-filter/transform/filter/will-change/contain；H1 滚动修复规则存活）；玻璃材质键断言由 4 套扩至全部 10 套；新增「全部 33 主题含 THEME_VARS_KEYS 全部键」。
+  - **L1 玻璃模糊强度**：对比工具栏 ackdrop-filter: blur(20px) → lur(16px) 收敛。
+  - **L2 WebKit 前缀**：滚动箭头 .toolbar-scroll-btn 补 -webkit-backdrop-filter，与主视图对齐。
 
 ### 测试
-- 新增 `tests/compare-bc-accept.test.js`（三栏 B↔C 逐块采纳）、`tests/compare-pick-target.test.js`（采纳目标选择）；新增 `src/compare/pick-target.js` 模块。
-- 玻璃皮肤审计回归：`tests/theme-presets.test.js` 新增 2 条 compare.css 静态断言 + 玻璃材质键（10 套）/ 主题键（`THEME_VARS_KEYS`）全覆盖断言。
+- 玻璃皮肤审计回归：	ests/theme-presets.test.js 新增 2 条 compare.css 静态断言 + 玻璃材质键（10 套）/ 主题键（THEME_VARS_KEYS）全覆盖断言。
 
+## [1.9.4] - 2026-08-16（对比页三栏 B↔C 逐块采纳列修复）
+
+> 修复对比/合并页三栏模式下 B↔C 栏间「逐块采纳列」挂载缺陷（此前该列根本无法挂载、三栏视图构造失败），并补充对比页调试钩子与对应单测。
+
+### 缺陷修复
+- 修复 src/compare-merge.js 三栏 B↔C 逐块采纳列挂载失败：原 parent.insertBefore(col, theirsView) 传入的是 CodeMirror EditorView 实例而非真实 DOM 节点 	heirsView.dom，导致 insertBefore 抛 TypeError、整个三栏构造被 ender() 的 catch 吞掉、视图空白；改为 	heirsView.dom 后三栏逐块采纳功能恢复正常。该缺陷仅 CDP 真机复验可暴露（node 单测无法实例化 EditorView）。
+- 修复逐块采纳越界钳制（BUG7 关联），避免采纳索引越界导致的异常。
+
+### 增强
+- 对比页调试钩子（window.__cmp，仅 localStorage.cmp-debug=1 暴露）新增 pplyFiles / setColCount，便于自动化注入三栏有差异文件并切换栏数验证。
+
+### 测试
+- 新增 	ests/compare-bc-accept.test.js（三栏 B↔C 逐块采纳）、	ests/compare-pick-target.test.js（采纳目标选择）；新增 src/compare/pick-target.js 模块。
 ## [1.9.3] - 2026-08-16（审计报告 23 项缺陷修复 + 对比/合并页 UI 调整）
 
 > 修复 v1.9.3 三份审计报告共 23 项唯一缺陷（2 HIGH / 11 MEDIUM / 10 LOW），并调整对比/合并页视觉。
