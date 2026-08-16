@@ -478,6 +478,57 @@
 .compare-three-layout .cm-mergeView {
   flex: 2;
 }
+
+/* ── B↔C 栏间逐块采纳列（替代 .compare-pane-gap，自建非 MergeView revert 列）──
+   由 compare-merge.js 动态挂载，夹在 MergeView(A↔B) 与 Theirs(c) 之间（viewThree 为
+   row flex），视觉上紧邻中间栏 b 与右栏 c，彻底解决原静态 bulk 按钮组「跑到最左侧」的问题。
+   列宽对齐 a↔b 的 .cm-merge-revert (67px)；overflow:hidden 使屏外块按钮被裁掉，
+   按钮以 position:absolute + top 随滚动/刷新重定位到对应差异块。 */
+.cm-compare-revert-bc {
+  flex: 0 0 67px;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-primary);
+  border-right: 1px solid var(--border-primary);
+  z-index: 2;
+  height: 100%;
+  box-sizing: border-box;
+}
+/* 列内按钮组：复用 a↔b 列的 .cm-compare-revert-group 结构与类名，但本列不是
+   .cm-merge-revert 子节点，故自带定位规则（不依赖 a↔b 列的 #compareRoot 提权选择器）。 */
+.cm-compare-revert-bc .cm-compare-revert-group {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  z-index: 3;
+}
+.cm-compare-revert-bc .cm-compare-revert-group button {
+  position: static;
+  display: inline-flex;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 1px;
+}
+/* 默认（非冲突）：单按钮；冲突（.is-dual）：双按钮。特异性阶梯与 a↔b 列一致，
+   改动此处务必重算特异性（详见 a↔b 列同款注释）。 */
+#compareRoot .cm-compare-revert-bc .cm-compare-revert-group button.cm-compare-accept-left,
+#compareRoot .cm-compare-revert-bc .cm-compare-revert-group button.cm-compare-accept-right {
+  display: none;
+}
+#compareRoot .cm-compare-revert-bc .cm-compare-revert-group.is-dual button.cm-compare-revert-single {
+  display: none;
+}
+#compareRoot .cm-compare-revert-bc .cm-compare-revert-group.is-dual button.cm-compare-accept-left,
+#compareRoot .cm-compare-revert-bc .cm-compare-revert-group.is-dual button.cm-compare-accept-right {
+  display: inline-flex;
+}
 .cm-compare-theirs {
   flex: 1;
   min-width: 0;

@@ -597,6 +597,224 @@ function createRevertGroupSync(parent, getDualIndexes) {
 }
 
 /**
+ * B↔C 栏间逐块操作按钮组工厂（独立于 MergeView 的 a↔b revert 列）。
+ *
+ * a↔b 的 makeRevertGroup 依赖库内 `.cm-merge-revert` 的 mousedown 监听执行默认 a→b；
+ * B↔C 两栏是 mv.b 与独立 theirsView，没有库的 revert 列，故【三个按钮全部自接线】：
+ *   · 单按钮（非冲突）= 采纳左（b→c，默认左→右流向）
+ *   · 采纳左 ▶（冲突）= b→c
+ *   · ◀ 采纳右（冲突）= c→b
+ * 方向语义与 a↔b 列的「采纳左 ▶ / ◀ 采纳右」一致（箭头指向内容流向）。
+ *
+ * @param {(i:number, dir:'left'|'right')=>void} onAccept
+ * @returns {HTMLDivElement}
+ */
+function makeBcRevertGroup(onAccept) {
+  const box = document.createElement("div");
+  box.className = "cm-compare-revert-group";
+  box.style.display = "none"; // 初始隐藏，待 reposition 命中块位置后再显
+
+  const mk = (cls, label, title) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    btn.textContent = label;
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    return btn;
+  };
+
+  const wire = (btn, dir) => {
+    // 掐断冒泡，避免被任何祖先的默认 revert 行为误触发（B↔C 无库监听，但保持与 a↔b 同款防御）
+    btn.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+    });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const i = Number(box.dataset.chunk);
+      if (Number.isFinite(i)) onAccept(i, dir);
+    });
+  };
+
+  const single = mk(
+    "cm-compare-revert cm-compare-revert-single",
+    "⇄ 采纳此块",
+    "采纳此块：用中间栏内容覆写右栏"
+  );
+  const left = mk(
+    "cm-compare-revert cm-compare-accept-left",
+    "采纳左 ▶",
+    "采纳左：用中间栏(b)内容覆写右栏(c)"
+  );
+  const right = mk(
+    "cm-compare-revert cm-compare-accept-right",
+    "◀ 采纳右",
+    "采纳右：用右栏(c)内容覆写中间栏(b)"
+  );
+  wire(single, "left");
+  wire(left, "left");
+  wire(right, "right");
+  box.appendChild(single);
+  box.appendChild(left);
+  box.appendChild(right);
+  return box;
+}
+
+/**
+ * 在中间栏(b)与右栏(c)之间挂载「逐块采纳」列，复用 a↔b 列的视觉与方向语义，
+ * 但完全自建（无 MergeView revert 列支撑）：每个 B↔C 差异块渲染一组单/双按钮，
+ * 垂直对齐到该块在 Result(b) 侧的起始行；随滚动与 diff 重算重定位。
+ *
+ * 坐标约定复用 move-connectors.js：view.coordsAtPos(pos) 返回【视口坐标】，
+ * 跨栏定位需减去容器 getBoundingClientRect().top 并补偿 clientTop。
+ *
+ * @param {{parent:HTMLElement, mv:object, theirsView:EditorView, scheduler:object|null, getChunkModel:()=>({ab:any[],bc:any[]}), acceptBcChunkAt:(i:number,dir:string)=>boolean}} ctx
+ * @returns {{dispose:()=>void}}
+ */
+function mountBcRevertColumn(ctx) {
+  const { parent, mv, theirsView, scheduler, getChunkModel, acceptBcChunkAt } = ctx;
+  const col = document.createElement("div");
+  col.className = "cm-compare-revert-bc";
+  // 夹在 MergeView(a+b) 与 theirsView(c) 之间（viewThree 为 row flex，故视觉上紧邻二者）。
+  // 注意：insertBefore 的 ref 节点必须是真实 DOM 节点（theirsView.dom），而非 EditorView 实例本身。
+  parent.insertBefore(col, theirsView.dom);
+
+  /** @type {Array<{el:HTMLElement, index:number}>} */
+  let groups = [];
+  let lastSig = "";
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+
+  function getBc() {
+    try {
+      return getChunkModel().bc || [];
+    } catch (err) {
+      console.error("[compare-merge] 读取 B↔C 块模型失败:", err);
+      return [];
+    }
+  }
+
+  // 仅在块数量 / 冲突标记变化时才重建按钮组；否则仅重定位（避免每帧 coordsAtPos 强制回流）。
+  function rebuild() {
+    const bc = getBc();
+    const sig = bc.map((c) => `${c.index}:${c.conflict ? 1 : 0}`).join("|");
+    if (sig === lastSig) {
+      reposition();
+      return;
+    }
+    lastSig = sig;
+    col.textContent = "";
+    groups = [];
+    bc.forEach((chunk) => {
+      const box = makeBcRevertGroup((i, dir) => acceptBcChunkAt(i, dir));
+      box.dataset.chunk = String(chunk.index);
+      box.classList.toggle("is-dual", !!chunk.conflict);
+      col.appendChild(box);
+      groups.push({ el: box, index: chunk.index });
+    });
+    reposition();
+  }
+
+  // 把每个按钮组绝对定位到其块在 Result(b) 侧的起始行；屏外块（coordsAtPos 返回 null）隐藏。
+  function reposition() {
+    const bc = getBc();
+    const colRect = col.getBoundingClientRect();
+    const top0 = colRect.top + (col.clientTop || 0);
+    for (const g of groups) {
+      const chunk = bc[g.index];
+      if (!chunk) {
+        g.el.style.display = "none";
+        continue;
+      }
+      let coords = null;
+      try {
+        coords = mv.b.coordsAtPos(chunk.dstFrom);
+      } catch (_) {
+        coords = null;
+      }
+      if (!coords) {
+        g.el.style.display = "none";
+        continue;
+      }
+      g.el.style.display = "flex";
+      g.el.style.top = coords.top - top0 + "px";
+    }
+  }
+
+  let unsubRefresh = null;
+  if (scheduler) {
+    unsubRefresh = scheduler.onRefresh(() => rebuild());
+  } else {
+    rebuild();
+  }
+  // 滚动重定位：MergeView 滚动盒（mv.b 共享）与 theirsView 各自派发 scroll（已由滚动同步联动）。
+  for (const v of [mv.b, theirsView]) {
+    const box = scrollBoxOf(v);
+    if (box) {
+      const opts = { passive: true };
+      if (ac) opts.signal = ac.signal;
+      box.addEventListener("scroll", () => reposition(), opts);
+    }
+  }
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => reposition());
+    ro.observe(parent);
+    if (ac) ac.signal.addEventListener("abort", () => ro.disconnect());
+    else ro.disconnect.bind(ro);
+  }
+
+  return {
+    dispose() {
+      if (ac) ac.abort();
+      if (unsubRefresh) unsubRefresh(); // 解绑装饰重算回调，消除对 destroy() 顺序的隐式依赖
+      if (col.parentNode) col.parentNode.removeChild(col);
+    },
+  };
+}
+
+/**
+ * 纯函数：根据 B↔C 块模型 + 采纳方向 + 两侧文档长度，算出 acceptChunk 所需的
+ * 「源侧 / 源区间 / 目标区间」五元组。
+ *
+ * 方向语义（与 acceptBcChunkAt 一致）：
+ *   dir 'right'（◀ 采纳右）= c→b（Theirs→Result）：src 取自块 Theirs 侧(src*)，dst 取到 Result 侧(dst*)
+ *   dir 'left' （采纳左 ▶）= b→c（Result→Theirs）：src 取自块 Result 侧(dst*)，dst 取到 Theirs 侧(src*)
+ *
+ * 越界钳制：对齐 acceptRightAt / chunk-ops.acceptChunk，用 Math.min(off, len) 防止
+ * 尾部块 to 越界抛 RangeError（Result/Theirs 尾部块的 fromA/toA 或 fromB/toB 可能等于
+ * 「文档长度 + 1」含行尾换行，直接喂给 dispatch 会抛 RangeError）。
+ *
+ * 抽成纯函数是为了让「双向采纳 + 越界钳制」这段算术可被 node 单测直接锁定
+ * （acceptBcChunkAt 闭包依赖真实 EditorView 与 acceptChunk，不便直接单测）。
+ *
+ * @param {{srcFrom:number,srcTo:number,dstFrom:number,dstTo:number}} chunk B↔C 块模型（已归一）
+ * @param {'left'|'right'} dir
+ * @param {number} bLen Result(mv.b) 文档长度
+ * @param {number} cLen Theirs(theirsView) 文档长度
+ * @returns {{srcSide:'b'|'c', srcFrom:number, srcTo:number, dstFrom:number, dstTo:number}}
+ */
+export function computeBcAcceptRange(chunk, dir, bLen, cLen) {
+  const clamp = Math.min;
+  if (dir === "right") {
+    return {
+      srcSide: "c",
+      srcFrom: clamp(chunk.srcFrom, cLen),
+      srcTo: clamp(chunk.srcTo, cLen),
+      dstFrom: clamp(chunk.dstFrom, bLen),
+      dstTo: clamp(chunk.dstTo, bLen),
+    };
+  }
+  return {
+    srcSide: "b",
+    srcFrom: clamp(chunk.dstFrom, bLen),
+    srcTo: clamp(chunk.dstTo, bLen),
+    dstFrom: clamp(chunk.srcFrom, cLen),
+    dstTo: clamp(chunk.srcTo, cLen),
+  };
+}
+
+/**
  * 创建两栏 / 三栏对比合并视图。
  * @param {CompareMergeOptions} opts
  * @returns {CompareMergeInstance}
@@ -622,6 +840,7 @@ export function createCompareMergeView(opts) {
   /** 滚动同步开关与控制器（共用 scroll-sync.js，§9 / D16） */
   let scrollSync = null;
   let scrollSyncEnabled = true;
+  let bcColCtl = null; // B↔C 栏间逐块采纳列控制器（三栏专属，destroy 时释放）
   /** 三栏下 b 是否为「合并结果」派生栏（无源 → getPanes 的 target=null）；compare 三栏为真实文件 */
   let bIsDerivedResult = false;
   const collapse =
@@ -910,6 +1129,18 @@ export function createCompareMergeView(opts) {
     if (scheduler) scheduler.onRefresh(() => connectorPainter && connectorPainter.draw());
     bindConnectorResize();
 
+    // ── B↔C 栏间逐块采纳列（替代原静态 bulk bcRevertCol）──
+    // 夹在 MergeView 与 theirsView 之间，逐块渲染「采纳左/右」，垂直对齐到
+    // 该块在 Result(b) 侧的起始行；随滚动与 diff 重算重定位。
+    bcColCtl = mountBcRevertColumn({
+      parent,
+      mv,
+      theirsView,
+      scheduler,
+      getChunkModel: buildChunkModel,
+      acceptBcChunkAt,
+    });
+
     // ── 差异块模型（供工具栏批量操作 / 状态计数 / 冲突判定共用）──
     //
     // 两层的坐标系必须显式归一，否则调用方极易把 A↔B 的偏移喂给 B↔C 的视图：
@@ -988,6 +1219,41 @@ export function createCompareMergeView(opts) {
         return true;
       } catch (err) {
         console.error("[compare-merge] 采纳右侧块失败:", err);
+        return false;
+      }
+    }
+
+    /**
+     * B↔C 逐块采纳：把第 i 个 B↔C 块按方向写入对侧。
+     *   dir 'right'（◀ 采纳右）= c→b（Theirs→Result）
+     *   dir 'left' （采纳左 ▶）= b→c（Result→Theirs）
+     * 越界钳制对齐 acceptRightAt / chunk-ops.acceptChunk，避免尾部块 to 越界抛 RangeError。
+     * @param {number} i B↔C 块下标（getChunkModel().bc 的下标）
+     * @param {'left'|'right'} dir
+     * @returns {boolean}
+     */
+    function acceptBcChunkAt(i, dir) {
+      try {
+        const model = buildChunkModel();
+        const target = model.bc[i];
+        if (!target) return false;
+        const bLen = mv.b.state.doc.length;
+        const cLen = theirsView.state.doc.length;
+        // 方向映射 + 越界钳制委托给纯函数 computeBcAcceptRange（可被 node 单测锁定）；
+        // srcSide='c' → 源取 Theirs(theirsView)、目标落 Result(mv.b)；否则反之。
+        const r = computeBcAcceptRange(target, dir, bLen, cLen);
+        acceptChunk({
+          srcView: r.srcSide === "c" ? theirsView : mv.b,
+          dstView: r.srcSide === "c" ? mv.b : theirsView,
+          srcFrom: r.srcFrom,
+          srcTo: r.srcTo,
+          dstFrom: r.dstFrom,
+          dstTo: r.dstTo,
+        });
+        if (scheduler) scheduler.scheduleRefresh();
+        return true;
+      } catch (err) {
+        console.error("[compare-merge] B↔C 采纳块失败:", err);
         return false;
       }
     }
@@ -1197,6 +1463,10 @@ export function createCompareMergeView(opts) {
       destroy() {
         if (scrollSync) scrollSync.destroy();
         if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图
+        if (bcColCtl) {
+          bcColCtl.dispose();
+          bcColCtl = null;
+        }
         revertSync.dispose(); // MutationObserver 由浏览器强引用，必须显式断开
         teardownConnectors(); // 解绑滚动/ResizeObserver 并移除 SVG 覆盖层
         parent.classList.remove("compare-three-layout");

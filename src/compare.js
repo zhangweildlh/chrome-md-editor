@@ -20,7 +20,8 @@
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
-import { pickFiles, enableFileDropZone } from "./compare-files.js";
+import { pickSingleFile, readCompareFiles } from "./compare-files.js";
+import { resolvePickTarget, resolveDropTargets } from "./compare/pick-target.js";
 import {
   bindCompareEditorView,
   bindImageToolbarButton,
@@ -30,8 +31,6 @@ import { exportResult } from "./compare-export.js";
 import { buildDiffText } from "./compare-diff-export.js";
 // 共享编辑器扩展工厂（编辑页 / 对比·合并页共用同一套 CM6 内核，见设计文档 §8.1/§8.2）
 import { createEditorExtensions } from "./editor-extensions.js";
-// 路径省略工具（保留文件名完整，中间段用 '...' 省略，见 §7）
-import { ellipsizePath } from "./path-ellipsis.js";
 // 保存轮询 + 另存为弹窗（§5）
 import { runSavePoll, showSaveAsDialog } from "./save-poll.js";
 // 可复用多栏滚动同步（§9）；控制器由 createCompareMergeView 内部创建并挂到 instance.scrollSync，
@@ -182,6 +181,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const statusCountEl = $("compareStatusCount");
   const compareViewHeader = $("compareViewHeader");
   const comparePanes = $("comparePanes");
+  // B↔C 栏间逐块采纳列已迁移至 compare-merge.js（mountBcRevertColumn），本文件不再持有静态按钮组。
   const paneTitles = {
     a: $("paneTitleA"),
     b: $("paneTitleB"),
@@ -194,8 +194,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   };
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.9.3（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.3";
+  // 运行时兜底 1.9.4（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.4";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -255,10 +255,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     bindCompareEditorView(null);
     activeView = null;
     for (const el of Object.values(mountPoints)) {
-      if (el) {
-        el.innerHTML = "";
-        el.hidden = true;
-      }
+      if (!el) continue;
+      el.innerHTML = "";
+      el.hidden = true;
     }
   }
 
@@ -447,16 +446,12 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     if (instance.theirsView) loadedContent[mode === "merge" ? "b" : "c"] = instance.theirsView.state.doc.toString();
   }
 
-  // 全路径 tooltip：Tauri 用 target.path，浏览器 FSAPI 仅能拿到文件名
-  function fileDisplay(f) {
-    if (!f) return "";
-    const t = f.target;
-    if (t && typeof t.path === "string" && t.path) return t.path;
-    if (t && t.handle && t.handle.name) return t.handle.name;
-    return f.name || "";
-  }
   function paneFullPath(p) {
-    const f = p === "b" && mode === "merge" ? null : files[p];
+    // 合并模式：中栏 b=合并结果（无源，无路径）；右栏 c 实际展示 files.b（对方）内容
+    let f;
+    if (p === "b" && mode === "merge") f = null;
+    else if (p === "c" && mode === "merge") f = files.b;
+    else f = files[p];
     if (!f) return "";
     const t = f.target;
     if (t && typeof t.path === "string" && t.path) return t.path;
@@ -946,23 +941,25 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   }
 
   // ── 文件选择 ──
-  // compare 模式：多选 2 或 3 个文件（a/b/c 三个真实文件）；
-  // merge 模式：选 2 个文件（a=本地 / c=对方，合并结果重置为空）。
+  // 载入到「当前活动栏」（鼠标最后聚焦的栏，由 bindPaneFocus 的 focusin 写入，
+  // getActivePane() 读取）。这样无论激活哪一栏，「选择文件」都把 MD 载入该栏，
+  // 用户可逐栏分别载入 2/3 个文件（修复 BUG 3：此前固定 picked[0]→a 永远覆盖最左栏）。
+  // 合并模式：中栏 b=合并结果（无源、不可直接载入文件），活动栏落到 b 时回退到 a（本地）。
   async function onPickFiles() {
     try {
-      const picked = await pickFiles(undefined, true); // 多选
-      if (!picked || !picked.length) return;
-      if (mode === "merge") {
-        files.a = picked[0] || files.a; // 本地
-        files.b = picked[1] || files.b; // 对方
-        files.c = null;
-        files.result = null; // 新选文件 → 重置合并结果
-      } else {
-        files.a = picked[0] || files.a; // 文件一
-        files.b = picked[1] || files.b; // 文件二
-        if (picked[2]) files.c = picked[2]; // 文件三（仅三栏对照用到）
-        else if (colCount < 3) files.c = null;
-      }
+      // 先记录点击「选择文件」瞬间的活动栏：避免文件框（系统原生对话框）关闭后
+      // 焦点漂移导致读取到的活动栏错位，从而把 MD 载入错误栏（BUG 3 边界风险）。
+      const active = getActivePane(); // 'a' | 'b' | 'c'
+      const picked = await pickSingleFile(); // 单文件，载入当前活动栏
+      if (!picked) return;
+      // 按活动栏路由到目标栏键（纯函数，见 src/compare/pick-target.js）：
+      // 合并模式的中栏(合并结果)不可作源 → 按"从左到右找第一个空栏"处理
+      // （BUG 6）：本地未载→落本地 a；本地已载→落对方(files.b)。
+      const target = resolvePickTarget(active, mode, files); // 'a' | 'b' | 'c'
+      if (target === "a") files.a = picked; // 文件一 / 本地
+      else if (target === "b") files.b = picked; // 文件二 / 对方
+      else if (target === "c") files.c = picked; // 文件三（仅对照三栏）
+      if (mode === "merge") files.result = null; // 重新选源 → 重置合并结果
       snapshotLoaded(); // 记录初始内容快照（D8）
       setSlotText(fileSlots.a, files.a);
       setSlotText(fileSlots.b, files.b);
@@ -970,8 +967,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       render();
       // 让「激活栏描边」跟随用户实际选择的目标栏（render 末尾会把活动栏复位为 'a'）
       try {
-        const pane = getActivePane();
-        setActivePane(pane);
+        setActivePane(active);
         applyActivePaneClass();
       } catch (_) {}
     } catch (e) {
@@ -1099,8 +1095,11 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   }
 
   // ── per-pane 标题栏：根据当前模式与文件动态设置标题（§4）──
-  // compare：a/b/(c) 三个真实文件 → 用 ellipsizePath 显示省略后的文件名（tooltip 显完整路径）；
-  // merge：a=本地路径 / b=「合并结果」(固定) / c=对方路径。
+  // 标题语义（按用户 BUG 4 要求，覆盖文档 §4.2 的「显示路径」约定）：
+  //   对照两栏  → 文件一 / 文件二
+  //   对照三栏  → 文件一 / 文件二 / 文件三
+  //   合并三栏  → 文件一 / 合并结果 / 文件二
+  // 完整绝对路径保留为标题 tooltip（titleEl.title），方便用户确认真实位置。
   function updatePaneHeader() {
     if (!compareViewHeader || !comparePanes) return;
     // 修复中-1：#compareViewHeader 在 compare.html 中初始带 hidden，必须显式解除，
@@ -1109,16 +1108,13 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     compareViewHeader.hidden = false;
     // 三栏 / 合并显示三份标题，两栏显示两份；c 栏在两栏下隐藏
     const visiblePanes = mode === "merge" || colCount === 3 ? ["a", "b", "c"] : ["a", "b"];
-    // 三栏（对照/合并）：标题固定为「文件一/文件二/文件三」，文件名保留为 tooltip（见下方 titleEl.title）。
-    // 两栏：保留原有「本地/合并结果」或「本地/对方」语义。
+    // 标题固定为语义标签（文件一/文件二/文件三 + 合并结果），与模式/列数严格对应。
     const titles =
-      colCount === 3
-        ? { a: "文件一", b: "文件二", c: "文件三" }
-        : {
-            a: files.a ? ellipsizePath(fileDisplay(files.a)) : "本地",
-            b: mode === "merge" ? "合并结果" : files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
-            c: files.b ? ellipsizePath(fileDisplay(files.b)) : "对方",
-          };
+      mode === "merge"
+        ? { a: "文件一", b: "合并结果", c: "文件二" }
+        : colCount === 3
+          ? { a: "文件一", b: "文件二", c: "文件三" }
+          : { a: "文件一", b: "文件二" };
     for (const p of ["a", "b", "c"]) {
       const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
       if (!el) continue;
@@ -1426,6 +1422,10 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       }, DIR_FLASH_MS)
     );
   }
+
+  // B↔C 逐块采纳已迁移至 compare-merge.js（acceptBcChunkAt + mountBcRevertColumn），
+  // 本文件不再持有 bulk 采纳逻辑；工具栏顶部「批量采纳方向」仍走 getLayerViews('bc')。
+
   if (btnAcceptLeft)
     btnAcceptLeft.addEventListener("click", () => {
       flashDirBtn(btnAcceptLeft);
@@ -1580,30 +1580,64 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     imageDropPlaceholder.replaceWith(area);
   }
 
-  // ── 文件拖拽（E4-01）：拖入文件区即载入为 Yours / Theirs，无需走文件框 ──
-  const dropZone = document.getElementById("compareFiles");
-  if (dropZone) {
-    enableFileDropZone(dropZone, {
-      accept: ".md,.markdown,.mdown,.mkd,.mkdn,.txt",
-      onFiles: (dropped) => {
-        if (!dropped || !dropped.length) return;
-        if (mode === "merge") {
-          files.a = dropped[0] || files.a; // 本地
-          files.b = dropped[1] || files.b; // 对方
-          files.c = null;
-          files.result = null; // 新载入 → 重置合并结果
-        } else {
-          files.a = dropped[0] || files.a; // 文件一
-          files.b = dropped[1] || files.b; // 文件二
-          if (dropped[2]) files.c = dropped[2]; // 文件三（仅三栏对照）
+  // ── 文件拖拽（E4-01）：拖入 Markdown/文本文件即载入本页对应栏，无需走文件框 ──
+  // 改为在整页（document 捕获阶段）拦截文件拖放：原 #compareFiles 拖拽区因子 slot 被
+  // display:none、容器近乎零高度，拖放几乎必然落空，浏览器默认会把文件在【新标签页】打开
+  // （即 BUG 2 报的「自动打开新编辑/预览页而对比页不载入」）。这里在捕获阶段 preventDefault
+  // 阻止浏览器默认行为，并把 .md/.txt 文件载入本页栏位；非 Markdown 文件（如图片）放行，
+  // 交给图片拖拽区处理。内部文本拖拽（块拖拽 / 选区拖拽）的 dataTransfer.types 不含
+  // "Files"，不会误拦截，编辑器内拖拽不受影响。
+  {
+    const MD_ACCEPT_RE = /\.(md|markdown|mdown|mkd|mkdn|txt)$/i;
+    const dragHasFiles = (e) =>
+      !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files"));
+    const onPageDragOver = (e) => {
+      if (dragHasFiles(e)) {
+        e.preventDefault(); // 允许 drop（否则 drop 事件不会触发）
+        e.stopPropagation(); // 先于 CodeMirror 编辑器处理，避免其插入/游标干扰
+      }
+    };
+    const onPageDrop = async (e) => {
+      if (!dragHasFiles(e)) return; // 非文件（如图片）：放行给图片拖拽区
+      const all = Array.from(e.dataTransfer.files || []);
+      const md = all.filter((f) => MD_ACCEPT_RE.test(f.name || ""));
+      if (!md.length) return; // 非 Markdown/文本：不拦截，交给浏览器默认（或图片区）
+      e.preventDefault();
+      e.stopPropagation();
+      const dropped = await readCompareFiles(md);
+      if (!dropped.length) return;
+      // 拖拽多文件路由（BUG 5）：按活动栏优先填入 + 其余按 a→b→c 顺序填入空栏。
+      // 先记录活动栏：drop 事件期间焦点可能受 drop 自身影响漂移，使用 drop 事件触发瞬间的活动栏。
+      const active = getActivePane();
+      const targets = resolveDropTargets(active, mode, files, dropped.length);
+      // 按目标键填入；同一栏多次出现（拖入多于栏位的文件）→ 覆盖前一份。
+      // 注：仅当 colCount===3 才写 files.c（对照两栏禁用 files.c，避免污染三栏视图）。
+      for (let i = 0; i < dropped.length; i++) {
+        const t = targets[i];
+        if (t === "a") files.a = dropped[i];
+        else if (t === "b") files.b = dropped[i];
+        else if (t === "c") {
+          if (mode === "compare" && colCount === 3) {
+            files.c = dropped[i]; // 仅对照三栏启用 files.c
+          } else {
+            // 合并模式：c 栏 UI 显示「对方」，对应 files.b。防御兜底（resolveDropTargets
+            // 已合理映射，正常走不到这里）；对照两栏丢弃多余文件。
+            if (mode === "merge") files.b = dropped[i];
+            // 对照两栏：丢弃（不污染 files.c）
+          }
         }
-        snapshotLoaded(); // 记录初始内容快照（D8）
-        setSlotText(fileSlots.a, files.a);
-        setSlotText(fileSlots.b, files.b);
-        skipSaveOnNextRender = true; // 拖入新文件：跳过 render 编辑回写，保留刚拖入的文件内容
-        render();
-      },
-    });
+      }
+      if (mode === "merge") {
+        files.result = null; // 新载入 → 重置合并结果
+      }
+      snapshotLoaded(); // 记录初始内容快照（D8）
+      setSlotText(fileSlots.a, files.a);
+      setSlotText(fileSlots.b, files.b);
+      skipSaveOnNextRender = true; // 拖入新文件：跳过 render 编辑回写，保留刚拖入的文件内容
+      render();
+    };
+    document.addEventListener("dragover", onPageDragOver, true); // 捕获阶段
+    document.addEventListener("drop", onPageDrop, true);
   }
 
   // ── 调试钩子（仅当 cmp-debug=1 时暴露，生产默认不暴露，便于自动化探针读取真实状态） ──
@@ -1618,12 +1652,33 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       get mode() {
         return mode;
       },
+      get colCount() {
+        return colCount;
+      },
       get activePane() {
         return getActivePane();
       },
+      // BUG 5/6 端到端测试钩子（仅 cmp-debug=1 暴露）：暴露路由纯函数供 CDP 验证。
+      // onPickFiles / onPageDrop 在浏览器内是闭包私有，无法直接 mock 文件框；
+      // 但它们的「路由决策」全部收敛到 resolvePickTarget / resolveDropTargets，
+      // 故验证纯函数+files 状态变更 即可锁定 BUG 5/6 是否修复。
+      resolvePickTarget,
+      resolveDropTargets,
       currentPanes,
       render,
       switchMode,
+      // 自动化探针专用：绕过「编辑回写」逻辑直接注入文件并切栏，避免被旧 instance 空文档覆盖。
+      applyFiles: (obj) => {
+        if (obj && typeof obj === "object") Object.assign(files, obj);
+        skipSaveOnNextRender = true; // 注入文件视为「重新载入」，跳过本次回写
+        render();
+      },
+      setColCount: (n) => {
+        if (n === 2 || n === 3) {
+          colCount = n;
+          render();
+        }
+      },
     };
   }
 

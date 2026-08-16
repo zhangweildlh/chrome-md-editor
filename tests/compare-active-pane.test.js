@@ -177,3 +177,29 @@ test('活动栏：pane 键映射必须与 currentPanes() 一致（a/b/c）', () 
     'currentPanes() 仍应把 c 栏映射到 instance.theirsView（与 paneViewMap 保持一致）'
   );
 });
+
+test('BUG3 接线：onPickFiles 必须按活动栏路由，禁止回到无视活动栏的旧逻辑', () => {
+  // BUG 3 根因：原 onPickFiles 写死 `files.a = picked[0]; files.b = picked[1]`，
+  // 无论激活哪一栏都落到最左栏。修复后必须按 getActivePane() 路由，且把
+  // 「活动栏→目标栏」的映射收敛到纯函数 resolvePickTarget（见 pick-target.js）。
+  // 本断言防两类回归：① 又写回 picked[1]/picked[0] 的硬编码双文件索引；
+  // ② onPickFiles 不再引用 getActivePane / resolvePickTarget（绕回无视活动栏）。
+  assert.ok(
+    /resolvePickTarget/.test(js) && /getActivePane/.test(js),
+    'compare.js 必须在 onPickFiles 路径上同时引用 resolvePickTarget 与 getActivePane：' +
+      '二者缺一即意味路由不再跟随活动栏（BUG 3 复发）'
+  );
+  assert.ok(
+    !/files\.[abc]\s*=\s*picked\[\d\]/.test(js),
+    'compare.js 不得再出现 files.x = picked[N] 的硬编码索引写入：' +
+      '那正是 BUG 3「永远落最左栏」的旧写法'
+  );
+  // 路由纯函数须从独立模块导入（单一事实源、可单测），不得重新内联旧分支
+  // BUG 5（拖拽路由）新增 resolveDropTargets 共导入，允许同行多 identifier
+  assert.match(
+    js,
+    /import\s*\{\s*resolvePickTarget[\s\S]*?\}\s*from\s*["']\.\/compare\/pick-target\.js["']/,
+    'compare.js 应从 ./compare/pick-target.js 导入 resolvePickTarget（含 resolveDropTargets 等共导入），' +
+      '而非把「活动栏→目标栏」逻辑重新内联，否则回归测试无法覆盖'
+  );
+});

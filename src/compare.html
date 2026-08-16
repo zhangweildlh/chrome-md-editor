@@ -13,7 +13,7 @@
     <header class="toolbar compare-toolbar" id="compareToolbar">
       <div class="toolbar-left">
         <span class="logo-text">MD 对比</span>
-        <span class="app-version" id="compareVersion" title="扩展版本">v1.9.3</span>
+        <span class="app-version" id="compareVersion" title="扩展版本">v1.9.4</span>
         <!-- 模式入口（D1）：对照 / 合并。默认对照态由 C1 在 body 上切
              compare-mode-compare 类并给对应按钮加 .active，文案/可见性归 C1。 -->
         <div class="toolbar-group compare-mode-group">
@@ -129,6 +129,8 @@
             </div>
           </div>
           <div class="compare-view compare-view-two" id="viewTwo" hidden></div>
+          <!-- 三栏挂载容器：MergeView(a+b) + 动态生成的 B↔C 逐块采纳列 + 独立 theirsView(c)
+               均由 compare-merge.js 在 createCompareMergeView 内按序追加；两栏下整体 hidden。 -->
           <div class="compare-view compare-view-three" id="viewThree" hidden></div>
         </div>
         <!-- 概览侧栏拖拽分隔条：拖动调整差异概览宽度（与编辑/预览分隔条一致的交互） -->
