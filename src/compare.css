@@ -482,6 +482,7 @@
   flex: 1;
   min-width: 0;
   height: 100%;
+  background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-left: none;
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
@@ -773,6 +774,15 @@
   padding: 8px 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
+}
+/* 按需求隐藏文件选择区中的两个文件名标签栏（图1 红框标注的「本地文件/对方文件」）。
+   DOM 保留，仅隐藏 .compare-file-slot 视觉，以便将来恢复；
+   注意：保留 #compareFiles 容器作为文件拖拽区（E4-01，compare.js:1552），
+   不对其 display:none，避免拖拽载入入口静默失效。
+   特异性提升为 #compareFiles .compare-file-slot，确保压过下方
+   .compare-file-slot{display:flex}（同源特异性、后者胜）的默认规则。 */
+#compareFiles .compare-file-slot {
+  display: none;
 }
 .compare-file-slot {
   flex: 1;
