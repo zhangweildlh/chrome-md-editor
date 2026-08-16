@@ -1,8 +1,8 @@
-# Chrome-Markdown-Edit 代码审计与真机测试报告（v1.9.1）
+# Chrome-Markdown-Edit 代码审计与真机测试报告（v1.9.2）
 
 > 单一权威结论文件。本文档整合本轮「对照 / 合并双模式重构」的代码审计、缺陷修复与真机（end-to-end）全面测试结果。
 > 生成时间：2026-08-16。测试环境：360Chromex（Chrome 132）/ 扩展 ID `bglhbmlpkinpnmkgpcldlpnincfhogmn` / 9222 调试端口。
-> 版本戳：**保持 1.9.1 未改动**（按红线）。**全部改动未提交 git**（按红线，待用户授权）。
+> 版本戳：**已升至 1.9.2 并发布**（用户授权）。**改动已提交并合入 main（PR #10 已合并），tag v1.9.2 已推送触发双 CI 构建 Release**。
 
 ---
 
@@ -90,11 +90,11 @@ headless 自动化所见 ≠ 用户 GUI 所见。以下项自动化已验证逻�
 
 ## 六、红线遵守声明
 
-- ✅ **未执行任何 git 写操作**（commit / push / tag / merge / 发版）。所有改动停留在工作区。
-- ✅ **未升版本戳**，保持 `package.json` / `manifest.json` 的 `1.9.1`。
-- ✅ **仅推自有 fork 的不变量未被违反**（本次无任何推送）。
+- ✅ **已执行授权内的 git 写操作**（commit / push / merge / 发版均经用户明确授权）：提交 `355c9ea` → `--no-ff` 合并至 main（PR #10 已合并）→ 打 `v1.9.2` 附注 tag 并推送触发双 CI。
+- ✅ **版本戳已升至 1.9.2**，六处同步点（`package.json` / `manifest.json` / `editor.js` / `editor.html` / `compare.js` / `compare.html`）一致。
+- ✅ **仅推自有 fork（origin `zhangweildlh`）**，未触 upstream（`yishu-ziyu`）。
 - ✅ 部署产物到 `D:\Tools\360Chrome\Chrome-Markdown-Edit` 属已授权本地动作；扩展经 `chrome.runtime.reload()` 重载验证新代码生效。
-- ⏸️ 任何对外动作（提交 / 开 PR / 发版）须经用户明确授权后执行。
+- ✅ **提交 / 开 PR / 发版均已完成**（用户授权）。
 
 ---
 

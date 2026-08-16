@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.2] - 2026-08-16（对照合并双模式重构 + 初始化期 confirm 死锁修复）
+
+> 对照/合并双模式重构，并修复初始化期阻塞式 confirm 导致的编辑器页死锁与对照页滚动同步失效。
+
+### 修复与重构
+- 修复编辑器页初始化期 `window.confirm` 阻塞主线程导致渲染进程死锁（误判 renderer 崩溃）→ 非阻塞页内弹窗
+- 修复对照页滚动同步误调用（compare.js 误调 `scrollSync.setEnabled` + 手动翻转 → 仅 `scrollSync.toggle()`）
+- 清除全部阻塞式 `window.confirm`：editor.js 快照恢复 / search-panel.js 工作区替换 → 非阻塞 `showConfirm`（新增 `confirm-dialog.js`）
+- 对照/合并双模式重构：compare.js / compare-merge.js / compare-files.js / io-bridge.js / compare.css / compare.html
+- 新增编辑器模块：scroll-sync / bracket-highlight / editor-extensions / editor-theme-base / path-ellipsis / save-poll
+- 测试：新增 confirm-dialog 等 5 个单测；`npm test` 455 通过 / 0 失败
+- 真机回归（CDP）：editor=53 / compare=21 / fatal=none，15 项断言全 true
+
 ## [1.9.1] - 2026-08-14（7 项 BUG 修复：预览实时渲染 / 栏宽收窄 / 跳转弹窗 / 返回按钮 / 激活栏选文件 / 采纳栏收窄 / 默认展开）
 
 > 维护性修补版本，不引入新功能，仅修复 v1.9.0 实测发现的 7 项交互缺陷。
