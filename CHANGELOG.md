@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [Unreleased]
+
+### 修复
+- 测试稳定性：加固 `tests/block-drag.test.js` 的 `parseBlocks`，将语法树完整等待的判据从「树长度」改为「块范围实际覆盖文档首尾」并提升重试上限，消除并行负载下偶发的 flaky（断言 `blocks.length >= 8` 失败）。
+
 ## [1.9.6] - 2026-08-17（10 项需求 + 需求A 死循环修复）
 
 > 实现 10 项用户需求并修复编辑区「选中多处相同字符串时高亮闪烁」的主线程死循环缺陷。
