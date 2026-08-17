@@ -168,7 +168,7 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       ...paneActiveExtension(),    // 活动栏跟踪（保留）
       // 需求7：任一栏文档变更 → 实时刷新大纲（缓存避免无谓重渲染；仅活动栏文档变化才生效）。
       EditorView.updateListener.of((u) => {
-        if (u.docChanged) updateOutlinePanel();
+        if (u.docChanged) scheduleOutlineUpdate();   // 节流：合并高频击键，避免每次按键都重解析语法树
       }),
     ];
   }
@@ -409,6 +409,16 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       el.addEventListener("click", () => scrollOutlineToPos(view, pos));
       outlineListEl.appendChild(el);
     }
+  }
+
+  /** docChanged 高频触发的合并渲染：用单次定时器合并连续击键，避免每次按键都重解析语法树（长文档卡顿）。 */
+  let outlineUpdateTimer = null;
+  function scheduleOutlineUpdate() {
+    if (outlineUpdateTimer) return;
+    outlineUpdateTimer = setTimeout(() => {
+      outlineUpdateTimer = null;
+      updateOutlinePanel();
+    }, 120);
   }
 
   /** 供外部（focus / onRefresh / docChanged / render）触发的统一入口。 */

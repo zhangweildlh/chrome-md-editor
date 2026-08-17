@@ -1643,6 +1643,8 @@ body {
 /* 需求 A：防御性规则——阻止任何未来主题在 .cm-selectionMatch 上引入 transition，
    避免高亮重绘时触发过渡重放造成闪烁（根因已排除 CSS 过渡，此处兜底）。 */
 .editor-container .cm-editor .cm-selectionMatch {
+  background-color: rgba(255,213,79,.4);
+  border-radius: 2px;
   transition: none !important;
 }
 
@@ -3512,7 +3514,7 @@ body {
 .cm-content .cm-md-heading-5 { background: var(--md-h3-bg); }
 .cm-content .cm-md-heading-6 { background: var(--md-h1-bg); }
 .cm-content .cm-md-quote-line { background: var(--md-quote-bg); }
-.cm-content .cm-md-fence-line { background: var(--md-fence-bg); }
+.cm-content .cm-md-fence-line { background: var(--md-editor-fence-bg); }
 
 /* 标记装饰（#、>、*、` 等标记符弱化显示，可选） */
 .cm-content .cm-md-marker { color: var(--text-secondary); opacity: .55; }

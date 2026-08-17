@@ -48,13 +48,13 @@ import { codeBlockLanguageCompletions } from './codeblock-complete.js';
 //       保留「高亮全部相同串」功能，仅消除闪烁。
 // ==========================================
 const SELECTION_MATCH_MAX = 100;
-const SELECTION_MATCH_MIN = 2;       // 与内置默认 minMatch 对齐，避免单字符满屏高亮
+const SELECTION_MATCH_MIN = 2;       // 刻意 > 内置默认 minSelectionLength(1)，避免单字符选区满屏高亮
 const SELECTION_MATCH_DEBOUNCE = 150; // ms，选区落定后的空闲阈值
 
 // 计时器派发事务用的注解：仅携带此注解的事务才触发重算，避免与正常事务耦合。
 const recomputeAnnotation = Annotation.define();
 
-function computeSelectionMatches(view, maxMatches) {
+export function computeSelectionMatches(view, maxMatches) {
   const sel = view.state.selection.main;
   const text = sel.empty ? '' : view.state.sliceDoc(sel.from, sel.to);
   if (!text || text.length < SELECTION_MATCH_MIN) return Decoration.set([], true);
@@ -69,8 +69,9 @@ function computeSelectionMatches(view, maxMatches) {
     while (idx !== -1) {
       const start = from + idx;
       const end = start + needle.length;
-      // 跳过「选中范围本身」，只装饰选区之外的相同串（与内置语义一致）。
-      if (!(start <= sel.from && end >= sel.to)) {
+      // 跳过与选区重叠的匹配，仅装饰选区之外的相同串（与内置语义一致，避免选区文本被重复高亮）。
+      // 关键：continue 前必须推进 idx，否则重叠匹配会触发死循环（主线程卡死，编辑器无响应）。
+      if (!(start < sel.to && end > sel.from)) {
         builder.push(Decoration.mark({ class: 'cm-selectionMatch' }).range(start, end));
         count++;
         if (count >= maxMatches) break;
@@ -108,6 +109,12 @@ const selectionMatchHighlighter = ViewPlugin.fromClass(
         this.decorations = Decoration.set([], true);
         this.lastQuery = null;
         this.schedule();
+        return;
+      }
+      // 仅视口滚动（选区/文档未变）：旧视口算出的高亮已失效，重算可见范围内的匹配（单次整体重算，无闪烁）。
+      if (update.viewportChanged) {
+        this.lastQuery = null;
+        this.recompute();
         return;
       }
       // 由本插件计时器派发的空闲事务：落定后一次性重算。

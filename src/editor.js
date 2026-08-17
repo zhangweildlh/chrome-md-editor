@@ -17,7 +17,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { search, searchKeymap, highlightSelectionMatches, openSearchPanel, setSearchQuery, closeSearchPanel, replaceNext, replaceAll, selectMatches, SearchQuery } from '@codemirror/search';
+import { search, searchKeymap, openSearchPanel, setSearchQuery, closeSearchPanel, replaceNext, replaceAll, selectMatches, SearchQuery } from '@codemirror/search';
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
@@ -172,8 +172,8 @@ import { getTaskItems, renderTaskList, setTaskEditor } from './tasklist-panel.js
 
 // Markdown 语法高亮（A+B 方案）：编辑区 class 驱动高亮 + 行底色（P2）、
 // 预览区 highlight.js 代码块高亮（P3）、多套配色令牌与切换（Phase 1/P4）。
-import { mdEditorHighlightExtensions } from './md-editor-highlight.js';
-import { createMarkdownHighlight } from './md-preview-highlight.js';
+import { mdEditorHighlightExtensions, EDITOR_SYNTAX_SCHEME_NAMES } from './md-editor-highlight.js';
+import { createMarkdownHighlight, PREVIEW_CODE_SCHEME_NAMES } from './md-preview-highlight.js';
 import { getColorScheme, setColorScheme, applyStoredColorScheme } from './md-theme-tokens.js';
 
 // ==========================================
@@ -2308,6 +2308,11 @@ function toggleTheme() {
   if (sel) sel.value = applied;
 
   syncThemeRuntime(getThemeKind(applied));
+
+  // 切主题后：若用户未显式选过方案，则把方案重置为对应当前主题可读的默认，
+  // 避免「切到暗色却仍用浅底方案」导致标题/代码不可读（F-HL1 运行时场景）。
+  if (!mdSchemeExplicit) applyMdSyntaxScheme(themeAppropriateMdScheme());
+  if (!codeSchemeExplicit) applyPreviewCodeScheme(themeAppropriateCodeScheme());
 }
 
 function updateThemeIcon() {
@@ -2325,8 +2330,10 @@ function updateThemeIcon() {
 // 各自独立 localStorage 键持久化；不触碰 data-theme / data-editor-theme。
 // 调色板由 md-editor-highlight.js / md-preview-highlight.js 按这两个 data 属性作用域生效。
 // ==========================================
-const MD_SYNTAX_SCHEMES = ['default', 'sepia', 'mono', 'contrast', 'pastel', 'solarized', 'github', 'nord'];
-const PREVIEW_CODE_SCHEMES = ['github', 'github-dark', 'atom-one-dark', 'solarized-light', 'monokai', 'vs2015', 'stackoverflow-light', 'xcode'];
+// 单一事实源：方案名直接复用高亮模块导出的权威清单，菜单 key 与 CSS 注入规则一一对应，
+// 杜绝「本地重复数组与模块键不同步 → 选中静默失效」（F-HL3 / F-CW3）。
+const MD_SYNTAX_SCHEMES = EDITOR_SYNTAX_SCHEME_NAMES;
+const PREVIEW_CODE_SCHEMES = PREVIEW_CODE_SCHEME_NAMES;
 const MD_SYNTAX_SCHEME_KEY = 'md-editor-md-syntax-scheme';
 const PREVIEW_CODE_SCHEME_KEY = 'md-editor-code-scheme';
 
@@ -2341,6 +2348,18 @@ const PREVIEW_CODE_SCHEME_LABELS = {
   'stackoverflow-light': 'Stack Overflow 亮', xcode: 'Xcode',
 };
 
+// 主题感知的默认方案（F-HL1）：避免「暗色主题 + 浅底取向方案」导致标题/代码不可读。
+// 仅在用户未显式选择时生效——显式选择始终优先，保持需求2「方案与主题解耦」的语义。
+// mdSchemeExplicit / codeSchemeExplicit 记录用户是否点选过（点选后即使切主题也不再自动改）。
+function themeAppropriateMdScheme() {
+  return getThemeKind(getStoredEditorTheme()) === 'dark' ? 'contrast' : 'default';
+}
+function themeAppropriateCodeScheme() {
+  return getThemeKind(getStoredEditorTheme()) === 'dark' ? 'github-dark' : 'github';
+}
+let mdSchemeExplicit = false;
+let codeSchemeExplicit = false;
+
 // 同时写到 documentElement 与 #editorMain（编辑器根节点），
 // 保证 md-editor-highlight.js / md-preview-highlight.js 不论把作用域锚定在
 // html 还是编辑器根容器上都能命中（与 data-theme 平行）。
@@ -2353,24 +2372,27 @@ function setSchemeAttr(name, value) {
 function getStoredMdSyntaxScheme() {
   try {
     const v = localStorage.getItem(MD_SYNTAX_SCHEME_KEY);
-    return MD_SYNTAX_SCHEMES.includes(v) ? v : 'default';
+    if (!v) return themeAppropriateMdScheme();          // 未选过 → 跟随主题明暗给可读默认
+    return MD_SYNTAX_SCHEMES.includes(v) ? v : themeAppropriateMdScheme();
   } catch {
-    return 'default';
+    return themeAppropriateMdScheme();
   }
 }
 
 function getStoredPreviewCodeScheme() {
   try {
     const v = localStorage.getItem(PREVIEW_CODE_SCHEME_KEY);
-    return PREVIEW_CODE_SCHEMES.includes(v) ? v : 'github';
+    if (!v) return themeAppropriateCodeScheme();
+    return PREVIEW_CODE_SCHEMES.includes(v) ? v : themeAppropriateCodeScheme();
   } catch {
-    return 'github';
+    return themeAppropriateCodeScheme();
   }
 }
 
 function applyMdSyntaxScheme(scheme) {
   if (!MD_SYNTAX_SCHEMES.includes(scheme)) scheme = 'default';
   setSchemeAttr('data-md-syntax-scheme', scheme);
+  mdSchemeExplicit = true;   // 用户点选 → 锁定，切主题不再自动改
   try { localStorage.setItem(MD_SYNTAX_SCHEME_KEY, scheme); } catch { /* 忽略 */ }
   markSchemeChoice();
 }
@@ -2378,6 +2400,7 @@ function applyMdSyntaxScheme(scheme) {
 function applyPreviewCodeScheme(scheme) {
   if (!PREVIEW_CODE_SCHEMES.includes(scheme)) scheme = 'github';
   setSchemeAttr('data-code-scheme', scheme);
+  codeSchemeExplicit = true;
   try { localStorage.setItem(PREVIEW_CODE_SCHEME_KEY, scheme); } catch { /* 忽略 */ }
   markSchemeChoice();
 }
@@ -2397,8 +2420,11 @@ function markSchemeChoice() {
 // 构建弹出菜单选项并接通点击。
 function initHighlightSchemes() {
   // 首屏：把已存储方案落到 DOM 属性（调色板据此作用域生效）。
+  // 未存储键 → getStored* 返回主题感知默认；已存储 → 视为用户显式选择，切主题不自动改。
   setSchemeAttr('data-md-syntax-scheme', getStoredMdSyntaxScheme());
   setSchemeAttr('data-code-scheme', getStoredPreviewCodeScheme());
+  try { mdSchemeExplicit = !!localStorage.getItem(MD_SYNTAX_SCHEME_KEY); } catch { mdSchemeExplicit = false; }
+  try { codeSchemeExplicit = !!localStorage.getItem(PREVIEW_CODE_SCHEME_KEY); } catch { codeSchemeExplicit = false; }
 
   const popover = document.getElementById('highlightSchemePopover');
   const btn = document.getElementById('btnHighlightScheme');

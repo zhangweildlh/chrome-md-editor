@@ -153,7 +153,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#cc6600', '--md-em-color': '#cc0099', '--md-link-color': '#0000cc',
         '--md-quote-color': '#333333',
         '--md-h1-bg': 'rgba(0,0,0,.10)', '--md-h2-bg': 'rgba(0,0,204,.08)', '--md-h3-bg': 'rgba(0,102,0,.08)',
-        '--md-quote-bg': 'rgba(0,0,0,.08)', '--md-code-bg': 'rgba(0,0,0,.10)', '--md-fence-bg': 'rgba(0,0,0,.08)',
+        '--md-quote-bg': 'rgba(0,0,0,.08)', '--md-code-bg': 'rgba(0,0,0,.10)', '--md-editor-fence-bg': 'rgba(0,0,0,.08)',
     },
     // sepia：暖棕/羊皮纸色调（深色墨水 + 低饱和暖底色）
     sepia: {
@@ -161,7 +161,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#a85a1f', '--md-em-color': '#a53d6b', '--md-link-color': '#8a5a2b',
         '--md-quote-color': '#7a6f5a',
         '--md-h1-bg': 'rgba(154,107,31,.08)', '--md-h2-bg': 'rgba(138,90,43,.07)', '--md-h3-bg': 'rgba(111,122,43,.07)',
-        '--md-quote-bg': 'rgba(122,111,90,.10)', '--md-code-bg': 'rgba(122,111,90,.12)', '--md-fence-bg': 'rgba(122,111,90,.08)',
+        '--md-quote-bg': 'rgba(122,111,90,.10)', '--md-code-bg': 'rgba(122,111,90,.12)', '--md-editor-fence-bg': 'rgba(122,111,90,.08)',
     },
     // mono：纯灰度（所有标题/链接均为不同明度的灰黑，无彩色）
     mono: {
@@ -169,7 +169,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#000000', '--md-em-color': '#444444', '--md-link-color': '#1a1a1a',
         '--md-quote-color': '#555555',
         '--md-h1-bg': 'rgba(0,0,0,.14)', '--md-h2-bg': 'rgba(0,0,0,.10)', '--md-h3-bg': 'rgba(0,0,0,.07)',
-        '--md-quote-bg': 'rgba(0,0,0,.10)', '--md-code-bg': 'rgba(0,0,0,.12)', '--md-fence-bg': 'rgba(0,0,0,.08)',
+        '--md-quote-bg': 'rgba(0,0,0,.10)', '--md-code-bg': 'rgba(0,0,0,.12)', '--md-editor-fence-bg': 'rgba(0,0,0,.08)',
     },
     // contrast：暗底高对比霓虹（白/青/绿/橙/品红，强发光感）
     contrast: {
@@ -177,7 +177,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#ffaa00', '--md-em-color': '#ff55ff', '--md-link-color': '#00bfff',
         '--md-quote-color': '#dddddd',
         '--md-h1-bg': 'rgba(255,255,255,.18)', '--md-h2-bg': 'rgba(0,255,255,.12)', '--md-h3-bg': 'rgba(0,255,0,.10)',
-        '--md-quote-bg': 'rgba(255,255,255,.12)', '--md-code-bg': 'rgba(255,255,255,.14)', '--md-fence-bg': 'rgba(255,255,255,.12)',
+        '--md-quote-bg': 'rgba(255,255,255,.12)', '--md-code-bg': 'rgba(255,255,255,.14)', '--md-editor-fence-bg': 'rgba(255,255,255,.12)',
     },
     // pastel：柔彩（低饱和粉彩，适合护眼浅底）
     pastel: {
@@ -185,7 +185,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#f78c6c', '--md-em-color': '#ff9ccd', '--md-link-color': '#82aaff',
         '--md-quote-color': '#9aa3ad',
         '--md-h1-bg': 'rgba(199,146,234,.14)', '--md-h2-bg': 'rgba(130,170,255,.14)', '--md-h3-bg': 'rgba(195,232,138,.14)',
-        '--md-quote-bg': 'rgba(154,163,173,.14)', '--md-code-bg': 'rgba(154,163,173,.16)', '--md-fence-bg': 'rgba(154,163,173,.12)',
+        '--md-quote-bg': 'rgba(154,163,173,.14)', '--md-code-bg': 'rgba(154,163,173,.16)', '--md-editor-fence-bg': 'rgba(154,163,173,.12)',
     },
     // solarized：Solarized Light 调色板（蓝/青/绿/橙/品红/蓝灰）
     solarized: {
@@ -193,7 +193,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#cb4b16', '--md-em-color': '#d33682', '--md-link-color': '#268bd2',
         '--md-quote-color': '#657b83',
         '--md-h1-bg': 'rgba(38,139,210,.10)', '--md-h2-bg': 'rgba(42,161,152,.10)', '--md-h3-bg': 'rgba(133,153,0,.10)',
-        '--md-quote-bg': 'rgba(101,123,131,.12)', '--md-code-bg': 'rgba(101,123,131,.14)', '--md-fence-bg': 'rgba(101,123,131,.12)',
+        '--md-quote-bg': 'rgba(101,123,131,.12)', '--md-code-bg': 'rgba(101,123,131,.14)', '--md-editor-fence-bg': 'rgba(101,123,131,.12)',
     },
     // github：GitHub Light 语法配色（紫/蓝/青绿/橙/品红）
     github: {
@@ -201,7 +201,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#bc4c00', '--md-em-color': '#bf3989', '--md-link-color': '#0969da',
         '--md-quote-color': '#57606a',
         '--md-h1-bg': 'rgba(130,80,223,.08)', '--md-h2-bg': 'rgba(9,105,218,.07)', '--md-h3-bg': 'rgba(10,125,107,.07)',
-        '--md-quote-bg': 'rgba(87,96,106,.10)', '--md-code-bg': 'rgba(135,131,120,.12)', '--md-fence-bg': 'rgba(135,131,120,.10)',
+        '--md-quote-bg': 'rgba(87,96,106,.10)', '--md-code-bg': 'rgba(135,131,120,.12)', '--md-editor-fence-bg': 'rgba(135,131,120,.10)',
     },
     // nord：Nord 调色板（极光/霜色，适配浅或中明度背景）
     nord: {
@@ -209,7 +209,7 @@ export const EDITOR_SYNTAX_SCHEMES = {
         '--md-strong-color': '#d08770', '--md-em-color': '#b48ead', '--md-link-color': '#5e81ac',
         '--md-quote-color': '#4c566a',
         '--md-h1-bg': 'rgba(94,129,172,.12)', '--md-h2-bg': 'rgba(136,192,208,.12)', '--md-h3-bg': 'rgba(163,190,140,.12)',
-        '--md-quote-bg': 'rgba(76,86,106,.12)', '--md-code-bg': 'rgba(76,86,106,.14)', '--md-fence-bg': 'rgba(76,86,106,.12)',
+        '--md-quote-bg': 'rgba(76,86,106,.12)', '--md-code-bg': 'rgba(76,86,106,.14)', '--md-editor-fence-bg': 'rgba(76,86,106,.12)',
     },
 };
 

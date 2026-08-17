@@ -106,8 +106,8 @@ export { mdEscape };
 // 变量清单（与 editor.css:3460-3493 对应，受本调色板控制）：
 //   --code-keyword --code-string --code-comment --code-number
 //   --code-function --code-tag   （hljs token 文本色）
-//   --md-fence-bg                （代码块底色，预览区自身语境；与编辑区
-//                                  --md-fence-bg 作用域互不相干）
+//   --md-fence-bg                （代码块底色，预览区自身语境；编辑区同名变量已改名
+//                                  --md-editor-fence-bg，二者不再冲突）
 // （--text-primary 等为基础文本色，由主题驱动，不纳入方案，保持与主题正交。）
 //
 // 方案名与主界面「高亮方案选择」按钮约定一致，一字不差：
