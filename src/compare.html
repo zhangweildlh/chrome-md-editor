@@ -31,8 +31,11 @@
         <div class="toolbar-group compare-view-group">
           <button class="compare-toolbar-btn" id="btnColToggle" title="切换对照模式的栏数（两栏 / 三栏）">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>三栏</button>
-          <button class="compare-toolbar-btn" id="btnToggleLocationPane" title="显示 / 隐藏右侧位置概览（差异缩略图 + 大纲，快捷键 L）">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>概览</button>
+          <button class="compare-toolbar-btn" id="btnToggleLocationPane" title="显示 / 隐藏右侧差异导航线（点击跳到下一处差异，快捷键 L）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>差异</button>
+          <!-- 需求7：独立「大纲面板」按钮，式样对齐主界面 #outlinePanel；点击显示/隐藏对比页大纲，内容随激活栏实时切换 -->
+          <button class="compare-toolbar-btn" id="btnToggleOutline" title="显示 / 隐藏大纲面板（大纲随激活栏实时切换）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>大纲</button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -127,6 +130,17 @@
              若把标题栏直接放进去会被排成第四列。而 #viewTwo / #viewThree 在三栏下会被
              compare-merge.js 加上 .compare-three-layout（flex-direction:row !important），
              标题栏也不能塞进视图容器内部，否则会被排到编辑器左边。 -->
+        <!-- 需求7：独立大纲面板（docked，式样对齐主界面 #outlinePanel，复用 editor.css 的
+             .side-panel / .side-panel-docked / .outline-item）。内容由 compare.js 渲染，
+             随激活的 MergeView 栏实时切换（左栏→文件一、中栏→合并结果、右栏→文件三）。
+             可见性由 .open 类控制（与 .side-panel 约定一致）。 -->
+        <aside class="side-panel side-panel-docked" id="outlinePanel">
+          <div class="side-panel-header">
+            <span>大纲</span>
+            <button class="side-panel-close" id="outlineClose" title="关闭大纲面板" aria-label="关闭大纲面板">✕</button>
+          </div>
+          <div class="side-panel-body" id="outlineList"></div>
+        </aside>
         <div class="compare-panes" id="comparePanes">
           <!-- per-pane 标题栏：勾选框 + 标题 + 关闭按钮，栏数与标题由 compare.js 按模式动态设置 -->
           <div class="compare-view-header" id="compareViewHeader" hidden>
@@ -151,7 +165,10 @@
                均由 compare-merge.js 在 createCompareMergeView 内按序追加；两栏下整体 hidden。 -->
           <div class="compare-view compare-view-three" id="viewThree" hidden></div>
         </div>
-        <!-- 概览侧栏拖拽分隔条：拖动调整差异概览宽度（与编辑/预览分隔条一致的交互） -->
+        <!-- 概览侧栏拖拽分隔条：原为拖动调整差异概览宽度；需求8 下差异概览已退化为最右侧细线，
+             不再可拖拽调整，故本分隔条恒 hidden（见 compare.js mountLocationPane）。 -->
+        <!-- 差异导航线：需求8 后 #locationPane 退化为最右侧一条可点击的粗竖线，点击跳到下一处差异。
+             内部由 location-pane.js 渲染 .lp-diff-line 装饰；不再含缩略图详情。 -->
         <div
           class="compare-lp-resizer"
           id="locationPaneResizer"
