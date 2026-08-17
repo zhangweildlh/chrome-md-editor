@@ -970,9 +970,9 @@ class BlockDragViewPlugin {
 const blockDragTheme = EditorView.theme({
   ".cm-markra-block-toolbar": {
     display: "inline-flex",
-    gap: "0.15em",
-    marginInlineStart: "-1.4em",
-    marginInlineEnd: "0.45em",
+    gap: "0.12em",
+    marginInlineStart: "-1.12em",
+    marginInlineEnd: "0.36em",
     opacity: "0.15",
     verticalAlign: "middle",
   },
@@ -991,12 +991,12 @@ const blockDragTheme = EditorView.theme({
   },
   ".markra-block-drag-dot": {
     display: "inline-block",
-    width: "0.18em",
-    height: "0.18em",
+    width: "0.144em",
+    height: "0.144em",
     borderRadius: "50%",
     background: "currentColor",
     opacity: "0.7",
-    margin: "0 0.04em",
+    margin: "0 0.032em",
   },
   // 选区手柄用 width:0 的 relative 外壳 + absolute 按钮，完全不占 inline 宽度，
   // 出现/消失时正文不会左右跳动。

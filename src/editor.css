@@ -1364,6 +1364,55 @@ body {
   display: none;
 }
 
+/* 需求 2：高亮方案弹出菜单（编辑区语法高亮 / 预览区代码着色） */
+.scheme-section + .scheme-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+.scheme-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+.scheme-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scheme-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.scheme-option:hover {
+  background: var(--bg-hover);
+}
+.scheme-option.selected {
+  background: var(--bg-active);
+  color: var(--accent);
+  font-weight: 600;
+}
+.scheme-option .scheme-check {
+  visibility: hidden;
+  flex: none;
+}
+.scheme-option.selected .scheme-check {
+  visibility: visible;
+}
+
 .swatch-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1526,12 +1575,15 @@ body {
 }
 
 .editor-container .cm-editor   .cm-content {
-    /* 左内边距 1.8em 是块拖拽手柄的预留槽位（用户反馈需收窄 50%）：
-       块工具栏（+ / 拖拽手柄）用 margin-inline-start:-1.4em 挂在行首左侧，
-       1.8em - 1.4em = 0.4em，手柄恰好露在 .cm-gutters 右缘之外、可点中。
-       若进一步压到 20px，工具栏会被拉进 .cm-gutters（sticky + z-index:200）下方而失效。
-       用 em 而非 px，保证「显示设置 → 编辑器字号」改变时槽位同比缩放。 */
-    padding: 16px 20px 16px 1.8em;
+    /* 需求 6：消除 gutter 与块拖拽手柄间的 ~0.4em 预留槽位。
+       块工具栏用 margin-inline-start:-1.12em 挂在行首左侧（见 block-drag.js，已收窄 20%），
+       此处左内边距同步压到 1.12em，使 1.12em - 1.12em = 0，手柄正好贴合 gutter 右缘、无留白。
+       用 em 而非 px，保证「显示设置 → 编辑器字号」改变时槽位同比缩放。
+       z-index:201 提升内容层到 sticky gutter(z-index:200) 之上，消除两者的层叠间隙，
+       使落在 gutter 上方的手柄区仍可被点中（用户已批准）。 */
+    padding: 16px 20px 16px 1.12em;
+    position: relative;
+    z-index: 201;
   }
 
   .editor-container .cm-editor .cm-gutters {
@@ -1586,6 +1638,12 @@ body {
 
 .editor-container .cm-editor.cm-focused .cm-selectionBackground {
   background: rgba(88,166,255,.3) !important;
+}
+
+/* 需求 A：防御性规则——阻止任何未来主题在 .cm-selectionMatch 上引入 transition，
+   避免高亮重绘时触发过渡重放造成闪烁（根因已排除 CSS 过渡，此处兜底）。 */
+.editor-container .cm-editor .cm-selectionMatch {
+  transition: none !important;
 }
 
 /* Preview Container */
@@ -2343,6 +2401,11 @@ body {
 .sidebar-action-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.sidebar-action-btn.active {
+  background: var(--bg-active);
+  color: var(--accent);
 }
 
 .sidebar-content {
