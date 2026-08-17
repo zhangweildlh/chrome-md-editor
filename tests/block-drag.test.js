@@ -42,15 +42,24 @@ const SAMPLE = [
 
 function parseBlocks(doc) {
   const state = EditorState.create({ doc, extensions: [markdown()] });
-  // 强制同步完整解析，否则并行负载下语法树可能未完全展开（顶部节点缺失）。
-  // 多次 ensure 兜底：确保树覆盖整篇文档后再取块范围。
-  let guard = 0;
-  while (guard < 5) {
-    const tree = ensureSyntaxTree(state, doc.length, 1e9);
-    if (tree && tree.length >= doc.length) break;
-    guard += 1;
+  // 并行负载下语法树可能未完全展开（顶部节点缺失），仅靠树长度判据不够稳：
+  // 须确认 readCodeMirrorBlockRanges 实际返回的块真正覆盖文档首尾，才算解析完整。
+  // 提高 guard 上限并循环 ensure，直到块范围覆盖整篇文档或达到上限。
+  let blocks = readCodeMirrorBlockRanges(state);
+  for (let guard = 0; guard < 30; guard += 1) {
+    ensureSyntaxTree(state, doc.length, 1e9);
+    const next = readCodeMirrorBlockRanges(state);
+    const coversFull =
+      next.length > 0 &&
+      next[0].from === 0 &&
+      next[next.length - 1].to >= doc.length - 1;
+    if (coversFull) {
+      blocks = next;
+      break;
+    }
+    if (next.length >= blocks.length) blocks = next;
   }
-  return readCodeMirrorBlockRanges(state);
+  return blocks;
 }
 
 // ─── readCodeMirrorBlockRanges：多块解析 ──────────────────────────────────────
