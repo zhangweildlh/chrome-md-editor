@@ -17,7 +17,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { search, searchKeymap, highlightSelectionMatches, openSearchPanel, setSearchQuery, closeSearchPanel, replaceNext, replaceAll, selectMatches, SearchQuery } from '@codemirror/search';
+import { search, searchKeymap, openSearchPanel, setSearchQuery, closeSearchPanel, replaceNext, replaceAll, selectMatches, SearchQuery } from '@codemirror/search';
 import { lintKeymap } from '@codemirror/lint';
 import MarkdownIt from 'markdown-it';
 import mermaid from 'mermaid';
@@ -172,8 +172,8 @@ import { getTaskItems, renderTaskList, setTaskEditor } from './tasklist-panel.js
 
 // Markdown 语法高亮（A+B 方案）：编辑区 class 驱动高亮 + 行底色（P2）、
 // 预览区 highlight.js 代码块高亮（P3）、多套配色令牌与切换（Phase 1/P4）。
-import { mdEditorHighlightExtensions } from './md-editor-highlight.js';
-import { createMarkdownHighlight } from './md-preview-highlight.js';
+import { mdEditorHighlightExtensions, EDITOR_SYNTAX_SCHEME_NAMES } from './md-editor-highlight.js';
+import { createMarkdownHighlight, PREVIEW_CODE_SCHEME_NAMES } from './md-preview-highlight.js';
 import { getColorScheme, setColorScheme, applyStoredColorScheme } from './md-theme-tokens.js';
 
 // ==========================================
@@ -2308,6 +2308,11 @@ function toggleTheme() {
   if (sel) sel.value = applied;
 
   syncThemeRuntime(getThemeKind(applied));
+
+  // 切主题后：若用户未显式选过方案，则把方案重置为对应当前主题可读的默认，
+  // 避免「切到暗色却仍用浅底方案」导致标题/代码不可读（F-HL1 运行时场景）。
+  if (!mdSchemeExplicit) applyMdSyntaxScheme(themeAppropriateMdScheme());
+  if (!codeSchemeExplicit) applyPreviewCodeScheme(themeAppropriateCodeScheme());
 }
 
 function updateThemeIcon() {
@@ -2316,6 +2321,165 @@ function updateThemeIcon() {
     icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
   } else {
     icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+  }
+}
+
+// ==========================================
+// 需求 2：高亮方案选择（编辑区语法高亮 / 预览区代码着色）
+// 与主题方案完全解耦：两个独立 DOM 属性（data-md-syntax-scheme / data-code-scheme）
+// 各自独立 localStorage 键持久化；不触碰 data-theme / data-editor-theme。
+// 调色板由 md-editor-highlight.js / md-preview-highlight.js 按这两个 data 属性作用域生效。
+// ==========================================
+// 单一事实源：方案名直接复用高亮模块导出的权威清单，菜单 key 与 CSS 注入规则一一对应，
+// 杜绝「本地重复数组与模块键不同步 → 选中静默失效」（F-HL3 / F-CW3）。
+const MD_SYNTAX_SCHEMES = EDITOR_SYNTAX_SCHEME_NAMES;
+const PREVIEW_CODE_SCHEMES = PREVIEW_CODE_SCHEME_NAMES;
+const MD_SYNTAX_SCHEME_KEY = 'md-editor-md-syntax-scheme';
+const PREVIEW_CODE_SCHEME_KEY = 'md-editor-code-scheme';
+
+// 中文展示名（菜单项简洁清晰）。
+const MD_SYNTAX_SCHEME_LABELS = {
+  default: '默认', sepia: '护眼棕', mono: '单色', contrast: '高对比',
+  pastel: '柔和', solarized: 'Solarized', github: 'GitHub', nord: 'Nord',
+};
+const PREVIEW_CODE_SCHEME_LABELS = {
+  github: 'GitHub', 'github-dark': 'GitHub 暗', 'atom-one-dark': 'Atom 暗',
+  'solarized-light': 'Solarized 亮', monokai: 'Monokai', 'vs2015': 'VS2015',
+  'stackoverflow-light': 'Stack Overflow 亮', xcode: 'Xcode',
+};
+
+// 主题感知的默认方案（F-HL1）：避免「暗色主题 + 浅底取向方案」导致标题/代码不可读。
+// 仅在用户未显式选择时生效——显式选择始终优先，保持需求2「方案与主题解耦」的语义。
+// mdSchemeExplicit / codeSchemeExplicit 记录用户是否点选过（点选后即使切主题也不再自动改）。
+function themeAppropriateMdScheme() {
+  return getThemeKind(getStoredEditorTheme()) === 'dark' ? 'contrast' : 'default';
+}
+function themeAppropriateCodeScheme() {
+  return getThemeKind(getStoredEditorTheme()) === 'dark' ? 'github-dark' : 'github';
+}
+let mdSchemeExplicit = false;
+let codeSchemeExplicit = false;
+
+// 同时写到 documentElement 与 #editorMain（编辑器根节点），
+// 保证 md-editor-highlight.js / md-preview-highlight.js 不论把作用域锚定在
+// html 还是编辑器根容器上都能命中（与 data-theme 平行）。
+function setSchemeAttr(name, value) {
+  document.documentElement.setAttribute(name, value);
+  const root = document.getElementById('editorMain');
+  if (root) root.setAttribute(name, value);
+}
+
+function getStoredMdSyntaxScheme() {
+  try {
+    const v = localStorage.getItem(MD_SYNTAX_SCHEME_KEY);
+    if (!v) return themeAppropriateMdScheme();          // 未选过 → 跟随主题明暗给可读默认
+    return MD_SYNTAX_SCHEMES.includes(v) ? v : themeAppropriateMdScheme();
+  } catch {
+    return themeAppropriateMdScheme();
+  }
+}
+
+function getStoredPreviewCodeScheme() {
+  try {
+    const v = localStorage.getItem(PREVIEW_CODE_SCHEME_KEY);
+    if (!v) return themeAppropriateCodeScheme();
+    return PREVIEW_CODE_SCHEMES.includes(v) ? v : themeAppropriateCodeScheme();
+  } catch {
+    return themeAppropriateCodeScheme();
+  }
+}
+
+function applyMdSyntaxScheme(scheme) {
+  if (!MD_SYNTAX_SCHEMES.includes(scheme)) scheme = 'default';
+  setSchemeAttr('data-md-syntax-scheme', scheme);
+  mdSchemeExplicit = true;   // 用户点选 → 锁定，切主题不再自动改
+  try { localStorage.setItem(MD_SYNTAX_SCHEME_KEY, scheme); } catch { /* 忽略 */ }
+  markSchemeChoice();
+}
+
+function applyPreviewCodeScheme(scheme) {
+  if (!PREVIEW_CODE_SCHEMES.includes(scheme)) scheme = 'github';
+  setSchemeAttr('data-code-scheme', scheme);
+  codeSchemeExplicit = true;
+  try { localStorage.setItem(PREVIEW_CODE_SCHEME_KEY, scheme); } catch { /* 忽略 */ }
+  markSchemeChoice();
+}
+
+// 高亮弹出菜单中当前选中的方案项。
+function markSchemeChoice() {
+  const curMd = getStoredMdSyntaxScheme();
+  const curCode = getStoredPreviewCodeScheme();
+  const mdBox = document.getElementById('editorSchemeOptions');
+  const codeBox = document.getElementById('previewSchemeOptions');
+  if (mdBox) mdBox.querySelectorAll('.scheme-option').forEach((el) =>
+    el.classList.toggle('selected', el.dataset.scheme === curMd));
+  if (codeBox) codeBox.querySelectorAll('.scheme-option').forEach((el) =>
+    el.classList.toggle('selected', el.dataset.scheme === curCode));
+}
+
+// 构建弹出菜单选项并接通点击。
+function initHighlightSchemes() {
+  // 首屏：把已存储方案落到 DOM 属性（调色板据此作用域生效）。
+  // 未存储键 → getStored* 返回主题感知默认；已存储 → 视为用户显式选择，切主题不自动改。
+  setSchemeAttr('data-md-syntax-scheme', getStoredMdSyntaxScheme());
+  setSchemeAttr('data-code-scheme', getStoredPreviewCodeScheme());
+  try { mdSchemeExplicit = !!localStorage.getItem(MD_SYNTAX_SCHEME_KEY); } catch { mdSchemeExplicit = false; }
+  try { codeSchemeExplicit = !!localStorage.getItem(PREVIEW_CODE_SCHEME_KEY); } catch { codeSchemeExplicit = false; }
+
+  const popover = document.getElementById('highlightSchemePopover');
+  const btn = document.getElementById('btnHighlightScheme');
+  const mdBox = document.getElementById('editorSchemeOptions');
+  const codeBox = document.getElementById('previewSchemeOptions');
+
+  function buildOptions(box, schemes, labels, onPick) {
+    if (!box) return;
+    box.textContent = '';
+    for (const id of schemes) {
+      const opt = document.createElement('button');
+      opt.type = 'button';
+      opt.className = 'scheme-option';
+      opt.dataset.scheme = id;
+      const label = document.createElement('span');
+      label.textContent = labels[id] || id;
+      const check = document.createElement('span');
+      check.className = 'scheme-check';
+      check.textContent = '✓';
+      opt.appendChild(label);
+      opt.appendChild(check);
+      opt.addEventListener('mousedown', (e) => e.preventDefault()); // 保住编辑器选区
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onPick(id);
+        // 不自动关闭，便于在组内快速切换对比
+      });
+      box.appendChild(opt);
+    }
+  }
+
+  buildOptions(mdBox, MD_SYNTAX_SCHEMES, MD_SYNTAX_SCHEME_LABELS, applyMdSyntaxScheme);
+  buildOptions(codeBox, PREVIEW_CODE_SCHEMES, PREVIEW_CODE_SCHEME_LABELS, applyPreviewCodeScheme);
+  markSchemeChoice();
+
+  if (btn && popover) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willShow = popover.hidden;
+      // 复用既有「关闭其它样式弹窗」逻辑：直接隐藏本页所有 style-popover。
+      document.querySelectorAll('.style-popover:not([hidden])').forEach((p) => { if (p !== popover) p.hidden = true; });
+      popover.hidden = !willShow;
+      if (!popover.hidden) {
+        positionStylePopover(btn, popover);
+        markSchemeChoice();
+      }
+    });
+    // 点击空白 / Esc 关闭（与颜色、字号弹窗一致）。
+    document.addEventListener('click', (e) => {
+      if (!popover.hidden && !popover.contains(e.target) && e.target !== btn) popover.hidden = true;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') popover.hidden = true;
+    });
+    window.addEventListener('resize', () => { popover.hidden = true; });
   }
 }
 
@@ -2618,7 +2782,7 @@ function initScrollSync() {
       const btnScrollSync = document.getElementById('btnScroll');
       if (btnScrollSync) {
         btnScrollSync.classList.toggle('active', v);
-        btnScrollSync.title = '滚动同步：' + (v ? '开' : '关');
+        btnScrollSync.title = '同步：' + (v ? '开' : '关');
       }
     },
     onMisalign: () => { /* 编辑页默认静默对齐，无需弹窗 */ },
@@ -2629,7 +2793,7 @@ function initScrollSync() {
   const btnScrollInit = document.getElementById('btnScroll');
   if (btnScrollInit) {
     btnScrollInit.classList.toggle('active', scrollSyncEnabled);
-    btnScrollInit.title = '滚动同步：' + (scrollSyncEnabled ? '开' : '关');
+    btnScrollInit.title = '同步：' + (scrollSyncEnabled ? '开' : '关');
   }
 }
 
@@ -3378,6 +3542,10 @@ function blobToDataUrl(blob) {
 export let directoryHandle = null;
 let isSidebarCollapsed = localStorage.getItem('md-sidebar-collapsed') === 'true';
 
+// 需求 4：文件浏览器「扁平聚集」模式开关（仅列 MD/TXT，单层），持久化。
+const FILE_TREE_FLAT_KEY = 'md-editor-file-tree-flat';
+let flatTreeViewEnabled = false;
+
 async function handleOpenFolder() {
     try {
     directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -3400,7 +3568,8 @@ async function readDirectoryRecursive(dirHandle, depth = 0, parentPath = '') {
     const entryPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
     if (entry.kind === 'directory') {
-      const children = depth < 5 ? await readDirectoryRecursive(entry, depth + 1, entryPath) : [];
+      // 需求 4：递归深度上限由 5 放宽到 8，支持更深的目录结构。
+      const children = depth < 8 ? await readDirectoryRecursive(entry, depth + 1, entryPath) : [];
       entries.push({ name: entry.name, kind: 'directory', handle: entry, path: entryPath, children });
     } else {
       entries.push({ name: entry.name, kind: 'file', handle: entry, path: entryPath });
@@ -3441,6 +3610,12 @@ async function renderFileTree() {
   try {
     const entries = await readDirectoryRecursive(directoryHandle);
     container.innerHTML = '';
+
+    // 需求 4：扁平「聚集」模式——仅列 Markdown / TXT，不嵌套、隐藏文件夹与其他文件。
+    if (flatTreeViewEnabled) {
+      renderFlatFileList(container, entries);
+      return;
+    }
 
     // 根目录标题
     const rootDiv = document.createElement('div');
@@ -3542,6 +3717,37 @@ function renderFileNode(parent, entry, depth) {
   parent.appendChild(itemDiv);
 }
 
+// 需求 4：把目录树（含嵌套）递归收集为「仅 Markdown / TXT 文件」的扁平列表。
+function collectMdTxtFiles(entries, out) {
+  for (const e of entries) {
+    if (e.kind === 'directory') {
+      if (e.children && e.children.length) collectMdTxtFiles(e.children, out);
+    } else if (/\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(e.name)) {
+      out.push(e);
+    }
+  }
+}
+
+// 需求 4：扁平「聚集」渲染——复用 renderFileNode 渲染单层文件列表（不建目录节点）。
+function renderFlatFileList(container, entries) {
+  const files = [];
+  collectMdTxtFiles(entries, files);
+
+  if (files.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:12px;color:var(--text-muted);font-size:12px;text-align:center;';
+    empty.textContent = '未找到 Markdown / TXT 文件';
+    container.appendChild(empty);
+    return;
+  }
+
+  // 按完整路径排序，保持可预期的次序。
+  files.sort((a, b) => String(a.path).localeCompare(String(b.path), 'zh'));
+  for (const f of files) {
+    renderFileNode(container, f, 0);
+  }
+}
+
 async function openFileFromTree(fileHandle, filename, relativePath) {
   try {
     if (isModified) {
@@ -3626,6 +3832,25 @@ function initFileSidebar() {
 
   // 收起侧边栏
   document.getElementById('btnCollapseSidebar').addEventListener('click', () => toggleSidebar(true));
+
+  // 需求 4：扁平「聚集」模式切换（仅列 MD/TXT，单层列表 ↔ 完整目录树）。
+  const btnToggleFlat = document.getElementById('btnToggleFlat');
+  if (btnToggleFlat) {
+    try { flatTreeViewEnabled = localStorage.getItem(FILE_TREE_FLAT_KEY) === '1'; } catch { /* 忽略 */ }
+    btnToggleFlat.classList.toggle('active', flatTreeViewEnabled);
+    btnToggleFlat.title = flatTreeViewEnabled
+      ? '恢复完整目录树'
+      : '扁平聚集：仅列 Markdown / TXT 文件并展开为单层列表';
+    btnToggleFlat.addEventListener('click', async () => {
+      flatTreeViewEnabled = !flatTreeViewEnabled;
+      try { localStorage.setItem(FILE_TREE_FLAT_KEY, flatTreeViewEnabled ? '1' : '0'); } catch { /* 忽略 */ }
+      btnToggleFlat.classList.toggle('active', flatTreeViewEnabled);
+      btnToggleFlat.title = flatTreeViewEnabled
+        ? '恢复完整目录树'
+        : '扁平聚集：仅列 Markdown / TXT 文件并展开为单层列表';
+      if (directoryHandle) await renderFileTree();
+    });
+  }
 
   // 添加侧边栏展开的 toggle bar
   const editorMain = document.getElementById('editorMain');
@@ -3793,6 +4018,7 @@ function init() {
   // —— markra 移植功能启动接线（集中此处，避免各分支在标记处冲突）——
   applyEditorThemePreset(getStoredEditorTheme());   // 默认豆沙绿(亮) / 已存主题
   applyViewMode(getStoredViewMode());               // 视图模式（日常/专注/沉浸/全显）
+  initHighlightSchemes();                            // 需求 2：高亮方案选择（与主题解耦）
   requestAnimationFrame(() => editor.requestMeasure());
   // 主题下拉绑定：传入回调，使「下拉换预设」也同步 CM6 明暗扩展 / mermaid / 主题图标，
   // 与 #btnTheme 明暗切换走同一条运行时同步路径（修复 THM-01 的反向不一致）。

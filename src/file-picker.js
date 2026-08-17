@@ -4,8 +4,11 @@
 // Picker 且无降级，非 Chromium 环境会静默失败）。
 
 const MD_OPEN_TYPES = [{
-  description: 'Markdown 文件',
-  accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.mkdn'] },
+  description: 'Markdown / 文本 文件',
+  accept: {
+    'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.mkdn'],
+    'text/plain': ['.txt'],
+  },
 }];
 
 const MD_SAVE_TYPES = [{
@@ -35,7 +38,7 @@ export async function openFileViaPicker() {
     }
   }
 
-  const file = await pickFileViaInput('.md,.markdown,.mdown,.mkd,.mkdn,text/markdown');
+  const file = await pickFileViaInput('.md,.markdown,.mdown,.mkd,.mkdn,text/markdown,.txt,text/plain');
   return { handle: null, file };
 }
 

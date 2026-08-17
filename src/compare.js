@@ -53,6 +53,11 @@ import {
 } from "./compare/pane-active.js";
 // 位置概览侧栏（第三期）：差异缩略条 + 移动连线 + 文档大纲
 import { createLocationPane } from "./compare/location-pane.js";
+// 需求7：大纲面板基于语法树提取标题（主界面 outline.js 的 getOutlineItems），
+// 复用同一套 Markdown 标题解析；ensureSyntaxTree 补齐惰性解析的语法树。
+import { getOutlineItems } from "./outline.js";
+import { ensureSyntaxTree } from "@codemirror/language";
+import { EditorView } from "@codemirror/view";
 // 主题同步复用主编辑器的权威函数，保证对比页 data-theme/data-editor-theme/data-skin
 // 与「编辑器主题预设 kind」完全一致（而非 light/dark 开关键），缺省回退默认预设/经典配色。
 import {
@@ -118,6 +123,21 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   })();
 
+  // ── 大纲面板（需求7）：独立 #outlinePanel，随激活的 MergeView 栏实时切换 ──
+  const OUTLINE_PANE_KEY = "md-compare-outline-pane";
+  // 默认开启：与原「位置概览侧栏」默认可见保持一致，首次进入即能直接看到大纲。
+  let outlineVisible = (() => {
+    try {
+      return localStorage.getItem(OUTLINE_PANE_KEY) !== "0";
+    } catch (_) {
+      return true;
+    }
+  })();
+  /** 上次渲染大纲时的 doc（CM 的 Text 不可变，引用相等即内容未变）；同源缓存判据，避免频繁重渲染。 */
+  let lastOutlineDoc = null;
+  /** 上次渲染大纲时对应的栏键（'a'/'b'/'c'）；栏切换时强制重渲染。 */
+  let lastOutlinePaneKey = null;
+
   // ── 主题同步：复用主编辑器的权威主题应用函数，使对比页与主 UI 主题/配色/皮肤完全一致（修复已知问题4）──
   // 关键事实：主编辑器 data-theme 由「编辑器主题预设的 kind」决定（editor.js:2178 → applyEditorThemePreset，
   // 其内部 data-theme = kind==='dark'?'dark':'light'），而非 light/dark 开关键；且 data-editor-theme /
@@ -146,6 +166,10 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       ...createEditorExtensions({ theme: currentTheme }), // 替换原 markdown()+lineWrapping 裸装
       applyCompareLineMarkers(),   // diff 行标记（对照/合并专属，保留）
       ...paneActiveExtension(),    // 活动栏跟踪（保留）
+      // 需求7：任一栏文档变更 → 实时刷新大纲（缓存避免无谓重渲染；仅活动栏文档变化才生效）。
+      EditorView.updateListener.of((u) => {
+        if (u.docChanged) scheduleOutlineUpdate();   // 节流：合并高频击键，避免每次按键都重解析语法树
+      }),
     ];
   }
 
@@ -169,6 +193,11 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const btnToggleLocationPane = $("btnToggleLocationPane");
   const locationPaneEl = $("locationPane");
   const locationPaneResizerEl = $("locationPaneResizer");
+  // 需求7：大纲面板独立元素
+  const btnToggleOutline = $("btnToggleOutline");
+  const outlinePanelEl = $("outlinePanel");
+  const outlineListEl = $("outlineList");
+  const outlineCloseBtn = $("outlineClose");
   // 「保存」按钮由 compare.html 提供；该按钮可能尚未上线，必须做 null 保护
   const btnSave = $("btnSave");
 
@@ -300,6 +329,125 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   }
 
+  // ── 大纲面板（需求7）：独立 #outlinePanel，随激活的 MergeView 栏实时切换 ──
+  // 激活左栏(a=文件一)显示文件一大纲；激活中栏(b=合并结果)显示中栏大纲；
+  // 激活右栏(c=文件三)显示文件三大纲。监听 pane 的 focus/激活（bindPaneFocus 的
+  // focusin）与文档变更（baseExtensions 的 updateListener）实时重渲染。
+  function num(v, fallback = 0) {
+    return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  }
+
+  function clearOutlineList() {
+    if (outlineListEl) outlineListEl.innerHTML = "";
+  }
+
+  function showEmptyOutline(text = "（无标题）") {
+    if (!outlineListEl) return;
+    const empty = document.createElement("div");
+    empty.className = "panel-empty";
+    empty.textContent = text;
+    outlineListEl.appendChild(empty);
+  }
+
+  /**
+   * 大纲项点击：滚动目标视图到对应标题位置。**不抢焦点**——抢焦点会改变「活动栏」，
+   * 进而改变 Ctrl+S 的写盘目标，是危险的副作用（与 location-pane.js 的 scrollViewToPos 同原则）。
+   */
+  function scrollOutlineToPos(view, pos) {
+    try {
+      if (!view || !view.dom || !view.state) return;
+      const len = view.state.doc.length;
+      const p = Math.max(0, Math.min(num(pos, 0), len));
+      view.dispatch({ effects: EditorView.scrollIntoView(p, { y: "center" }) });
+    } catch (_) {
+      /* 视图已销毁 / 位置越界：静默忽略 */
+    }
+  }
+
+  /**
+   * 渲染大纲：取「当前激活栏」对应视图的文档，调用 getOutlineItems 生成大纲项。
+   * 同源缓存：活动栏或文档未变则跳过（避免 focus / onRefresh / updateListener 高频重渲染）。
+   */
+  function renderOutlinePanel() {
+    if (!outlineListEl) return;
+    if (!outlineVisible || !instance) return;
+    const paneKey = getActivePane();
+    const view = paneViewMap()[paneKey] || null;
+    const curDoc = view && view.state ? view.state.doc : null;
+    // 活动栏与文档均未变 → 现有 DOM 仍正确，跳过（O8 式缓存）。
+    if (curDoc === lastOutlineDoc && paneKey === lastOutlinePaneKey) return;
+    lastOutlineDoc = curDoc;
+    lastOutlinePaneKey = paneKey;
+
+    clearOutlineList();
+    if (!view || !view.state) {
+      showEmptyOutline();
+      return;
+    }
+    let items = [];
+    try {
+      // 惰性增量解析：先给 50ms 预算补齐语法树，补不满用已解析部分，绝不阻塞。
+      ensureSyntaxTree(view.state, view.state.doc.length, 50);
+      items = getOutlineItems(view) || [];
+    } catch (_) {
+      items = [];
+    }
+    if (!items.length) {
+      showEmptyOutline("（无标题）");
+      return;
+    }
+    for (const it of items) {
+      if (!it) continue;
+      const level = Math.max(1, Math.min(num(it.level, 1), 6));
+      const el = document.createElement("div");
+      el.className = `outline-item outline-level-${level}`;
+      const text = typeof it.text === "string" && it.text ? it.text : "(空标题)";
+      el.textContent = text;
+      el.title = `${"#".repeat(level)} ${text}`;
+      // 只写数据，点击由 scrollOutlineToPos 处理（不逐个绑事件，避免泄漏）。
+      const pos = num(it.pos, 0);
+      el.addEventListener("click", () => scrollOutlineToPos(view, pos));
+      outlineListEl.appendChild(el);
+    }
+  }
+
+  /** docChanged 高频触发的合并渲染：用单次定时器合并连续击键，避免每次按键都重解析语法树（长文档卡顿）。 */
+  let outlineUpdateTimer = null;
+  function scheduleOutlineUpdate() {
+    if (outlineUpdateTimer) return;
+    outlineUpdateTimer = setTimeout(() => {
+      outlineUpdateTimer = null;
+      updateOutlinePanel();
+    }, 120);
+  }
+
+  /** 供外部（focus / onRefresh / docChanged / render）触发的统一入口。 */
+  function updateOutlinePanel() {
+    renderOutlinePanel();
+  }
+
+  /** 设置大纲面板可见性并持久化；切换时重置缓存并立即重渲染（重新出现时内容可能已过时）。 */
+  function setOutlineVisible(visible) {
+    outlineVisible = !!visible;
+    try {
+      localStorage.setItem(OUTLINE_PANE_KEY, outlineVisible ? "1" : "0");
+    } catch (_) {
+      /* storage 不可用：仅本次会话生效 */
+    }
+    if (outlinePanelEl) {
+      // 复用主界面 .side-panel 的可见性约定：.open 类控制 display:flex。
+      outlinePanelEl.classList.toggle("open", outlineVisible);
+    }
+    if (btnToggleOutline) btnToggleOutline.classList.toggle("active", outlineVisible);
+    lastOutlineDoc = null;
+    lastOutlinePaneKey = null;
+    if (outlineVisible) renderOutlinePanel();
+  }
+
+  function toggleOutlinePanel() {
+    setOutlineVisible(!outlineVisible);
+  }
+
   // ── 活动栏跟踪：哪一栏最后获得焦点，Ctrl+S / 「保存」就落到哪一栏 ──
   // 每次 render 都会 teardown 重建 view，DOM 节点是全新的，监听器随旧 DOM 一起被丢弃，
   // 因此这里无需手动解绑，也不会泄漏。
@@ -320,6 +468,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
         bindCompareEditorView(target);
       }
       applyActivePaneClass();
+      // 需求7：激活栏切换 → 大纲源随之切换（左栏→文件一 / 中栏→合并结果 / 右栏→文件三）。
+      updateOutlinePanel();
     });
   }
 
@@ -708,6 +858,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     mountLocationPane();
     scheduleAfterLayout(() => {
       if (locationPane) locationPane.update();
+      // 需求7：首帧布局稳定后渲染大纲（rest 后活动栏复位为 'a'，先显示文件一大纲）。
+      updateOutlinePanel();
       if (instance && typeof instance.redrawConnectors === "function") {
         instance.redrawConnectors();
       }
@@ -738,8 +890,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       locationPane = null;
     }
     locationPaneEl.hidden = !locationPaneVisible;
-    // 分隔条与侧栏同生共死：侧栏隐藏时留一根可拖拽的空条会让人误以为侧栏还在。
-    if (locationPaneResizerEl) locationPaneResizerEl.hidden = !locationPaneVisible;
+    // 需求8：差异概览已退化为最右侧细线，不再可拖拽调整宽度，#locationPaneResizer 恒 hidden
+    // （即便侧栏可见也不显示拖拽条，避免用户误以为还能调宽）。
+    if (locationPaneResizerEl) locationPaneResizerEl.hidden = true;
     if (btnToggleLocationPane) {
       btnToggleLocationPane.classList.toggle("active", locationPaneVisible);
     }
@@ -1398,7 +1551,16 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   if (btnAcceptTheirs) btnAcceptTheirs.addEventListener("click", onAcceptTheirs);
   if (btnToggleLocationPane)
     btnToggleLocationPane.addEventListener("click", toggleLocationPane);
+  // 需求7：大纲面板按钮（切换独立 #outlinePanel 可见性）
+  if (btnToggleOutline) btnToggleOutline.addEventListener("click", toggleOutlinePanel);
+  if (outlineCloseBtn) outlineCloseBtn.addEventListener("click", () => setOutlineVisible(false));
+  // 需求8：差异导航线（#locationPane 细线本体作为点击热区）→ 跳到下一处差异
+  // （复用现有块导航 navNext；navNext 内部对无实例场景做了防御，不会抛错）。
+  if (locationPaneEl) locationPaneEl.addEventListener("click", () => navNext());
   if (btnSave) btnSave.addEventListener("click", onSave);
+
+  // 需求7：应用大纲面板初始可见性（默认开启 → 加 .open 类并点亮按钮；无实例 时内部跳过渲染）。
+  setOutlineVisible(outlineVisible);
 
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。
@@ -1546,6 +1708,24 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     ) {
       e.preventDefault(); // 阻止浏览器「保存网页」
       onSave();
+    }
+  });
+
+  // ── 需求3（对比页）：打开文件快捷键 Ctrl+O / Cmd+O ──
+  // 复用 onPickFiles（载入「当前活动栏」），其底层 pickSingleFile 已支持 txt
+  // （compare-files.js 的 DEFAULT_ACCEPT 含 .txt），故 Ctrl+O 打开即支持 txt。
+  // 与 Ctrl+S 同策略：全局拦截（编辑器内也生效），阻止浏览器默认的「打开文件」行为。
+  document.addEventListener("keydown", (e) => {
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      typeof e.key === "string" &&
+      e.key.toLowerCase() === "o"
+    ) {
+      e.preventDefault();
+      // onPickFiles 为 async；这里 fire-and-forget，返回前已 preventDefault，不会阻塞按键。
+      onPickFiles();
     }
   });
 

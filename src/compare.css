@@ -673,25 +673,53 @@
   color: #fff;
 }
 
-/* ── 第三期：位置概览侧栏（location-pane.js 渲染其内部结构） ──
-   作为 .compare-views 的最后一个 flex 子项，宽度由 --lp-width 决定（可拖拽调整，
-   由 compare.js 的 initLocationPaneResizer 写入并持久化），不参与伸缩。 */
+/* ── 差异导航线（需求8）：原「位置概览侧栏」退化为最右侧一条可点击的粗竖线 ──
+   不再承载缩略图详情（无 bars/arcs/viewport），仅作差异导航：点击跳到下一处差异
+   （复用现有块导航 navNext）。宽度固定（--diff-line-width），不再可拖拽调整。
+   作为 .compare-views 的最右 flex 子项，点击命中由 compare.js 绑在 #locationPane 上，
+   内部 .lp-diff-line 仅为装饰、pointer-events:none 让点击落到 aside 本身。 */
 .compare-location-pane {
-  flex: 0 0 var(--lp-width, 176px);
+  flex: 0 0 var(--diff-line-width, 12px);
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  position: relative;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-primary);
+  border-radius: 0;
   overflow: hidden;
-  background: var(--lp-bg);
-  border: 1px solid var(--lp-border);
-  border-radius: var(--radius-md);
+  cursor: pointer;
   box-sizing: border-box;
+  transition: background var(--transition-fast, 0.12s ease);
 }
 .compare-location-pane[hidden] {
   display: none;
 }
+.compare-location-pane:hover,
+.compare-location-pane:focus-within {
+  background: var(--accent-glow, rgba(88, 166, 255, 0.14));
+}
+.compare-location-pane:active {
+  background: var(--accent, rgba(88, 166, 255, 0.28));
+}
+/* 内部色条：用差异语义色（增绿 / 删红）做一条竖向渐变，暗示「差异导航」语义；
+   纯装饰，不含缩略图比例信息（需求8：无缩略图详情）。 */
+.lp-diff-line {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--diff-line-added-bg, rgba(63, 185, 80, 0.5)),
+    var(--diff-line-removed-bg, rgba(248, 81, 73, 0.5))
+  );
+  opacity: 0.7;
+}
+
+/* ── 大纲面板（需求7）：#outlinePanel 复用 editor.css 的 .side-panel /
+   .side-panel-docked / .outline-item 式样（compare.html 已链接 editor.css）。
+   其在 .compare-views 内作为 docked flex 子项纵向铺满高度；宽度由 .side-panel-docked
+   的 --outline-width 决定。可见性由 .open 类控制
+   （.side-panel{display:none} → .side-panel.open{display:flex}）。 */
 
 /* 概览侧栏拖拽分隔条：与 editor.css 的 .resizer 视觉/交互保持一致。
    原先 .compare-location-pane 的 margin-left:8px 由本分隔条的宽度取代，
