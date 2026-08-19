@@ -79,17 +79,14 @@ function calloutPlugin(md) {
       tokens[i].attrSet('class', (existingClass ? existingClass + ' ' : '') + `callout callout-${rawType.toLowerCase()}`);
       tokens[i].attrSet('data-callout', rawType);
 
-      // 2) 删除首行 [!TYPE] 标记，重解析剩余 inline 内容
+      // 2) 删除首行 [!TYPE] 标记，剩余内容交回核心 inline 规则重解析。
+      // 说明：callout 规则注册在核心 'block' 之后、'inline' 之前，因此只需改写
+      // inlineTok.content 并清空 children，核心 'inline' 规则会据新 content 重新解析。
+      // 旧实现在此手动 md.inline.parse 并赋值 children，会与稍后核心 'inline' 规则
+      // 的解析叠加，导致段落内容重复出现（如「这是备注这是备注」），现改为上述方式修复。
       const rest = content.replace(CALLOUT_RE, '');
-      const newChildren = [];
-      try {
-        md.inline.parse(rest, md, state.env, newChildren);
-      } catch (err) {
-                // 失败时退回：保留原样（移除标记行，避免把 [!TYPE] 当作正文）
-        newChildren.length = 0;
-      }
       inlineTok.content = rest;
-      inlineTok.children = newChildren;
+      inlineTok.children = [];
 
       // 3) 在 blockquote_open 后、paragraph_open 前插入 callout 标题（raw html block）
       const titleHtml =

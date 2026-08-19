@@ -13,7 +13,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightAc
 import { EditorState, Transaction } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete';
@@ -554,7 +554,15 @@ async function doUpdatePreview() {
       div.setAttribute('contenteditable', 'false');
       // M8 修复：mermaid 返回的 svg 也必须过 DOMPurify，复用项目已引入的 DOMPurify
       // （见顶部 import）。mermaid 自身 securityLevel:'strict' 仅为缓解，不可作为唯一防线。
-      div.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
+      // 注意：mermaid v11 将节点标签渲染进 <foreignObject>（HTML），若仅用
+      // USE_PROFILES:{svg:true,svgFilters:true} 会因 foreignObject 不在 SVG profile 的
+      // 白名单而被整体剥离，导致图表只剩空框、标签文字丢失（修复 Mermaid 空框问题）。
+      // 故需显式放行 foreignObject 并当作 HTML 集成点处理，与 mermaid 内部净化配置一致。
+      div.innerHTML = DOMPurify.sanitize(svg, {
+        USE_PROFILES: { svg: true, svgFilters: true },
+        ADD_TAGS: ['foreignObject'],
+        HTML_INTEGRATION_POINTS: { foreignobject: true },
+      });
       pre.replaceWith(div);
     } catch (err) {
       // 渲染失败时显示错误
@@ -2426,8 +2434,14 @@ function initHighlightSchemes() {
   try { mdSchemeExplicit = !!localStorage.getItem(MD_SYNTAX_SCHEME_KEY); } catch { mdSchemeExplicit = false; }
   try { codeSchemeExplicit = !!localStorage.getItem(PREVIEW_CODE_SCHEME_KEY); } catch { codeSchemeExplicit = false; }
 
-  const popover = document.getElementById('highlightSchemePopover');
-  const btn = document.getElementById('btnHighlightScheme');
+  // 任务2：原「高亮方案」单按钮 + 单 popover（含两个 section）拆分为两个独立按钮：
+  //   - btnHighlightScheme  → 编辑区语法高亮（#highlightSchemePopover，仅 editorSchemeOptions）
+  //   - btnPreviewCodeColor → 预览区代码着色（#previewSchemePopover，仅 previewSchemeOptions）
+  // 二者最终作为菜单项收拢进「设置」弹出菜单（任务3），此处各自保留原功能与 handler。
+  const mdPopover = document.getElementById('highlightSchemePopover');
+  const codePopover = document.getElementById('previewSchemePopover');
+  const btnMd = document.getElementById('btnHighlightScheme');
+  const btnCode = document.getElementById('btnPreviewCodeColor');
   const mdBox = document.getElementById('editorSchemeOptions');
   const codeBox = document.getElementById('previewSchemeOptions');
 
@@ -2460,19 +2474,75 @@ function initHighlightSchemes() {
   buildOptions(codeBox, PREVIEW_CODE_SCHEMES, PREVIEW_CODE_SCHEME_LABELS, applyPreviewCodeScheme);
   markSchemeChoice();
 
-  if (btn && popover) {
-    btn.addEventListener('click', (e) => {
+  // 编辑区语法高亮 弹层
+  if (btnMd && mdPopover) {
+    btnMd.addEventListener('click', (e) => {
       e.stopPropagation();
-      const willShow = popover.hidden;
-      // 复用既有「关闭其它样式弹窗」逻辑：直接隐藏本页所有 style-popover。
-      document.querySelectorAll('.style-popover:not([hidden])').forEach((p) => { if (p !== popover) p.hidden = true; });
-      popover.hidden = !willShow;
-      if (!popover.hidden) {
-        positionStylePopover(btn, popover);
+      const willShow = mdPopover.hidden;
+      // 复用既有「关闭其它样式弹窗」逻辑：直接隐藏本页所有 style-popover（不影响设置菜单容器）。
+      document.querySelectorAll('.style-popover:not([hidden])').forEach((p) => { if (p !== mdPopover) p.hidden = true; });
+      mdPopover.hidden = !willShow;
+      if (!mdPopover.hidden) {
+        positionStylePopover(btnMd, mdPopover);
         markSchemeChoice();
       }
     });
-    // 点击空白 / Esc 关闭（与颜色、字号弹窗一致）。
+    document.addEventListener('click', (e) => {
+      if (!mdPopover.hidden && !mdPopover.contains(e.target) && e.target !== btnMd) mdPopover.hidden = true;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') mdPopover.hidden = true;
+    });
+    window.addEventListener('resize', () => { mdPopover.hidden = true; });
+  }
+
+  // 预览区代码着色 弹层
+  if (btnCode && codePopover) {
+    btnCode.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willShow = codePopover.hidden;
+      document.querySelectorAll('.style-popover:not([hidden])').forEach((p) => { if (p !== codePopover) p.hidden = true; });
+      codePopover.hidden = !willShow;
+      if (!codePopover.hidden) {
+        positionStylePopover(btnCode, codePopover);
+        markSchemeChoice();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!codePopover.hidden && !codePopover.contains(e.target) && e.target !== btnCode) codePopover.hidden = true;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') codePopover.hidden = true;
+    });
+    window.addEventListener('resize', () => { codePopover.hidden = true; });
+  }
+}
+
+// 任务3 / 任务4：工具栏「设置」与「标题/列表」两个弹出菜单的切换与关闭逻辑。
+// 菜单容器使用独立的 .toolbar-menu 类（非 .style-popover），以避免被高亮/显示设置
+// 等既有「关闭其它 style-popover」逻辑误关；交互与显示设置弹窗保持一致
+// （点击按钮切换、点击外部关闭、Esc 关闭、窗口缩放关闭）。
+function initToolbarMenus() {
+  const menus = [
+    { btn: 'btnSettingsMenu', popover: 'settingsMenuPopover' },
+    { btn: 'btnHeadingsMenu', popover: 'headingsMenuPopover' },
+  ];
+  for (const { btn: btnId, popover: popoverId } of menus) {
+    const btn = document.getElementById(btnId);
+    const popover = document.getElementById(popoverId);
+    if (!btn || !popover) continue;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willShow = popover.hidden;
+      // 同时只展开一个菜单：隐藏另一个工具栏菜单（不影响其内部 style-popover 子弹层）。
+      for (const other of menus) {
+        if (other.popover === popoverId) continue;
+        const op = document.getElementById(other.popover);
+        if (op) op.hidden = true;
+      }
+      popover.hidden = !willShow;
+      if (!popover.hidden) positionStylePopover(btn, popover);
+    });
     document.addEventListener('click', (e) => {
       if (!popover.hidden && !popover.contains(e.target) && e.target !== btn) popover.hidden = true;
     });
@@ -2822,6 +2892,11 @@ function bindEvents() {
   bindBtn('btnOpen', handleOpen);
   bindBtn('btnSave', handleSave);
   bindBtn('btnNew', handleNew);
+
+  // 任务1：撤销 / 重做（快捷键已由 editor-extensions.js 的 history()/historyKeymap 提供，
+  // 此处仅补工具栏按钮；undo/redo 来自 @codemirror/commands，作用于编辑页 CodeMirror 视图 editor）。
+  bindBtn('btnUndo', () => undo(editor));
+  bindBtn('btnRedo', () => redo(editor));
 
   // 自动保存（定时落盘副本）：开关按钮 + 间隔秒数输入框
   initAutosaveDiskUI();
@@ -4019,6 +4094,7 @@ function init() {
   applyEditorThemePreset(getStoredEditorTheme());   // 默认豆沙绿(亮) / 已存主题
   applyViewMode(getStoredViewMode());               // 视图模式（日常/专注/沉浸/全显）
   initHighlightSchemes();                            // 需求 2：高亮方案选择（与主题解耦）
+  initToolbarMenus();                               // 任务3/4：设置菜单 + 标题/列表菜单切换逻辑
   requestAnimationFrame(() => editor.requestMeasure());
   // 主题下拉绑定：传入回调，使「下拉换预设」也同步 CM6 明暗扩展 / mermaid / 主题图标，
   // 与 #btnTheme 明暗切换走同一条运行时同步路径（修复 THM-01 的反向不一致）。

@@ -1364,6 +1364,81 @@ body {
   display: none;
 }
 
+/* 任务3/4：工具栏「设置」「标题/列表」弹出菜单容器。
+   独立于 .style-popover（用 .toolbar-menu 类），避免被高亮/显示设置等
+   「关闭其它 style-popover」逻辑误关；视觉与 .style-popover 对齐（继承主题变量）。 */
+.toolbar-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 200px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.toolbar-menu[hidden] {
+  display: none;
+}
+.menu-section + .menu-section {
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+.menu-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  padding: 0 2px;
+}
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.menu-row .toolbar-btn {
+  flex: 1 1 auto;
+  width: 100%;
+  justify-content: flex-start;
+  gap: 8px;
+}
+/* 菜单内的输入 / 选择控件占满剩余宽度 */
+.toolbar-menu .autosave-interval,
+.toolbar-menu .toolbar-select {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.menu-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.menu-item--row {
+  flex-direction: row;
+  align-items: center;
+}
+.menu-label {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+/* 标题/列表、增强、其他 用的网格 */
+.headings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.menu-grid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+
 /* 需求 2：高亮方案弹出菜单（编辑区语法高亮 / 预览区代码着色） */
 .scheme-section + .scheme-section {
   margin-top: 8px;

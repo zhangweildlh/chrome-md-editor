@@ -96,37 +96,19 @@
               <line x1="8" y1="14" x2="16" y2="14" />
             </svg>
           </button>
-          <!-- 自动保存（落盘副本）：开关 + 间隔秒数。
-               开启后每 N 秒在源文件同目录写出「主文件名_秒级时间戳.md」，绝不覆盖源文件。 -->
-          <button
-            class="toolbar-btn"
-            id="btnAutosaveDisk"
-            title="自动保存（左键开关）：每 N 秒在源文件同目录生成「文件名_时间戳.md」副本，不覆盖源文件；右键可指定保存目录"
-            aria-pressed="false"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <polyline points="12,7 12,12 15,14" />
+          <!-- 任务1：撤销 / 重做（快捷键由 history/historyKeymap 提供，这里仅补按钮） -->
+          <button class="toolbar-btn" id="btnUndo" title="撤销 (Ctrl+Z)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
           </button>
-          <input
-            type="number"
-            class="autosave-interval"
-            id="autosaveIntervalInput"
-            min="5"
-            max="3600"
-            step="5"
-            value="30"
-            title="自动保存间隔秒数（默认 30 秒，可填 5–3600）"
-            aria-label="自动保存间隔秒数"
-          />
+          <button class="toolbar-btn" id="btnRedo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+            </svg>
+          </button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -205,66 +187,6 @@
         <div class="toolbar-divider"></div>
 
         <div class="toolbar-group">
-          <button class="toolbar-btn" id="btnH1" title="一级标题">H1</button>
-          <button class="toolbar-btn" id="btnH2" title="二级标题">H2</button>
-          <button class="toolbar-btn" id="btnH3" title="三级标题">H3</button>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <div class="toolbar-group">
-          <button class="toolbar-btn" id="btnUL" title="无序列表">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <line x1="8" y1="6" x2="21" y2="6" />
-              <line x1="8" y1="12" x2="21" y2="12" />
-              <line x1="8" y1="18" x2="21" y2="18" />
-              <circle cx="4" cy="6" r="1" fill="currentColor" />
-              <circle cx="4" cy="12" r="1" fill="currentColor" />
-              <circle cx="4" cy="18" r="1" fill="currentColor" />
-            </svg>
-          </button>
-          <button class="toolbar-btn" id="btnOL" title="有序列表">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <line x1="10" y1="6" x2="21" y2="6" />
-              <line x1="10" y1="12" x2="21" y2="12" />
-              <line x1="10" y1="18" x2="21" y2="18" />
-              <text x="2" y="8" font-size="8" fill="currentColor" stroke="none">
-                1
-              </text>
-              <text
-                x="2"
-                y="14"
-                font-size="8"
-                fill="currentColor"
-                stroke="none"
-              >
-                2
-              </text>
-              <text
-                x="2"
-                y="20"
-                font-size="8"
-                fill="currentColor"
-                stroke="none"
-              >
-                3
-              </text>
-            </svg>
-          </button>
           <button class="toolbar-btn" id="btnQuote" title="引用">
             <svg
               width="16"
@@ -354,6 +276,52 @@
             </svg>
           </button>
         </div>
+
+        <div class="toolbar-divider"></div>
+
+        <!-- 标题 / 列表 弹出菜单（任务4）：收纳 H1/H2/H3/有序列表/无序列表，功能不变 -->
+        <div class="tb-wrap">
+          <button class="toolbar-btn" id="btnHeadingsMenu" title="标题 / 列表">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 4v16M18 4v16M6 12h12" />
+            </svg>
+          </button>
+          <div class="toolbar-menu" id="headingsMenuPopover" hidden>
+            <div class="menu-section">
+              <div class="menu-section-title">标题</div>
+              <div class="headings-grid">
+                <button class="toolbar-btn menu-item" id="btnH1" title="一级标题">H1</button>
+                <button class="toolbar-btn menu-item" id="btnH2" title="二级标题">H2</button>
+                <button class="toolbar-btn menu-item" id="btnH3" title="三级标题">H3</button>
+              </div>
+            </div>
+            <div class="menu-section">
+              <div class="menu-section-title">列表</div>
+              <div class="headings-grid">
+                <button class="toolbar-btn menu-item" id="btnOL" title="有序列表">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="10" y1="6" x2="21" y2="6" />
+                    <line x1="10" y1="12" x2="21" y2="12" />
+                    <line x1="10" y1="18" x2="21" y2="18" />
+                    <text x="2" y="8" font-size="8" fill="currentColor" stroke="none">1</text>
+                    <text x="2" y="14" font-size="8" fill="currentColor" stroke="none">2</text>
+                    <text x="2" y="20" font-size="8" fill="currentColor" stroke="none">3</text>
+                  </svg>
+                </button>
+                <button class="toolbar-btn menu-item" id="btnUL" title="无序列表">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="8" y1="6" x2="21" y2="6" />
+                    <line x1="8" y1="12" x2="21" y2="12" />
+                    <line x1="8" y1="18" x2="21" y2="18" />
+                    <circle cx="4" cy="6" r="1" fill="currentColor" />
+                    <circle cx="4" cy="12" r="1" fill="currentColor" />
+                    <circle cx="4" cy="18" r="1" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="toolbar-right">
@@ -366,92 +334,15 @@
             </svg>
           </button>
           <button class="toolbar-btn" id="btnScroll" title="同步（编辑器与预览联动）">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.5-4"/><polyline points="3,20 3,15 8,15"/><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.5 4"/><polyline points="21,4 21,9 16,9"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
             <span>同步</span>
           </button>
-          <button class="toolbar-btn" id="btnHelp" title="使用说明">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          </button>
         </div>
 
         <div class="toolbar-divider"></div>
 
-        <!-- 视图模式 -->
-        <div class="toolbar-group view-mode-group">
-          <button
-            class="toolbar-btn view-btn active"
-            id="btnViewSplit"
-            title="分屏模式"
-            data-mode="split"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="12" y1="3" x2="12" y2="21" />
-            </svg>
-          </button>
-          <button
-            class="toolbar-btn view-btn"
-            id="btnViewEdit"
-            title="纯编辑模式"
-            data-mode="edit"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path
-                d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
-              />
-              <path
-                d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
-              />
-            </svg>
-          </button>
-          <button
-            class="toolbar-btn view-btn"
-            id="btnViewPreview"
-            title="纯预览模式"
-            data-mode="preview"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <!-- 视图增强：专注模式 / 打字机 / 大纲 / 任务 / 快照 / 显示设置 -->
+        <!-- 视图增强：大纲 / 任务 / 快照（专注模式 / 打字机 / 显示设置已收拢进设置菜单） -->
         <div class="toolbar-group view-tools-group">
-          <button class="toolbar-btn" id="btnFocusMode" title="专注模式（淡化非当前行）">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12h4M18 12h4M12 2v4M12 18v4"/></svg>
-          </button>
-          <button class="toolbar-btn" id="btnTypewriter" title="打字机滚动（光标行居中）">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 17h6M7 17v2h10v-2"/></svg>
-          </button>
           <button class="toolbar-btn" id="btnOutline" title="大纲面板">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           </button>
@@ -461,102 +352,6 @@
           <button class="toolbar-btn" id="btnSnapshots" title="快照 / 历史版本 (A-5)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
           </button>
-          <div class="tb-wrap">
-            <button class="toolbar-btn" id="btnDisplaySettings" title="显示设置（字号 / 密度）">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
-            </button>
-            <div class="style-popover" id="displaySettingsPopover" hidden>
-              <label class="modal-field"><span>编辑器字号</span><input type="number" id="dsEditorFont" min="10" max="32" step="1" /></label>
-              <label class="modal-field"><span>预览字号</span><input type="number" id="dsPreviewFont" min="12" max="40" step="1" /></label>
-              <label class="modal-field"><span>界面密度</span>
-                <select id="dsDensity">
-                  <option value="compact">紧凑</option>
-                  <option value="standard">标准</option>
-                  <option value="comfortable">宽松</option>
-                </select>
-              </label>
-              <label class="modal-field"><span>配色方案</span>
-                <select id="dsColorScheme">
-                  <option value="classic">经典</option>
-                  <option value="sepia">护眼（米黄）</option>
-                  <option value="high-contrast">高对比</option>
-                </select>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <!-- 阅读翻译：预览区双语对照（不改源码） -->
-        <div class="toolbar-group translate-group">
-          <button
-            class="toolbar-btn"
-            id="btnTranslate"
-            title="阅读翻译：左键开关预览双语对照；右键打开翻译设置（API Key / 模型 / 目标语言）"
-            aria-pressed="false"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M5 8l6 6" />
-              <path d="M4 14l6-6 2-3" />
-              <path d="M2 5h12" />
-              <path d="M7 2h1" />
-              <path d="M22 22l-5-10-5 10" />
-              <path d="M14 18h6" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <!-- 外观：主题切换 -->
-        <div class="toolbar-group appearance-group">
-          <button class="toolbar-btn" id="btnTheme" title="切换主题">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              id="themeIcon"
-            >
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
-          </button>
-          <select id="editorThemeSelect" class="toolbar-select" title="编辑器主题"></select>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <!-- 高亮方案：编辑区语法高亮 / 预览区代码着色（与主题解耦，独立 localStorage 持久化） -->
-        <div class="toolbar-group highlight-scheme-group">
-          <button class="toolbar-btn" id="btnHighlightScheme" title="高亮方案：编辑区语法高亮 / 预览区代码着色">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="13.5" cy="6.5" r="2.4" />
-              <circle cx="17.5" cy="10.5" r="2.4" />
-              <circle cx="8.5" cy="7.5" r="2.4" />
-              <circle cx="6.5" cy="12.5" r="2.4" />
-              <path d="M12 2a10 10 0 0 0 0 20 2 2 0 0 0 2-2 2 2 0 0 1 2-2h1.5a4.5 4.5 0 0 0 4.5-4.5 9 9 0 0 0-10-9.5z" />
-            </svg>
-          </button>
-          <div class="style-popover" id="highlightSchemePopover" hidden>
-            <div class="scheme-section">
-              <div class="scheme-section-title">编辑区语法高亮</div>
-              <div class="scheme-options" id="editorSchemeOptions"></div>
-            </div>
-            <div class="scheme-section">
-              <div class="scheme-section-title">预览区代码着色</div>
-              <div class="scheme-options" id="previewSchemeOptions"></div>
-            </div>
-          </div>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -567,6 +362,171 @@
         <div class="toolbar-group view-switch-group">
           <button id="btnChromeMode" class="toolbar-btn" title="视图模式（日常/专注/沉浸/全显）"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
           <button id="btnCompare" class="toolbar-btn" title="对比/合并（打开文件差异对比视图）"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <!-- 设置 弹出菜单（任务3）：收纳 阅读翻译 / 高亮方案 / 预览区代码着色 / 自动保持 /
+             显示设置 / 视图模式 / 专注模式 / 打字机 / 主题 / 使用说明。原工具栏按钮收拢为菜单项，功能不变。 -->
+        <div class="tb-wrap">
+          <button class="toolbar-btn" id="btnSettingsMenu" title="设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+          <div class="toolbar-menu" id="settingsMenuPopover" hidden>
+            <!-- 视图模式 -->
+            <div class="menu-section">
+              <div class="menu-section-title">视图模式</div>
+              <div class="toolbar-group view-mode-group">
+                <button class="toolbar-btn view-btn active" id="btnViewSplit" title="分屏模式" data-mode="split">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /></svg>
+                </button>
+                <button class="toolbar-btn view-btn" id="btnViewEdit" title="纯编辑模式" data-mode="edit">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                </button>
+                <button class="toolbar-btn view-btn" id="btnViewPreview" title="纯预览模式" data-mode="preview">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 外观 -->
+            <div class="menu-section">
+              <div class="menu-section-title">外观</div>
+              <div class="menu-row">
+                <button class="toolbar-btn" id="btnTheme" title="切换主题">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="themeIcon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+                </button>
+                <select id="editorThemeSelect" class="toolbar-select" title="编辑器主题"></select>
+              </div>
+            </div>
+
+            <!-- 高亮方案：任务2 拆分为两个独立按钮 -->
+            <div class="menu-section">
+              <div class="menu-section-title">高亮方案</div>
+              <div class="menu-row">
+                <button class="toolbar-btn" id="btnHighlightScheme" title="编辑区语法高亮">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="13.5" cy="6.5" r="2.4" />
+                    <circle cx="17.5" cy="10.5" r="2.4" />
+                    <circle cx="8.5" cy="7.5" r="2.4" />
+                    <circle cx="6.5" cy="12.5" r="2.4" />
+                    <path d="M12 2a10 10 0 0 0 0 20 2 2 0 0 0 2-2 2 2 0 0 1 2-2h1.5a4.5 4.5 0 0 0 4.5-4.5 9 9 0 0 0-10-9.5z" />
+                  </svg>
+                  <span class="menu-label">编辑高亮</span>
+                </button>
+                <div class="style-popover" id="highlightSchemePopover" hidden>
+                  <div class="scheme-section">
+                    <div class="scheme-section-title">编辑区语法高亮</div>
+                    <div class="scheme-options" id="editorSchemeOptions"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="menu-row">
+                <button class="toolbar-btn" id="btnPreviewCodeColor" title="预览区代码着色">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="13.5" cy="6.5" r="2.4" />
+                    <circle cx="17.5" cy="10.5" r="2.4" />
+                    <circle cx="8.5" cy="7.5" r="2.4" />
+                    <circle cx="6.5" cy="12.5" r="2.4" />
+                    <path d="M12 2a10 10 0 0 0 0 20 2 2 0 0 0 2-2 2 2 0 0 1 2-2h1.5a4.5 4.5 0 0 0 4.5-4.5 9 9 0 0 0-10-9.5z" />
+                  </svg>
+                  <span class="menu-label">预览着色</span>
+                </button>
+                <div class="style-popover" id="previewSchemePopover" hidden>
+                  <div class="scheme-section">
+                    <div class="scheme-section-title">预览区代码着色</div>
+                    <div class="scheme-options" id="previewSchemeOptions"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 自动保持 -->
+            <div class="menu-section">
+              <div class="menu-section-title">自动保持</div>
+              <div class="menu-row">
+                <button class="toolbar-btn" id="btnAutosaveDisk" title="自动保存（左键开关）：每 N 秒在源文件同目录生成「文件名_时间戳.md」副本，不覆盖源文件；右键可指定保存目录" aria-pressed="false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12,7 12,12 15,14" />
+                  </svg>
+                </button>
+                <input type="number" class="autosave-interval" id="autosaveIntervalInput" min="5" max="3600" step="5" value="30" title="自动保存间隔秒数（默认 30 秒，可填 5–3600）" aria-label="自动保存间隔秒数" />
+              </div>
+            </div>
+
+            <!-- 显示设置 -->
+            <div class="menu-section">
+              <div class="menu-section-title">显示设置</div>
+              <div class="menu-row">
+                <button class="toolbar-btn" id="btnDisplaySettings" title="显示设置（字号 / 密度）">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+                </button>
+                <div class="style-popover" id="displaySettingsPopover" hidden>
+                  <label class="modal-field"><span>编辑器字号</span><input type="number" id="dsEditorFont" min="10" max="32" step="1" /></label>
+                  <label class="modal-field"><span>预览字号</span><input type="number" id="dsPreviewFont" min="12" max="40" step="1" /></label>
+                  <label class="modal-field"><span>界面密度</span>
+                    <select id="dsDensity">
+                      <option value="compact">紧凑</option>
+                      <option value="standard">标准</option>
+                      <option value="comfortable">宽松</option>
+                    </select>
+                  </label>
+                  <label class="modal-field"><span>配色方案</span>
+                    <select id="dsColorScheme">
+                      <option value="classic">经典</option>
+                      <option value="sepia">护眼（米黄）</option>
+                      <option value="high-contrast">高对比</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 增强 -->
+            <div class="menu-section">
+              <div class="menu-section-title">增强</div>
+              <div class="headings-grid menu-grid-2">
+                <button class="toolbar-btn menu-item menu-item--row" id="btnFocusMode" title="专注模式（淡化非当前行）">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12h4M18 12h4M12 2v4M12 18v4"/></svg>
+                  <span class="menu-label">专注模式</span>
+                </button>
+                <button class="toolbar-btn menu-item menu-item--row" id="btnTypewriter" title="打字机滚动（光标行居中）">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 17h6M7 17v2h10v-2"/></svg>
+                  <span class="menu-label">打字机</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 其他 -->
+            <div class="menu-section">
+              <div class="menu-section-title">其他</div>
+              <div class="headings-grid menu-grid-2">
+                <button class="toolbar-btn menu-item menu-item--row" id="btnTranslate" title="阅读翻译：左键开关预览双语对照；右键打开翻译设置（API Key / 模型 / 目标语言）" aria-pressed="false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 8l6 6" />
+                    <path d="M4 14l6-6 2-3" />
+                    <path d="M2 5h12" />
+                    <path d="M7 2h1" />
+                    <path d="M22 22l-5-10-5 10" />
+                    <path d="M14 18h6" />
+                  </svg>
+                  <span class="menu-label">阅读翻译</span>
+                </button>
+                <button class="toolbar-btn menu-item menu-item--row" id="btnHelp" title="使用说明">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  <span class="menu-label">使用说明</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </header>
