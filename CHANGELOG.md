@@ -7,6 +7,8 @@ Project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.9.7] - 2026-08-19（工具栏/预览重构 10 项 + 预览渲染修复）
+
 ### 修复
 - 测试稳定性：加固 `tests/block-drag.test.js` 的 `parseBlocks`，将语法树完整等待的判据从「树长度」改为「块范围实际覆盖文档首尾」并提升重试上限，消除并行负载下偶发的 flaky（断言 `blocks.length >= 8` 失败）。
 
