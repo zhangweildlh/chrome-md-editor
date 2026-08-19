@@ -25,7 +25,7 @@ import { resolvePickTarget, resolveDropTargets } from "./compare/pick-target.js"
 import {
   bindCompareEditorView,
   bindImageToolbarButton,
-  createImageUploadArea,
+  insertImagesAtCursor,
 } from "./compare-images.js";
 import { exportResult } from "./compare-export.js";
 import { buildDiffText } from "./compare-diff-export.js";
@@ -58,6 +58,8 @@ import { createLocationPane } from "./compare/location-pane.js";
 import { getOutlineItems } from "./outline.js";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
+// 撤销 / 重做（任务1）：CodeMirror 命令，作用于当前获得焦点的活动栏
+import { undo, redo } from "@codemirror/commands";
 // 主题同步复用主编辑器的权威函数，保证对比页 data-theme/data-editor-theme/data-skin
 // 与「编辑器主题预设 kind」完全一致（而非 light/dark 开关键），缺省回退默认预设/经典配色。
 import {
@@ -200,6 +202,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   const outlineCloseBtn = $("outlineClose");
   // 「保存」按钮由 compare.html 提供；该按钮可能尚未上线，必须做 null 保护
   const btnSave = $("btnSave");
+  // 撤销 / 重做（任务1）：作用于当前获得焦点的活动栏
+  const btnUndo = $("btnUndo");
+  const btnRedo = $("btnRedo");
 
   // ── 批量合并相关元素（对齐 JetBrains Merge Revisions 顶部栏）──
   const btnApplyNonConflicting = $("btnApplyNonConflicting");
@@ -1223,6 +1228,23 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     }
   }
 
+  // ── 撤销 / 重做（任务1）──
+  // 对比/合并页是 MergeView（多栏：左/右/合并），撤销/重做只应作用于
+  // 「当前获得焦点的活动栏」，避免误改其它栏。活动栏由 getActivePane() 记录，
+  // 对应视图由 paneViewMap()[key] 取出；兜底用 bindPaneFocus 维护的 activeView。
+  function activePaneView() {
+    const map = paneViewMap();
+    return map[getActivePane()] || activeView || null;
+  }
+  function onUndo() {
+    const view = activePaneView();
+    if (view) undo(view);
+  }
+  function onRedo() {
+    const view = activePaneView();
+    if (view) redo(view);
+  }
+
   // ── 状态计数：实时反映当前差异块 / 冲突块数量（对齐 "6 changes, 2 conflicts"）──
   function updateStatusCount() {
     if (!statusCountEl) return;
@@ -1558,6 +1580,10 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   // （复用现有块导航 navNext；navNext 内部对无实例场景做了防御，不会抛错）。
   if (locationPaneEl) locationPaneEl.addEventListener("click", () => navNext());
   if (btnSave) btnSave.addEventListener("click", onSave);
+  // 撤销 / 重做（任务1）：作用于当前活动栏（由 getActivePane 决定）；
+  // 快捷键 Ctrl+Z / Ctrl+Y(Ctrl+Shift+Z) 已由 editor-extensions 的 historyKeymap 提供，此处仅补按钮。
+  if (btnUndo) btnUndo.addEventListener("click", onUndo);
+  if (btnRedo) btnRedo.addEventListener("click", onRedo);
 
   // 需求7：应用大纲面板初始可见性（默认开启 → 加 .open 类并点亮按钮；无实例 时内部跳过渲染）。
   setOutlineVisible(outlineVisible);
@@ -1745,28 +1771,14 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
     });
   }
 
-  // ── 图片拖拽区（CMPX-08 修复）：把占位 #compareImageDrop 替换为真实拖拽上传区 ──
-  const imageDropPlaceholder = document.getElementById("compareImageDrop");
-  if (imageDropPlaceholder) {
-    const area = createImageUploadArea({
-      // 与「图片」按钮同源：取当前活动编辑器视图的光标作为插入位置
-      getCursor: () => {
-        if (activeView && activeView.state) {
-          return activeView.state.selection.main.head;
-        }
-        return 0;
-      },
-    });
-    imageDropPlaceholder.replaceWith(area);
-  }
-
   // ── 文件拖拽（E4-01）：拖入 Markdown/文本文件即载入本页对应栏，无需走文件框 ──
   // 改为在整页（document 捕获阶段）拦截文件拖放：原 #compareFiles 拖拽区因子 slot 被
   // display:none、容器近乎零高度，拖放几乎必然落空，浏览器默认会把文件在【新标签页】打开
   // （即 BUG 2 报的「自动打开新编辑/预览页而对比页不载入」）。这里在捕获阶段 preventDefault
-  // 阻止浏览器默认行为，并把 .md/.txt 文件载入本页栏位；非 Markdown 文件（如图片）放行，
-  // 交给图片拖拽区处理。内部文本拖拽（块拖拽 / 选区拖拽）的 dataTransfer.types 不含
-  // "Files"，不会误拦截，编辑器内拖拽不受影响。
+  // 阻止浏览器默认行为，并把 .md/.txt 文件载入本页栏位；图片文件（如 .png/.jpg）则直接插入
+  // 当前活动栏光标处（与「插入图片」按钮同源，整页级统一处理，已移除独立拖拽区）。
+  // 内部文本拖拽（块拖拽 / 选区拖拽）的 dataTransfer.types 不含 "Files"，不会误拦截，
+  // 编辑器内拖拽不受影响。
   {
     const MD_ACCEPT_RE = /\.(md|markdown|mdown|mkd|mkdn|txt)$/i;
     const dragHasFiles = (e) =>
@@ -1778,43 +1790,67 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
       }
     };
     const onPageDrop = async (e) => {
-      if (!dragHasFiles(e)) return; // 非文件（如图片）：放行给图片拖拽区
+      if (!dragHasFiles(e)) return; // 内部文本拖拽（无 Files）放行
       const all = Array.from(e.dataTransfer.files || []);
       const md = all.filter((f) => MD_ACCEPT_RE.test(f.name || ""));
-      if (!md.length) return; // 非 Markdown/文本：不拦截，交给浏览器默认（或图片区）
+      // 图片：与「插入图片」按钮同源，直接插入当前活动栏光标处（已移除独立拖拽区，
+      // 图片拖放在整页级统一处理，避免被浏览器默认行为在新标签页打开）。
+      const images = all.filter(
+        (f) => f && f.type && f.type.startsWith("image/")
+      );
+      if (!md.length && !images.length) return; // 既非 Markdown 也非图片：不拦截
       e.preventDefault();
       e.stopPropagation();
-      const dropped = await readCompareFiles(md);
-      if (!dropped.length) return;
-      // 拖拽多文件路由（BUG 5）：按活动栏优先填入 + 其余按 a→b→c 顺序填入空栏。
-      // 先记录活动栏：drop 事件期间焦点可能受 drop 自身影响漂移，使用 drop 事件触发瞬间的活动栏。
-      const active = getActivePane();
-      const targets = resolveDropTargets(active, mode, files, dropped.length);
-      // 按目标键填入；同一栏多次出现（拖入多于栏位的文件）→ 覆盖前一份。
-      // 注：仅当 colCount===3 才写 files.c（对照两栏禁用 files.c，避免污染三栏视图）。
-      for (let i = 0; i < dropped.length; i++) {
-        const t = targets[i];
-        if (t === "a") files.a = dropped[i];
-        else if (t === "b") files.b = dropped[i];
-        else if (t === "c") {
-          if (mode === "compare" && colCount === 3) {
-            files.c = dropped[i]; // 仅对照三栏启用 files.c
-          } else {
-            // 合并模式：c 栏 UI 显示「对方」，对应 files.b。防御兜底（resolveDropTargets
-            // 已合理映射，正常走不到这里）；对照两栏丢弃多余文件。
-            if (mode === "merge") files.b = dropped[i];
-            // 对照两栏：丢弃（不污染 files.c）
+
+      // 先处理 Markdown/文本载入（可能触发 render 重建视图），图片在其后插入，
+      // 避免被 teardown 覆盖。
+      if (md.length) {
+        const dropped = await readCompareFiles(md);
+        if (dropped.length) {
+          // 拖拽多文件路由（BUG 5）：按活动栏优先填入 + 其余按 a→b→c 顺序填入空栏。
+          // 先记录活动栏：drop 事件期间焦点可能受 drop 自身影响漂移，使用 drop 事件触发瞬间的活动栏。
+          const active = getActivePane();
+          const targets = resolveDropTargets(active, mode, files, dropped.length);
+          // 按目标键填入；同一栏多次出现（拖入多于栏位的文件）→ 覆盖前一份。
+          // 注：仅当 colCount===3 才写 files.c（对照两栏禁用 files.c，避免污染三栏视图）。
+          for (let i = 0; i < dropped.length; i++) {
+            const t = targets[i];
+            if (t === "a") files.a = dropped[i];
+            else if (t === "b") files.b = dropped[i];
+            else if (t === "c") {
+              if (mode === "compare" && colCount === 3) {
+                files.c = dropped[i]; // 仅对照三栏启用 files.c
+              } else if (mode === "merge") {
+                // 合并模式：c 栏 UI 显示「对方」，对应 files.b。防御兜底
+                // （resolveDropTargets 已合理映射，正常走不到这里）。
+                files.b = dropped[i];
+              }
+              // 对照两栏：丢弃（不污染 files.c）
+            }
           }
+          if (mode === "merge") {
+            files.result = null; // 新载入 → 重置合并结果
+          }
+          snapshotLoaded(); // 记录初始内容快照（D8）
+          setSlotText(fileSlots.a, files.a);
+          setSlotText(fileSlots.b, files.b);
+          skipSaveOnNextRender = true; // 拖入新文件：跳过 render 编辑回写，保留刚拖入的文件内容
+          render();
         }
       }
-      if (mode === "merge") {
-        files.result = null; // 新载入 → 重置合并结果
+
+      // 图片：在（可能的）Markdown 载入并重渲染之后插入，落点随当前活动栏光标。
+      if (images.length) {
+        try {
+          await insertImagesAtCursor(images, () =>
+            activeView && activeView.state
+              ? activeView.state.selection.main.head
+              : 0
+          );
+        } catch (err) {
+          console.error("[compare] 拖拽图片插入失败:", err);
+        }
       }
-      snapshotLoaded(); // 记录初始内容快照（D8）
-      setSlotText(fileSlots.a, files.a);
-      setSlotText(fileSlots.b, files.b);
-      skipSaveOnNextRender = true; // 拖入新文件：跳过 render 编辑回写，保留刚拖入的文件内容
-      render();
     };
     document.addEventListener("dragover", onPageDragOver, true); // 捕获阶段
     document.addEventListener("drop", onPageDrop, true);

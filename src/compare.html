@@ -22,6 +22,13 @@
           <button class="compare-toolbar-btn" id="btnModeMerge" title="合并模式：左本地 / 中合并结果 / 右对方，固定三栏">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v4a4 4 0 0 0 4 4h0M18 7v4a4 4 0 0 1-4 4h0"/></svg>合并</button>
         </div>
+        <!-- 撤销 / 重做：作用于当前获得焦点的栏（活动栏） -->
+        <div class="toolbar-group">
+          <button class="compare-toolbar-btn" id="btnUndo" title="撤销（Ctrl+Z）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-4"/></svg>撤销</button>
+          <button class="compare-toolbar-btn" id="btnRedo" title="重做（Ctrl+Y / Ctrl+Shift+Z）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h4"/></svg>重做</button>
+        </div>
       </div>
 
       <div class="toolbar-center">
@@ -31,6 +38,12 @@
         <div class="toolbar-group compare-view-group">
           <button class="compare-toolbar-btn" id="btnColToggle" title="切换对照模式的栏数（两栏 / 三栏）">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>三栏</button>
+          <button class="compare-toolbar-btn" id="btnPickFiles" title="选择要对比的两个文件">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>选择文件</button>
+          <button class="compare-toolbar-btn" id="btnSave" title="保存当前活动栏到其源文件 (Ctrl+S)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>保存</button>
+          <button class="compare-toolbar-btn" id="btnScroll" title="滚动同步：开启后多栏联动滚动（D16）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>滚动同步</button>
           <button class="compare-toolbar-btn" id="btnToggleLocationPane" title="显示 / 隐藏右侧差异导航线（点击跳到下一处差异，快捷键 L）">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>差异</button>
           <!-- 需求7：独立「大纲面板」按钮，式样对齐主界面 #outlinePanel；点击显示/隐藏对比页大纲，内容随激活栏实时切换 -->
@@ -42,13 +55,13 @@
 
         <!-- 块导航与逐块合并 -->
         <div class="toolbar-group">
+          <!-- 默认全文展开，所以初始文案是「折叠未改」；compare.js 会随状态同步该文案 -->
+          <button class="compare-toolbar-btn" id="btnToggleCollapse" title="折叠 / 展开未修改的区域（默认全文展开，快捷键 E）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="4" x2="20" y2="4"/><line x1="4" y1="20" x2="20" y2="20"/><polyline points="6 9 12 15 18 9"/></svg>折叠未改</button>
           <button class="compare-toolbar-btn" id="btnPrevChunk" title="跳到上一块 (Shift+B 或 [，编辑区内用 Alt+Shift+B)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>← 上一块</button>
           <button class="compare-toolbar-btn" id="btnNextChunk" title="跳到下一块 (B 或 ]，编辑区内用 Alt+B)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>下一块 →</button>
-          <!-- 默认全文展开，所以初始文案是「折叠未改」；compare.js 会随状态同步该文案 -->
-          <button class="compare-toolbar-btn" id="btnToggleCollapse" title="折叠 / 展开未修改的区域（默认全文展开，快捷键 E）">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="4" x2="20" y2="4"/><line x1="4" y1="20" x2="20" y2="20"/><polyline points="6 9 12 15 18 9"/></svg>折叠未改</button>
           <button class="compare-toolbar-btn" id="btnAcceptTheirs" title="把光标所在的对方块并入合并结果">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v10"/><polyline points="8 9 12 13 16 9"/><path d="M5 15h14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/></svg>接受对方块</button>
         </div>
@@ -85,12 +98,6 @@
 
         <!-- 文件 / 保存 / 导出 -->
         <div class="toolbar-group">
-          <button class="compare-toolbar-btn" id="btnPickFiles" title="选择要对比的两个文件">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>选择文件</button>
-          <button class="compare-toolbar-btn" id="btnSave" title="保存当前活动栏到其源文件 (Ctrl+S)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>保存</button>
-          <button class="compare-toolbar-btn" id="btnScroll" title="滚动同步：开启后多栏联动滚动（D16）">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>滚动同步</button>
           <button class="compare-toolbar-btn" id="btnExportResult" title="把合并结果另存为新文件">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出结果</button>
           <button class="compare-toolbar-btn" id="btnExportDiff" title="导出 Git 风格的 diff 文本报告">
@@ -114,11 +121,6 @@
         <div class="compare-file-slot" id="fileSlotB" data-slot="b">
           <span class="compare-file-name">对方文件（未选择）</span>
         </div>
-      </section>
-
-      <!-- 图片拖拽区 -->
-      <section class="compare-image-drop" id="compareImageDrop">
-        将图片拖拽到此处，或点击右上角「图片」按钮选择；图片会以 Markdown 语法插入当前活动栏的光标处
       </section>
 
       <!-- 视图容器：两栏 / 三栏（对比/合并必为两栏或三栏，无单栏）

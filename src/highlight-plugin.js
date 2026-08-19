@@ -37,8 +37,10 @@ function highlightPlugin(md) {
     }
 
     const content = src.slice(pos + 2, end);
-    // 内容为空白或首尾含空格时不视为高亮（与 markdown-it-mark 约定一致）
-    if (!content.length || /^\s|\s$/.test(content)) {
+    // 仅当内容为空时不视为高亮；放宽原「首尾含空格即失效」规则，
+    // 使 `== 高亮 ==`（内侧含空格）也能正常渲染为 <mark>，至少保证
+    // `==高亮==`（不带内侧空格）始终生效（修复预览栏 == 高亮 == 不渲染问题）。
+    if (!content.length) {
       return false;
     }
 

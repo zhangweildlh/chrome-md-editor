@@ -901,15 +901,6 @@
   white-space: nowrap;
 }
 
-/* ── 图片拖拽区提示条 ── */
-.compare-image-drop {
-  padding: 6px 12px;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
 /* ── 差异行高亮（compare-line-markers.js 注入的类） ── */
 .cm-compare-line-added {
   background: color-mix(in srgb, var(--success) 16%, transparent);
@@ -962,28 +953,7 @@
   color: #fff;
 }
 
-/* ── 图片拖拽区（compare-images.js 注入的类，保持视觉一致） ── */
-.compare-dropzone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 12px;
-  border: 1px dashed var(--border-primary);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.compare-dropzone:hover,
-.compare-dropzone.compare-dropzone-dragover {
-  background: var(--bg-active);
-  border-color: var(--accent);
-  color: var(--text-accent);
-}
-.compare-dropzone-hint {
-  pointer-events: none;
-}
+/* ── 图片选择按钮（compare-images.js / compare-files.js 复用类名，保持视觉一致） ── */
 .compare-filebtn {
   display: inline-flex;
   align-items: center;
