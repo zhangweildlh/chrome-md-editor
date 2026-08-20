@@ -34,9 +34,11 @@
             <polyline points="10,9 9,9 8,9" />
           </svg>
           <span class="logo-text">MD 编辑器</span>
-          <span class="app-version" id="appVersion" title="扩展版本（用于确认是否已重新加载）">v1.9.7</span>
+          <span class="app-version" id="appVersion" title="扩展版本（用于确认是否已重新加载）">v1.9.8</span>
+          <span class="file-status-light" id="fileStatusLight" title="文件状态：灰=未打开 / 绿=已保存 / 橙=有未保存修改（闪烁）"></span>
         </div>
-        <div class="file-info">
+        <!-- T21：文件名不再展示，改由 #fileStatusLight 呼吸灯表达文件状态；DOM 保留供 JS 取文件名 -->
+        <div class="file-info" hidden>
           <span class="filename" id="filename">未打开文件</span>
           <span
             class="modified-indicator"
@@ -48,6 +50,21 @@
       </div>
 
       <div class="toolbar-center">
+        <!-- 视图模式（A1：三视图按钮从设置菜单上移到工具栏） -->
+        <div class="toolbar-group view-mode-group">
+          <button class="toolbar-btn view-btn active" id="btnViewSplit" title="分屏模式" data-mode="split">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /></svg>
+          </button>
+          <button class="toolbar-btn view-btn" id="btnViewEdit" title="纯编辑模式" data-mode="edit">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+          </button>
+          <button class="toolbar-btn view-btn" id="btnViewPreview" title="纯预览模式" data-mode="preview">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
         <!-- 文件操作 -->
         <div class="toolbar-group">
           <button class="toolbar-btn" id="btnOpen" title="打开文件 (Ctrl+O)">
@@ -376,22 +393,6 @@
             </svg>
           </button>
           <div class="toolbar-menu" id="settingsMenuPopover" hidden>
-            <!-- 视图模式 -->
-            <div class="menu-section">
-              <div class="menu-section-title">视图模式</div>
-              <div class="toolbar-group view-mode-group">
-                <button class="toolbar-btn view-btn active" id="btnViewSplit" title="分屏模式" data-mode="split">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /></svg>
-                </button>
-                <button class="toolbar-btn view-btn" id="btnViewEdit" title="纯编辑模式" data-mode="edit">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                </button>
-                <button class="toolbar-btn view-btn" id="btnViewPreview" title="纯预览模式" data-mode="preview">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
-                </button>
-              </div>
-            </div>
-
             <!-- 外观 -->
             <div class="menu-section">
               <div class="menu-section-title">外观</div>
@@ -467,6 +468,17 @@
                 </button>
                 <div class="style-popover" id="displaySettingsPopover" hidden>
                   <label class="modal-field"><span>编辑器字号</span><input type="number" id="dsEditorFont" min="10" max="32" step="1" /></label>
+                  <label class="modal-field"><span>字体</span>
+                    <select id="dsEditorFontFamily">
+                      <option value="">默认（Consolas）</option>
+                      <option value="Consolas, var(--font-mono)">Consolas</option>
+                      <option value="'JetBrains Mono', Consolas, monospace">JetBrains Mono</option>
+                      <option value="var(--font-sans)">系统无衬线</option>
+                      <option value="'SimSun', serif">宋体</option>
+                    </select>
+                  </label>
+                  <label class="modal-field"><span>字间距</span><input type="number" id="dsEditorLetterSpacing" min="0" max="4" step="0.5" /></label>
+                  <label class="modal-field"><span>行间距</span><input type="number" id="dsEditorLineHeight" min="1" max="2.5" step="0.1" /></label>
                   <label class="modal-field"><span>预览字号</span><input type="number" id="dsPreviewFont" min="12" max="40" step="1" /></label>
                   <label class="modal-field"><span>界面密度</span>
                     <select id="dsDensity">
@@ -483,6 +495,25 @@
                     </select>
                   </label>
                 </div>
+              </div>
+            </div>
+
+            <!-- 显示选项（G8）：空格 / 换行符 / 换行标记 / Unicode 控制字符 -->
+            <div class="menu-section">
+              <div class="menu-section-title">显示选项</div>
+              <div class="headings-grid menu-grid-2">
+                <button class="toolbar-btn menu-item menu-item--row" id="btnInvisSpace" title="显示空格：把空格与制表符显示为 · 和 →（便于对齐检查）" aria-pressed="false">
+                  <span class="menu-label">显示空格</span>
+                </button>
+                <button class="toolbar-btn menu-item menu-item--row" id="btnInvisEol" title="显示换行符：行尾显示 ↵" aria-pressed="false">
+                  <span class="menu-label">显示换行符</span>
+                </button>
+                <button class="toolbar-btn menu-item menu-item--row" id="btnInvisEolMark" title="显示换行标记：行尾显示 ¶（Word/Notepad++ 风格）" aria-pressed="false">
+                  <span class="menu-label">显示换行标记</span>
+                </button>
+                <button class="toolbar-btn menu-item menu-item--row" id="btnInvisSpecialChars" title="显示 Unicode 控制字符：零宽 / 方向等字符显示为可见框符" aria-pressed="false">
+                  <span class="menu-label">显示 Unicode 控制字符</span>
+                </button>
               </div>
             </div>
 

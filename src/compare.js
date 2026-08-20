@@ -69,6 +69,8 @@ import {
 } from "./theme-presets.js";
 import { getColorScheme } from "./md-theme-tokens.js";
 import { initToolbarScroll } from "./toolbar-scroll.js";
+// F5：大纲宽度常量单一事实源（编辑页/对比页共用）
+import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MAX_WIDTH_ABS } from "./outline-const.js";
 
 (function bootstrapCompare() {
   // 挂载点直接取自 compare.html 中定义的 DOM 节点（不再依赖 window.__compareMount，
@@ -163,9 +165,26 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 
   // 公共扩展：复用编辑页同款内核（语法高亮彩色 / 查找替换 / / 面板 / 块拖拽 + 选区拖拽）
   // + 对照/合并专属 diff 行标记 + 活动栏跟踪。Callout 不做盒子渲染（仅源码语法高亮，见 §D12）。
+  // F3：localStorage 不可用（隐私模式/被禁用）时返回默认值，避免初始化崩溃
+  function readInvisiblesSafe() {
+    try {
+      return {
+        space: localStorage.getItem('md-editor-invis-space') === '1',
+        eol: localStorage.getItem('md-editor-invis-eol') === '1',
+        eolMark: localStorage.getItem('md-editor-invis-eolmark') === '1',
+        specialChars: localStorage.getItem('md-editor-invis-specialchars') !== '0',
+      };
+    } catch {
+      return { space: false, eol: false, eolMark: false, specialChars: true };
+    }
+  }
   function baseExtensions() {
     return [
-      ...createEditorExtensions({ theme: currentTheme }), // 替换原 markdown()+lineWrapping 裸装
+      // G8：显示选项与编辑页同一 localStorage 键（空格/换行符/换行标记/Unicode 控制字符）
+      ...createEditorExtensions({
+        theme: currentTheme,
+        invisibles: readInvisiblesSafe(),
+      }), // 替换原 markdown()+lineWrapping 裸装
       applyCompareLineMarkers(),   // diff 行标记（对照/合并专属，保留）
       ...paneActiveExtension(),    // 活动栏跟踪（保留）
       // 需求7：任一栏文档变更 → 实时刷新大纲（缓存避免无谓重渲染；仅活动栏文档变化才生效）。
@@ -228,8 +247,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
   };
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.9.7（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.7";
+  // 运行时兜底 1.9.8（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.8";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -451,6 +470,110 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 
   function toggleOutlinePanel() {
     setOutlineVisible(!outlineVisible);
+  }
+
+  // ── 大纲面板宽度拖拽（对齐编辑页 #resizerOutline；需求 B3：对比页大纲移到最右并补分隔条）──
+  // 宽度常量取自 ./outline-const.js（F5 单一事实源）
+
+  function outlineMaxWidth() {
+    const root = document.getElementById("compareRoot");
+    const avail = root ? root.clientWidth : 0;
+    if (!avail) return OUTLINE_MAX_WIDTH_ABS;
+    // 不写死上限：窄窗口下 520px 会把编辑区挤没，取「主区宽度的 45%」与绝对上限的较小值。
+    return Math.max(OUTLINE_MIN_WIDTH, Math.min(OUTLINE_MAX_WIDTH_ABS, Math.round(avail * 0.45)));
+  }
+
+  function applyOutlineWidth(px, { persist = false } = {}) {
+    const panel = document.getElementById("outlinePanel");
+    if (!panel) return;
+    const n = Number(px);
+    const w = Number.isFinite(n)
+      ? Math.round(Math.min(outlineMaxWidth(), Math.max(OUTLINE_MIN_WIDTH, n)))
+      : OUTLINE_WIDTH_DEFAULT;
+    panel.style.setProperty("--outline-width", `${w}px`);
+    if (persist) {
+      try {
+        localStorage.setItem(OUTLINE_WIDTH_KEY, String(w));
+      } catch {
+        /* storage 不可用：仅本次会话生效 */
+      }
+    }
+  }
+
+  // 大纲分隔条的可见性必须跟随「面板真正可见」：视图模式（专注 / 沉浸）会给面板加
+  // .view-hidden（display:none!important），此时若分隔条还在，右侧会挂空条。
+  // CSS 选不到「前一个兄弟」，故用 MutationObserver 监听 class 变化统一同步。
+  function syncOutlineDockState() {
+    const root = document.getElementById("compareRoot");
+    const panel = document.getElementById("outlinePanel");
+    if (!root || !panel) return;
+    const visible = panel.classList.contains("open") && !panel.classList.contains("view-hidden");
+    root.classList.toggle("outline-docked-open", visible);
+  }
+
+  function initCompareOutlineDock() {
+    const panel = document.getElementById("outlinePanel");
+    const resizer = document.getElementById("resizerCompareOutline");
+    if (!panel) return;
+
+    let saved = null;
+    try {
+      saved = localStorage.getItem(OUTLINE_WIDTH_KEY);
+    } catch {
+      /* 忽略 */
+    }
+    if (saved != null && saved !== "") applyOutlineWidth(saved);
+
+    syncOutlineDockState();
+    if (typeof MutationObserver === "function") {
+      new MutationObserver(syncOutlineDockState).observe(panel, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    }
+
+    if (!resizer) return;
+
+    // 用 Pointer Capture：捕获到分隔条本身，拖出窗口再松手也能收到 pointerup/pointercancel。
+    resizer.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      let dragging = true;
+      resizer.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const startX = e.clientX;
+      const startWidth = panel.getBoundingClientRect().width;
+
+      function onPointerMove(ev) {
+        if (!dragging) return;
+        // 大纲在最右侧：鼠标左移（dx<0）应变宽，故用 startX - clientX。
+        applyOutlineWidth(startWidth + (startX - ev.clientX));
+      }
+
+      function onPointerUp(ev) {
+        if (!dragging) return;
+        dragging = false;
+        resizer.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        resizer.removeEventListener("pointermove", onPointerMove);
+        resizer.removeEventListener("pointerup", onPointerUp);
+        resizer.removeEventListener("pointercancel", onPointerUp);
+        try { resizer.releasePointerCapture(ev.pointerId); } catch (_) { /* 未捕获则忽略 */ }
+        applyOutlineWidth(panel.getBoundingClientRect().width, { persist: true });
+      }
+
+      try { resizer.setPointerCapture(e.pointerId); } catch (_) { /* 指针不可用则忽略 */ }
+      resizer.addEventListener("pointermove", onPointerMove);
+      resizer.addEventListener("pointerup", onPointerUp);
+      resizer.addEventListener("pointercancel", onPointerUp);
+    });
+
+    resizer.addEventListener("dblclick", () => {
+      applyOutlineWidth(OUTLINE_WIDTH_DEFAULT, { persist: true });
+    });
   }
 
   // ── 活动栏跟踪：哪一栏最后获得焦点，Ctrl+S / 「保存」就落到哪一栏 ──
@@ -1587,6 +1710,9 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 
   // 需求7：应用大纲面板初始可见性（默认开启 → 加 .open 类并点亮按钮；无实例 时内部跳过渲染）。
   setOutlineVisible(outlineVisible);
+
+  // 需求 B3：初始化对比页大纲拖拽分隔条（移到最右后补 resizer）
+  initCompareOutlineDock();
 
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。

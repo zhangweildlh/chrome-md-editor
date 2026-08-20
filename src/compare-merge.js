@@ -673,6 +673,12 @@ function makeBcRevertGroup(onAccept) {
  * @param {{parent:HTMLElement, mv:object, theirsView:EditorView, scheduler:object|null, getChunkModel:()=>({ab:any[],bc:any[]}), acceptBcChunkAt:(i:number,dir:string)=>boolean}} ctx
  * @returns {{dispose:()=>void}}
  */
+
+/** 空态判定：无 B↔C 差异块时列 display 为 none，否则恢复默认（F4 抽纯函数供单测）。 */
+export function bcColumnDisplay(bcLength) {
+  return bcLength > 0 ? "" : "none";
+}
+
 function mountBcRevertColumn(ctx) {
   const { parent, mv, theirsView, scheduler, getChunkModel, acceptBcChunkAt } = ctx;
   const col = document.createElement("div");
@@ -714,6 +720,8 @@ function mountBcRevertColumn(ctx) {
       groups.push({ el: box, index: chunk.index });
     });
     reposition();
+    // 修复 #13：无 B↔C 差异块时隐藏整列，消除 flex:0 0 67px 留下的空白（判定抽 bcColumnDisplay 供单测，F4）
+    col.style.display = bcColumnDisplay(bc.length);
   }
 
   // 把每个按钮组绝对定位到其块在 Result(b) 侧的起始行；屏外块（coordsAtPos 返回 null）隐藏。

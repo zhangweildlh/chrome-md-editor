@@ -56,9 +56,19 @@ export function renderOutline(items) {
 
 export function scrollToHeading(pos) {
   if (!outlineView) return;
-  outlineView.dispatch({
-    selection: { anchor: pos },
-    scrollIntoView: true,
-  });
+  outlineView.dispatch({ selection: { anchor: pos } });
+  // B1：跳转定位到视口 1/3 处（而非顶部），让标题下方内容可见，便于连续翻阅
+  try {
+    const coords = outlineView.coordsAtPos(pos);
+    if (coords) {
+      const scroller = outlineView.scrollDOM;
+      const scrollerRect = scroller.getBoundingClientRect();
+      const target = scroller.scrollTop + (coords.top - scrollerRect.top) - scroller.clientHeight / 3;
+      scroller.scrollTop = Math.max(0, target);
+    }
+  } catch (_) {
+    // 坐标不可用时退回默认定位（滚动到顶部）
+    outlineView.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+  }
   outlineView.focus();
   }

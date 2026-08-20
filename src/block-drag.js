@@ -973,8 +973,13 @@ const blockDragTheme = EditorView.theme({
     gap: "0.12em",
     marginInlineStart: "-1.12em",
     marginInlineEnd: "0.36em",
-    opacity: "0.15",
+    opacity: "0.55",
     verticalAlign: "middle",
+    // G19：块拖拽栏与行号栏(同色系但不同色)、编辑区均有颜色差异：
+    // 背景取 --bg-secondary(行号栏)与 --bg-primary(编辑区)之间的过渡色，随主题变化。
+    background: "color-mix(in srgb, var(--bg-secondary) 62%, var(--bg-primary) 38%)",
+    borderRadius: "4px",
+    padding: "0 0.2em",
   },
   ".cm-line:hover > .cm-markra-block-toolbar, .cm-markra-block-toolbar:focus-within": {
     opacity: "1",

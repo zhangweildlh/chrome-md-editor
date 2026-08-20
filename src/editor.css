@@ -51,6 +51,11 @@
   --editor-font-size: 14px;
   --preview-font-size: 15px;
   --ui-gap: 4px;
+
+  /* G4 编辑器排版：字体族 / 字间距 / 行间距（默认 Consolas 五号，行距 1.6） */
+  --editor-font-family: Consolas, var(--font-mono);
+  --editor-letter-spacing: 0px;
+  --editor-line-height: 1.6;
 }
 
 [data-theme="light"] {
@@ -1105,9 +1110,10 @@ body {
   gap: 2px;
 }
 
-/* 右段不强制推到最右：与中段/左段统一按 flex-start 紧凑排列，富余空间留在最右空白区。
-   移除此前的 margin-left:auto —— 在内容未溢出（宽视口）时会把右段整体右推，
-   导致右段前出现过大空白间隙（已知问题2：隔断符/按钮间距过大）。溢出时由 .toolbar 横向滚动。 */
+/* A4 按钮群右移：中段+右段按钮整体靠右（logo 留在最左）。
+   此前「右段 margin-left:auto」会在中段与右段之间产生大间隙（已知问题2），故只对中段
+   .toolbar-center 生效：剩余空间集中在中段之前（logo 与按钮群之间），段内间距不变，
+   不再出现「隔断符/按钮间距过大」。溢出时仍由 .toolbar 横向滚动。 */
 .toolbar-right {
   flex: 0 0 auto;
 }
@@ -1115,6 +1121,7 @@ body {
 .toolbar-center {
   flex: 0 0 auto;
   justify-content: flex-start;
+  margin-left: auto;
 }
 
 .logo {
@@ -1125,6 +1132,33 @@ body {
   font-weight: 600;
   font-size: 13px;
   margin-right: 12px;
+}
+
+/* T21 文件状态呼吸灯：灰=未打开 / 绿=已保存 / 橙=有未保存修改（闪烁）
+   颜色走主题变量（--success/--warning/--text-muted），随主题明暗自适应 */
+.file-status-light {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 25%, transparent);
+  vertical-align: middle;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.file-status-light.st-saved {
+  background: var(--success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 25%, transparent);
+}
+.file-status-light.st-modified {
+  background: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 25%, transparent);
+  animation: file-status-blink 1.2s ease-in-out infinite;
+}
+@keyframes file-status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .logo svg {
@@ -1265,6 +1299,17 @@ body {
   font-size: 13px;
   font-weight: 600;
   position: relative;
+}
+
+/* 修复 #2：同步按钮含 SVG + "同步"两字，.toolbar-btn 写死 32px 放不下会竖排换行。
+   放开宽度为内容自适应并禁止折行，使其与"对照"按钮观感一致（方案 B 因编辑页未引
+   compare.css 不可行，降级采用本方案 A）。其余 .toolbar-btn 不受影响（#12 约束）。 */
+#btnScroll {
+  width: auto;
+  padding: 0 10px;
+  gap: 4px;
+  white-space: nowrap;
+  flex-direction: row;
 }
 
 /* 修复 BUG4：工具栏被视图模式(沉浸/专注)隐藏时，#btnChromeMode 随容器 display:none，
@@ -1627,9 +1672,10 @@ body {
 
 .editor-container .cm-editor {
   height: 100%;
-  font-family: var(--font-mono);
+  font-family: var(--editor-font-family);
   font-size: var(--editor-font-size);
-  line-height: 1.6;
+  line-height: var(--editor-line-height);
+  letter-spacing: var(--editor-letter-spacing);
   /* 修复 BUG6：编辑区背景改由 23 套主题预设的 --bg-primary 驱动，
      覆盖 CodeMirror lightTheme/oneDark 内联硬编码背景(!important 压过内联 style)，
      使切换主题时编辑区即时跟随。 */
@@ -1642,7 +1688,23 @@ body {
 
 .editor-container .cm-editor .cm-scroller {
   overflow: auto;
-  font-family: var(--font-mono);
+  font-family: var(--editor-font-family);
+}
+
+/* G8 显示选项：行尾换行符/换行标记（Decoration.line + ::after 伪元素，零 widget DOM，F1）
+   弱化显示、不可选中、不拦截事件；两开关同时开启时 pilcrow 声明在后 → 显示 ¶ */
+.cm-eol-arrow::after,
+.cm-eol-pilcrow::after {
+  content: '\21b5'; /* ↵ */
+  margin-left: 2px;
+  color: var(--text-muted);
+  opacity: 0.55;
+  font-size: 0.85em;
+  user-select: none;
+  pointer-events: none;
+}
+.cm-eol-pilcrow::after {
+  content: '\00b6'; /* ¶ */
 }
 
 .editor-container .cm-editor.cm-focused {
@@ -1667,25 +1729,27 @@ body {
     color: var(--text-muted);
     font-size: 12px;
   }
-  /* BUG：行号栏（gutter）默认横向内边距偏宽，实测观感过宽。
-     收窄约 20%：将行号/折叠等 gutter 单元格内边距由默认（约 4px/8px）压到 4px/6px。 */
+  /* G20：行号栏（含 Fold line）收窄约 40%：行号/折叠单元格内边距由 6px/4px 收到
+     3.6px/2.4px（60%）；折叠标记 min-width 16px→10px、字号 15px→12px；行号字号保持 12px 可读。 */
   .editor-container .cm-editor .cm-gutters .cm-gutterElement {
-    padding: 0 6px 0 4px;
+    padding: 0 3.6px 0 2.4px;
   }
 
 /* 修复 BUG1：折叠符号(gutter 折叠标记)原沿用 12px 且宽度仅 ~9px，偏小而难点。
-   放大折叠标记字号与可点区域，提升可视性与点击命中。 */
+   放大折叠标记字号与可点区域，提升可视性与点击命中。
+   G20 叠加：行号栏收窄 40% 后，折叠标记同步缩小（16→10px / 15→12px）。 */
 .editor-container .cm-editor .cm-gutters .cm-foldGutter {
-  font-size: 15px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .editor-container .cm-editor .cm-gutters .cm-foldGutter span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  min-height: 16px;
-  font-size: 15px;
+  /* F2：可点区 10px 与 BUG1「放大可点区」冲突，折中回 12px（收窄需求与可点性平衡） */
+  min-width: 12px;
+  min-height: 12px;
+  font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -2394,22 +2458,6 @@ body {
 .preview-container.editing {
   box-shadow: inset 0 0 0 2px var(--accent-glow);
   border-radius: var(--radius-sm);
-}
-
-.preview-container.editing::after {
-  content: '编辑中 — 点击外部区域完成';
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: block;
-  padding: 6px 12px;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  border-top: 1px solid var(--border-subtle);
-  text-align: center;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 
 /* ==========================================
