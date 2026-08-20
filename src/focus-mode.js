@@ -12,6 +12,10 @@ const LS = {
   editorFont: 'md-editor-font-size',
   previewFont: 'md-editor-preview-font-size',
   density: 'md-editor-density',
+  // G4 编辑器排版：字体族 / 字间距 / 行间距
+  editorFontFamily: 'md-editor-font-family',
+  editorLetterSpacing: 'md-editor-letter-spacing',
+  editorLineHeight: 'md-editor-line-height',
 };
 
 let focusMode = localStorage.getItem(LS.focus) === '1';
@@ -52,6 +56,27 @@ export function getEditorFontSize() { return parseInt(localStorage.getItem(LS.ed
 export function getPreviewFontSize() { return parseInt(localStorage.getItem(LS.previewFont) || '0', 10); }
 export function getDensity() { return localStorage.getItem(LS.density) || 'standard'; }
 
+// ---- G4 编辑器排版（字体族 / 字间距 / 行间距）----
+export function getEditorFontFamily() { return localStorage.getItem(LS.editorFontFamily) || ''; }
+export function getEditorLetterSpacing() { return localStorage.getItem(LS.editorLetterSpacing) || ''; }
+export function getEditorLineHeight() { return localStorage.getItem(LS.editorLineHeight) || ''; }
+
+export function setEditorFontFamily(val) {
+  localStorage.setItem(LS.editorFontFamily, val);
+  if (val) document.documentElement.style.setProperty('--editor-font-family', val);
+  else document.documentElement.style.removeProperty('--editor-font-family');
+}
+export function setEditorLetterSpacing(val) {
+  localStorage.setItem(LS.editorLetterSpacing, val);
+  if (val !== '') document.documentElement.style.setProperty('--editor-letter-spacing', `${val}px`);
+  else document.documentElement.style.removeProperty('--editor-letter-spacing');
+}
+export function setEditorLineHeight(val) {
+  localStorage.setItem(LS.editorLineHeight, val);
+  if (val !== '') document.documentElement.style.setProperty('--editor-line-height', val);
+  else document.documentElement.style.removeProperty('--editor-line-height');
+}
+
 // 界面密度间距。注意：editor.css :root 默认 --ui-gap:4px（未设置密度时的观感），
 // 故把 standard 对齐到 4px，使「标准」等于默认观感（标准=默认，语义一致，修复 L9）。
 // compact 相应收紧到 2px，保持三档（2/4/14）区分度，避免与 standard 塌缩为同一值。
@@ -65,6 +90,13 @@ export function applyDisplaySettings() {
   if (pf > 0) root.setProperty('--preview-font-size', `${pf}px`);
   const d = getDensity();
   root.setProperty('--ui-gap', DENSITY_GAP[d] || DENSITY_GAP.standard);
+  // G4 编辑器排版
+  const ff = getEditorFontFamily();
+  if (ff) root.setProperty('--editor-font-family', ff);
+  const ls = getEditorLetterSpacing();
+  if (ls !== '') root.setProperty('--editor-letter-spacing', `${ls}px`);
+  const lh = getEditorLineHeight();
+  if (lh !== '') root.setProperty('--editor-line-height', lh);
 }
 
 export function setEditorFontSize(px) {

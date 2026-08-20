@@ -10,8 +10,9 @@ import {
   lineNumbers, highlightActiveLineGutter, highlightSpecialChars,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor,
   highlightActiveLine, keymap, EditorView, ViewPlugin, Decoration,
+  highlightWhitespace,
 } from '@codemirror/view';
-import { EditorState, Annotation } from '@codemirror/state';
+import { EditorState, Annotation, Compartment, RangeSetBuilder, StateField } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import {
   syntaxHighlighting, defaultHighlightStyle, indentOnInput,
@@ -158,13 +159,79 @@ const selectionMatchHighlighter = ViewPlugin.fromClass(
  *        editor.js 解耦）
  * @returns {Array} CodeMirror 6 扩展数组
  */
+// ==========================================
+// G8 显示选项：空格 / 换行符 / 换行标记 / Unicode 控制字符 的可视化开关
+//  - 空格：highlightWhitespace()（官方，.cm-highlightSpace/Tab 显示 ·/→）
+//  - 换行符/换行标记：自定义行尾 Decoration.widget（↵ / ¶），无官方扩展
+//  - Unicode 控制字符：highlightSpecialChars()（官方，零宽/方向等显示为框符）
+// 独立 Compartment 实现动态开关（heynote 范式：初始注入 + reconfigure 切换）。
+// ==========================================
+export const showWhitespaceCompartment = new Compartment();
+export const showEolCompartment = new Compartment();
+export const showEolMarkCompartment = new Compartment();
+export const showSpecialCharsCompartment = new Compartment();
+
+/** 行尾标记：Decoration.line + CSS ::after 伪元素（零 widget DOM，避免大文档全量 widget 重建卡顿，F1）。 */
+function eolLineDecorations(cls) {
+  return StateField.define({
+    create(state) { return buildEolLines(state.doc, cls); },
+    update(deco, tr) {
+      if (!tr.docChanged) return deco;
+      return buildEolLines(tr.newDoc, cls);
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  });
+}
+
+/** 给每行起点挂 line decoration class，由 CSS ::after 渲染行尾标记（↵ / ¶）。 */
+function buildEolLines(doc, cls) {
+  const builder = new RangeSetBuilder();
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i);
+    builder.add(line.from, line.from, Decoration.line({ class: cls }));
+  }
+  return builder.finish();
+}
+
+const eolWidgetExt = eolLineDecorations('cm-eol-arrow'); // ↵
+const eolMarkWidgetExt = eolLineDecorations('cm-eol-pilcrow'); // ¶
+
+// 上次应用的状态，用于 F6：仅对发生变化的项 reconfigure（减少冗余 dispatch）
+let lastInvisibles = null;
+
+/**
+ * 动态应用显示选项（4 个 compartment，仅对发生变化的项 reconfigure，F6）。
+ * @param {EditorView} view
+ * @param {{space?:boolean, eol?:boolean, eolMark?:boolean, specialChars?:boolean}} settings
+ */
+export function applyInvisiblesSettings(view, settings = {}) {
+  if (!view) return;
+  const prev = lastInvisibles || {};
+  const effects = [];
+  const push = (comp, key, ext) => {
+    if (settings[key] !== undefined && settings[key] !== prev[key]) {
+      effects.push(comp.reconfigure(settings[key] ? ext : []));
+    }
+  };
+  push(showWhitespaceCompartment, 'space', highlightWhitespace());
+  push(showEolCompartment, 'eol', eolWidgetExt);
+  push(showEolMarkCompartment, 'eolMark', eolMarkWidgetExt);
+  push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());
+  if (effects.length) {
+    view.dispatch({ effects });
+    lastInvisibles = { ...prev, ...settings };
+  }
+}
+
 export function createEditorExtensions(opts = {}) {
   const theme = opts.theme === 'dark' ? oneDark : lightTheme;
+  // G8 显示选项默认值：空格/换行符/换行标记默认关，Unicode 控制字符默认开（保留现状）
+  const invis = { space: false, eol: false, eolMark: false, specialChars: true, ...(opts.invisibles || {}) };
 
   return [
     lineNumbers(),
     highlightActiveLineGutter(),
-    highlightSpecialChars(),
+    showSpecialCharsCompartment.of(invis.specialChars ? highlightSpecialChars() : []),
     history(),
     foldGutter(),
     drawSelection(),
@@ -222,6 +289,10 @@ export function createEditorExtensions(opts = {}) {
     }),
     EditorView.lineWrapping,
     themeCompartment.of(theme),
+    // G8 显示选项 compartments（初始按设置注入；动态切换走 applyInvisiblesSettings）
+    showWhitespaceCompartment.of(invis.space ? highlightWhitespace() : []),
+    showEolCompartment.of(invis.eol ? eolWidgetExt : []),
+    showEolMarkCompartment.of(invis.eolMark ? eolMarkWidgetExt : []),
     // 注意：编辑页专属 updateListener 不放入工厂（见上方函数注释 / 设计文档 §8.3）
   ];
 }

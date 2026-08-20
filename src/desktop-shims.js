@@ -129,7 +129,11 @@ import { isTauriEnv } from "./tauri-env.js";
       const exts = [];
       for (const mime of Object.keys(types[0].accept)) {
         for (const e of types[0].accept[mime] || []) {
-          exts.push(e.startsWith(".") ? e : "." + e);
+          // 修复 #8：去前导点并去重。Tauri(rfd) 对话框约定无点扩展名；
+          // 带点的 ".md" 经 Win32 过滤器在 exe 侧匹配失败，导致 .md/.txt 不可见
+          // （浏览器侧走原生 File System Access API，不受此影响）。
+          const clean = (e.startsWith(".") ? e : "." + e).replace(/^\./, "");
+          if (clean && !exts.includes(clean)) exts.push(clean);
         }
       }
       return exts.length ? [{ name: types[0].description || "All Files", extensions: exts }] : undefined;

@@ -45,7 +45,7 @@ import { openFileViaPicker, saveViaPickerOrDownload } from './file-picker.js';
 import { themeCompartment, lightTheme } from './editor-theme-base.js';
 import { selectedBracketHighlight } from './bracket-highlight.js';
 // 新建共享模块接入：扩展工厂（§8）+ 滚动同步（§9），均由本文件 import，二者不反向 import editor.js
-import { createEditorExtensions } from './editor-extensions.js';
+import { createEditorExtensions, applyInvisiblesSettings } from './editor-extensions.js';
 import { createScrollSync, scrollAdapter } from './scroll-sync.js';
 import { showConfirm } from './confirm-dialog.js';
 
@@ -133,9 +133,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.7"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.8"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.7";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.8";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -160,6 +160,12 @@ import {
   getPreviewFontSize,
   setDensity,
   getDensity,
+  setEditorFontFamily,
+  getEditorFontFamily,
+  setEditorLetterSpacing,
+  getEditorLetterSpacing,
+  setEditorLineHeight,
+  getEditorLineHeight,
 } from './focus-mode.js';
 // A-9 超长 Base64 行折叠
 import { initBase64Fold } from './base64-fold.js';
@@ -167,6 +173,8 @@ import { initBase64Fold } from './base64-fold.js';
 import { enhanceMermaidDiagrams } from './mermaid-zoom.js';
 // A-3 大纲面板
 import { getOutlineItems, renderOutline, setOutlineEditor } from './outline.js';
+// F5：大纲宽度常量单一事实源（编辑页/对比页共用）
+import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MAX_WIDTH_ABS } from './outline-const.js';
 // A-12 任务列表面板
 import { getTaskItems, renderTaskList, setTaskEditor } from './tasklist-panel.js';
 
@@ -376,10 +384,33 @@ graph LR
 *开始编辑你的 Markdown 文档吧！*
 `;
 
+  // G8 显示选项持久化键与读取（默认：空格/换行符/换行标记关，Unicode 控制字符开）
+  const INVIS_KEYS = {
+    space: 'md-editor-invis-space',
+    eol: 'md-editor-invis-eol',
+    eolMark: 'md-editor-invis-eolmark',
+    specialChars: 'md-editor-invis-specialchars',
+  };
+  // F3：localStorage 不可用（隐私模式/被禁用）时返回默认值，避免编辑器初始化崩溃
+  function readInvisibles() {
+    const defaults = { space: false, eol: false, eolMark: false, specialChars: true };
+    try {
+      return {
+        space: localStorage.getItem(INVIS_KEYS.space) === '1',
+        eol: localStorage.getItem(INVIS_KEYS.eol) === '1',
+        eolMark: localStorage.getItem(INVIS_KEYS.eolMark) === '1',
+        specialChars: localStorage.getItem(INVIS_KEYS.specialChars) !== '0',
+      };
+    } catch {
+      return defaults;
+    }
+  }
+
   // 共享扩展工厂接入（设计文档 §8）：原内联扩展数组整体迁入 createEditorExtensions，
   // 自定义快捷键经 extraKeymap 注入；编辑页专属 updateListener 不进工厂（§8.3），下方单独追加。
   const extensions = createEditorExtensions({
     theme: currentTheme,
+    invisibles: readInvisibles(),
     extraKeymap: [
       { key: 'Mod-s', run: handleSave, preventDefault: true },
       { key: 'Mod-o', run: handleOpen, preventDefault: true },
@@ -1996,6 +2027,8 @@ function handleNew() {
   setEditorContent('');
   updateFilename('未打开文件');
   markSaved();
+  // F7：新建文件无磁盘实体，呼吸灯保持「未打开」灰态（markSaved 已置绿，此处覆盖回 none），输入后由 markModified 转橙
+  updateStatusLight('none');
 }
 
 function setEditorContent(content) {
@@ -2078,6 +2111,8 @@ function updateEditorFilePath() {
 
 function updateFilename(name) {
   document.getElementById('filename').textContent = name;
+  // T21：打开/切换文件 → 呼吸灯绿色（与磁盘一致）；空名/未打开 → 灰色
+  updateStatusLight(name && name !== '未打开文件' ? 'saved' : 'none');
   // Bug #1 修复：记录当前文件名，供 getFileId 在 file://（无句柄）场景下回退使用，
   // 避免所有 file:// 文件共用 'unsaved' 键导致草稿/快照串档。
   currentFileName = name || 'unsaved';
@@ -2090,16 +2125,25 @@ function updateFilename(name) {
   resetDiskAutosaveBaseline();
 }
 
+function updateStatusLight(state) {
+  const el = document.getElementById('fileStatusLight');
+  if (!el) return;
+  el.classList.remove('st-none', 'st-saved', 'st-modified');
+  el.classList.add('st-' + state);
+}
+
 function markModified() {
   if (!isModified) {
     isModified = true;
     document.getElementById('modifiedIndicator').style.display = 'inline';
+    updateStatusLight('modified');
   }
 }
 
 function markSaved() {
   isModified = false;
   document.getElementById('modifiedIndicator').style.display = 'none';
+  updateStatusLight('saved');
 }
 
 // ==========================================
@@ -2697,10 +2741,7 @@ function initResizer() {
 // ==========================================
 // 镶入式大纲面板：宽度拖拽 + 展开态同步
 // ==========================================
-const OUTLINE_WIDTH_KEY = 'md-editor-outline-width';
-const OUTLINE_WIDTH_DEFAULT = 260;
-const OUTLINE_MIN_WIDTH = 160; // 与 editor.css .side-panel-docked min-width 对齐（单一事实源）
-const OUTLINE_MAX_WIDTH_ABS = 520;
+// 大纲宽度常量已提取至 ./outline-const.js（F5 单一事实源）
 
 function outlineMaxWidth() {
   const main = document.getElementById('editorMain');
@@ -3281,12 +3322,18 @@ function bindEvents() {
     const pFont = displayPopover.querySelector('#dsPreviewFont');
     const density = displayPopover.querySelector('#dsDensity');
     const colorScheme = displayPopover.querySelector('#dsColorScheme');
+    const eFontFamily = displayPopover.querySelector('#dsEditorFontFamily');
+    const eLetterSpacing = displayPopover.querySelector('#dsEditorLetterSpacing');
+    const eLineHeight = displayPopover.querySelector('#dsEditorLineHeight');
     const curEf = getEditorFontSize();
     const curPf = getPreviewFontSize();
     if (eFont && curEf > 0) eFont.value = curEf;
     if (pFont && curPf > 0) pFont.value = curPf;
     if (density) density.value = getDensity();
     if (colorScheme) colorScheme.value = getColorScheme();
+    if (eFontFamily) eFontFamily.value = getEditorFontFamily();
+    if (eLetterSpacing) eLetterSpacing.value = getEditorLetterSpacing();
+    if (eLineHeight) eLineHeight.value = getEditorLineHeight();
 
     btnDisplaySettings.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -3305,6 +3352,15 @@ function bindEvents() {
     if (colorScheme) colorScheme.addEventListener('change', () => {
             setColorScheme(colorScheme.value);
     });
+    if (eFontFamily) eFontFamily.addEventListener('change', () => {
+            setEditorFontFamily(eFontFamily.value);
+    });
+    if (eLetterSpacing) eLetterSpacing.addEventListener('change', () => {
+            setEditorLetterSpacing(eLetterSpacing.value || '');
+    });
+    if (eLineHeight) eLineHeight.addEventListener('change', () => {
+            setEditorLineHeight(eLineHeight.value || '');
+    });
     document.addEventListener('click', (e) => {
       if (!displayPopover.hidden && !displayPopover.contains(e.target) && e.target !== btnDisplaySettings) {
         displayPopover.hidden = true;
@@ -3312,6 +3368,44 @@ function bindEvents() {
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') displayPopover.hidden = true;
+    });
+  }
+
+  // G3 + F8：Ctrl + 鼠标滚轮缩放编辑器字号（10-32px，持久化），并同步显示设置控件；
+  // 监听限定在编辑器容器（编辑区），预览区/大纲区滚动不再误触发字号缩放
+  const editorContainer = document.getElementById('editorContainer');
+  if (editorContainer) {
+    editorContainer.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const cur = getEditorFontSize() || 14;
+      const next = Math.min(32, Math.max(10, cur + (e.deltaY < 0 ? 1 : -1)));
+      setEditorFontSize(next);
+      const efInput = document.getElementById('dsEditorFont');
+      if (efInput) efInput.value = next;
+    }, { passive: false });
+  }
+
+  // G8：显示选项 4 个开关（空格 / 换行符 / 换行标记 / Unicode 控制字符）
+  const invisBtnDefs = [
+    ['btnInvisSpace', 'space'],
+    ['btnInvisEol', 'eol'],
+    ['btnInvisEolMark', 'eolMark'],
+    ['btnInvisSpecialChars', 'specialChars'],
+  ];
+  for (const [id, key] of invisBtnDefs) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    const initVal = readInvisibles()[key];
+    btn.classList.toggle('active', initVal);
+    btn.setAttribute('aria-pressed', String(initVal));
+    btn.addEventListener('click', () => {
+      const s = readInvisibles();
+      s[key] = !s[key];
+      localStorage.setItem(INVIS_KEYS[key], s[key] ? '1' : '0');
+      btn.classList.toggle('active', s[key]);
+      btn.setAttribute('aria-pressed', String(s[key]));
+      applyInvisiblesSettings(editor, s);
     });
   }
 

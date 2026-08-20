@@ -471,6 +471,13 @@
   height: 100%;
   overflow: hidden;
 }
+/* G4：对比页编辑器正文随「字体/字号/字间距/行间距」设置（与编辑页一致） */
+.compare-view .cm-editor .cm-content {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-font-size);
+  letter-spacing: var(--editor-letter-spacing);
+  line-height: var(--editor-line-height);
+}
 .cm-mergeView {
   flex: 1;
   min-width: 0;
@@ -720,6 +727,15 @@
    其在 .compare-views 内作为 docked flex 子项纵向铺满高度；宽度由 .side-panel-docked
    的 --outline-width 决定。可见性由 .open 类控制
    （.side-panel{display:none} → .side-panel.open{display:flex}）。 */
+
+/* 对比页大纲分隔条：对齐编辑页 #resizerOutline，默认隐藏，仅大纲展开
+   （.compare-main.outline-docked-open）时显示；拖拽由 compare.js 接管。 */
+#resizerCompareOutline {
+  display: none;
+}
+.compare-main.outline-docked-open #resizerCompareOutline {
+  display: flex;
+}
 
 /* 概览侧栏拖拽分隔条：与 editor.css 的 .resizer 视觉/交互保持一致。
    原先 .compare-location-pane 的 margin-left:8px 由本分隔条的宽度取代，
