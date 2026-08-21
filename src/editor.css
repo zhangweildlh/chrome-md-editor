@@ -1018,6 +1018,11 @@ mark {
   flex-wrap: nowrap;
   flex-shrink: 0;
   flex: 0 0 auto;
+  /* R3 修复：组内按钮/分隔符之间间距跟随 --ui-gap（密度档位 2/4/14px）。
+     此前 .toolbar 的 gap 仅作用于三段之间（.toolbar-left/center/right），段内按钮紧密贴合无间距，
+     导致「界面密度」下拉变更时视觉无变化（已更名为「按钮间距」）。 */
+  gap: var(--ui-gap);
+  align-items: center;
 }
 
 /* 按钮尺寸稳定 */
@@ -3702,21 +3707,28 @@ body {
 }
 
 /* ===================== 编辑区 CM6 类绑定（class 驱动核心） ===================== */
-/* 彩色字体：markdown 语法 token → 变量色 */
-.cm-content .cm-md-token-heading-1 { color: var(--md-h1-color); font-weight: 700; }
-.cm-content .cm-md-token-heading-2 { color: var(--md-h2-color); font-weight: 700; }
-.cm-content .cm-md-token-heading-3 { color: var(--md-h3-color); font-weight: 700; }
-.cm-content .cm-md-token-heading-4 { color: var(--md-h2-color); font-weight: 700; opacity: .92; }
-.cm-content .cm-md-token-heading-5 { color: var(--md-h3-color); font-weight: 700; opacity: .9; }
-.cm-content .cm-md-token-heading-6 { color: var(--md-h1-color); font-weight: 700; opacity: .85; }
-.cm-content .cm-md-token-strong { color: var(--md-strong-color); font-weight: 700; }
-.cm-content .cm-md-token-emphasis { color: var(--md-em-color); font-style: italic; }
-.cm-content .cm-md-token-link { color: var(--md-link-color); text-decoration: underline; }
-.cm-content .cm-md-token-url { color: var(--md-link-color); }
-.cm-content .cm-md-token-quote { color: var(--md-quote-color); font-style: italic; }
-.cm-content .cm-md-token-code { color: var(--text-primary); background: var(--md-code-bg); border-radius: 3px; padding: 0 2px; }
-.cm-content .cm-md-token-separator { color: var(--md-quote-color); }
-.cm-content .cm-md-token-markup { color: var(--text-secondary); opacity: .7; }
+/* 彩色字体：markdown 语法 token → 变量色。R3 修复 ③：!important 覆盖 .cm-md-token-markup
+   的同优先级 color 规则（#、`*` 等格式符号在标题/加粗行内同时是 markup+heading，markup 规则
+   在文件中后定义，会覆盖 heading 的颜色；!important 确保 token 主色（h1/h2/strong/...）胜出）。 */
+.cm-content .cm-md-token-heading-1 { color: var(--md-h1-color) !important; font-weight: 700; }
+.cm-content .cm-md-token-heading-2 { color: var(--md-h2-color) !important; font-weight: 700; }
+.cm-content .cm-md-token-heading-3 { color: var(--md-h3-color) !important; font-weight: 700; }
+.cm-content .cm-md-token-heading-4 { color: var(--md-h2-color) !important; font-weight: 700; opacity: .92; }
+.cm-content .cm-md-token-heading-5 { color: var(--md-h3-color) !important; font-weight: 700; opacity: .9; }
+.cm-content .cm-md-token-heading-6 { color: var(--md-h1-color) !important; font-weight: 700; opacity: .85; }
+.cm-content .cm-md-token-strong { color: var(--md-strong-color) !important; font-weight: 700; }
+.cm-content .cm-md-token-emphasis { color: var(--md-em-color) !important; font-style: italic; }
+.cm-content .cm-md-token-link { color: var(--md-link-color) !important; text-decoration: underline; }
+.cm-content .cm-md-token-url { color: var(--md-link-color) !important; }
+.cm-content .cm-md-token-quote { color: var(--md-quote-color) !important; font-style: italic; }
+.cm-content .cm-md-token-code { color: var(--text-primary) !important; background: var(--md-code-bg); border-radius: 3px; padding: 0 2px; }
+.cm-content .cm-md-token-separator { color: var(--md-quote-color) !important; }
+/* markup 仍保留 color（单 class 元素如纯 # 段首占位符需要灰色），但因优先级输给
+   上面的 !important 规则，多 class 元素的主色由 token（heading/strong/...）决定。
+   R3 修复 ③ 续：去掉 opacity:.7——双 class 元素（# 字符同时是 heading-1+markup）中
+   即使 color 被 !important 覆盖，opacity 仍与玻璃皮肤背景色混合成绿色（实测 70% 黑 + 30%
+   绿背景 = rgb(58,90,58)），与配色方案目标颜色（高对比度应 #000000）偏离。改为不透明。 */
+.cm-content .cm-md-token-markup { color: var(--text-secondary); }
 
 /* 行底色：标题/引用/代码块行（正则法产生 class） */
 .cm-content .cm-md-heading-1 { background: var(--md-h1-bg); }

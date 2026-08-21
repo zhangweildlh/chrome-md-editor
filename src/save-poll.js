@@ -119,27 +119,37 @@ const OVERLAY_STYLE = [
   'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
 ].join(';') + ';';
 
+// R3 修复 ⑥：runSavePoll 弹窗视觉重做为「系统式样」，与原生 showOpenFilePicker / showSaveFilePicker
+// 弹窗（操作系统提供的对话框）观感一致——浅色卡片、圆角、按钮强调色（系统蓝 accent）。
+// 浏览器侧无法 100% 复刻 OS 原生，但通过统一调色板、字体、间距达成「观感对齐」。
 const BOX_STYLE = [
-  'min-width:360px', 'max-width:90vw', 'background:#1e1e22', 'color:#e8e8ea',
-  'border:1px solid #3a3a40', 'border-radius:10px', 'padding:18px 20px',
-  'box-shadow:0 12px 40px rgba(0,0,0,0.5)',
+  'min-width:380px', 'max-width:90vw', 'background:#ffffff', 'color:#1f2328',
+  'border:1px solid #d0d7de', 'border-radius:12px', 'padding:20px 22px',
+  'box-shadow:0 8px 28px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)',
+  'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
 ].join(';') + ';';
 
 const PATH_STYLE = [
-  'margin:10px 0', 'padding:8px 10px', 'background:#2a2a30', 'border-radius:6px',
+  'margin:10px 0', 'padding:8px 10px', 'background:#f6f8fa', 'border:1px solid #eaeef2',
+  'border-radius:6px',
   'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
-  'font-size:12px', 'word-break:break-all', 'line-height:1.5', 'color:#9cdcfe',
+  'font-size:12px', 'word-break:break-all', 'line-height:1.5', 'color:#57606a',
 ].join(';') + ';';
 
 const HINT_STYLE = [
-  'font-size:12px', 'color:#b0b0b8', 'margin-bottom:12px', 'line-height:1.5',
+  'font-size:12px', 'color:#57606a', 'margin-bottom:14px', 'line-height:1.55',
 ].join(';') + ';';
 
+// 系统式按钮：浅灰底 + 细边，hover 加深。emphasis=true 时用系统蓝（accent）强调（主操作）。
 const BTN_STYLE = [
-  'flex:1', 'margin:0 4px', 'padding:8px 10px', 'border:1px solid #4a4a52',
-  'border-radius:6px', 'background:#33333a', 'color:#e8e8ea', 'cursor:pointer',
-  'font-size:13px',
+  'flex:1', 'margin:0 4px', 'padding:7px 14px',
+  'border:1px solid #d0d7de', 'border-radius:6px',
+  'background:#f6f8fa', 'color:#1f2328', 'cursor:pointer',
+  'font-size:13px', 'font-weight:500', 'transition:background .12s',
 ].join(';') + ';';
+const BTN_EMPHASIS_BG = '#0969da'; // 系统蓝（GitHub/Windows accent）
+const BTN_EMPHASIS_BORDER = '#0969da';
+const BTN_EMPHASIS_TEXT = '#ffffff';
 
 // 通用：构造覆盖层 + 居中卡片，返回 { overlay, box, close }。
 function buildOverlay() {
@@ -203,7 +213,7 @@ function showPaneSaveDialog(pane) {
     const mk = (label, action, emphasis) => {
       const b = document.createElement('button');
       b.textContent = label;
-      b.style.cssText = BTN_STYLE + (emphasis ? 'background:#0e639c;border-color:#1177bb;' : '');
+      b.style.cssText = BTN_STYLE + (emphasis ? `background:${BTN_EMPHASIS_BG};border-color:${BTN_EMPHASIS_BORDER};color:${BTN_EMPHASIS_TEXT};` : '');
       b.onclick = () => { close(); resolve({ action }); };
       return b;
     };

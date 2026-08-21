@@ -1382,3 +1382,39 @@ body.mode-merge #btnColToggle {
   background: color-mix(in srgb, var(--lp-bg) 90%, transparent);
   border-color: var(--edge);
 }
+
+/* ===================== R3 修复 ⑦：B↔C 行内字词差异（bc 层）+ 行级高亮 ===================== */
+/* 根因（实测坐实）：bc 层的 inline-word-diff.js 已创建 .cm-diff-word-added/removed mark 装饰且
+   baseTheme 注入 backgroundColor（rgba(46,160,67,0.3) 等），但：
+     1) 单字符 mark 在玻璃皮肤 + 0.3 透明度下视觉上几乎不可见；
+     2) 整行无底色（ab 层有 MergeView 自带的 .cm-changedLine 行级高亮，bc 层缺）。
+   修复：compare.css 显式高优先级（!important）规则把 bc 层 mark 与行级 class 拉满视觉强度，
+   并在 compare-merge.js runDecorationLayer 给 bc 层 dispatch 行级 mark 装饰（.cm-md-bc-line-removed/added）。 */
+.cm-content .cm-diff-word-added {
+  background-color: rgba(46, 160, 67, 0.55) !important;
+  border-bottom: 2px solid rgba(46, 160, 67, 0.9) !important;
+  border-radius: 2px;
+  padding: 0 2px;
+  text-decoration: none;
+}
+.cm-content .cm-diff-word-removed {
+  background-color: rgba(248, 81, 73, 0.55) !important;
+  border-bottom: 2px solid rgba(248, 81, 73, 0.9) !important;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+/* B↔C 层行级高亮（与 ab 层的 .cm-changedLine 等价），覆盖整行底色 */
+.cm-content .cm-md-bc-line-added {
+  background-color: rgba(46, 160, 67, 0.12);
+}
+.cm-content .cm-md-bc-line-removed {
+  background-color: rgba(248, 81, 73, 0.12);
+}
+/* 暗色变体：底色略深（玻璃皮肤常态为亮色，但防御性覆盖） */
+[data-theme="dark"] .cm-content .cm-diff-word-added {
+  background-color: rgba(46, 160, 67, 0.4) !important;
+}
+[data-theme="dark"] .cm-content .cm-diff-word-removed {
+  background-color: rgba(248, 81, 73, 0.4) !important;
+}
+}

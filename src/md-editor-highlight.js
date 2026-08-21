@@ -12,22 +12,28 @@ import { tags } from '@lezer/highlight';
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view';
 import { StateField, RangeSetBuilder } from '@codemirror/state';
 
-// —— ① markdown 语法 tag → CSS 类（class 驱动，颜色交给 CSS 变量）——
+// —— ① markdown 语法 tag → 颜色（直接引用 CSS 变量）——
+// R3 修复 ③：原实现用 class 字符串（'cm-md-token-heading-1' 等）+ 项目 CSS 把 class 映射到
+// var(--md-h1-color)，但实测 CM6 6.x 中 class 字段生成后视觉上不生效（玻璃皮肤下不可见，
+// 变量值已正确但元素颜色仍为默认）。改用 HighlightStyle 的 color 字段直接引用 CSS 变量
+// `var(--md-h1-color)` 等，CM6 baseTheme 生成的样式优先级最高、且能跟随 [data-color-scheme]
+// 切换（classic/sepia/high-contrast）。同时保留 class 字段作为后向兼容（编辑器 CSS 仍消费
+// 这些 class，避免破坏下游 md-token 规则）。
 export const markdownHighlightStyle = HighlightStyle.define([
-    { tag: tags.heading1, class: 'cm-md-token-heading-1' },
-    { tag: tags.heading2, class: 'cm-md-token-heading-2' },
-    { tag: tags.heading3, class: 'cm-md-token-heading-3' },
-    { tag: tags.heading4, class: 'cm-md-token-heading-4' },
-    { tag: tags.heading5, class: 'cm-md-token-heading-5' },
-    { tag: tags.heading6, class: 'cm-md-token-heading-6' },
-    { tag: tags.strong, class: 'cm-md-token-strong' },
-    { tag: tags.emphasis, class: 'cm-md-token-emphasis' },
-    { tag: tags.link, class: 'cm-md-token-link' },
-    { tag: tags.url, class: 'cm-md-token-url' },
-    { tag: tags.quote, class: 'cm-md-token-quote' },
-    { tag: tags.monospace, class: 'cm-md-token-code' },
-    { tag: tags.contentSeparator, class: 'cm-md-token-separator' },
-    { tag: tags.processingInstruction, class: 'cm-md-token-markup' },
+    { tag: tags.heading1, class: 'cm-md-token-heading-1', color: 'var(--md-h1-color)' },
+    { tag: tags.heading2, class: 'cm-md-token-heading-2', color: 'var(--md-h2-color)' },
+    { tag: tags.heading3, class: 'cm-md-token-heading-3', color: 'var(--md-h3-color)' },
+    { tag: tags.heading4, class: 'cm-md-token-heading-4', color: 'var(--md-h2-color)' },
+    { tag: tags.heading5, class: 'cm-md-token-heading-5', color: 'var(--md-h3-color)' },
+    { tag: tags.heading6, class: 'cm-md-token-heading-6', color: 'var(--md-h1-color)' },
+    { tag: tags.strong, class: 'cm-md-token-strong', color: 'var(--md-strong-color)', fontWeight: '700' },
+    { tag: tags.emphasis, class: 'cm-md-token-emphasis', color: 'var(--md-em-color)', fontStyle: 'italic' },
+    { tag: tags.link, class: 'cm-md-token-link', color: 'var(--md-link-color)', textDecoration: 'underline' },
+    { tag: tags.url, class: 'cm-md-token-url', color: 'var(--md-link-color)' },
+    { tag: tags.quote, class: 'cm-md-token-quote', color: 'var(--md-quote-color)', fontStyle: 'italic' },
+    { tag: tags.monospace, class: 'cm-md-token-code', color: 'var(--md-em-color)' },
+    { tag: tags.contentSeparator, class: 'cm-md-token-separator', color: 'var(--md-quote-color)' },
+    { tag: tags.processingInstruction, class: 'cm-md-token-markup', color: 'var(--text-secondary)' },
 ]);
 
 // —— ② 标题行 / 引用行 / 围栏代码块行底色（正则法，纯函数）——
