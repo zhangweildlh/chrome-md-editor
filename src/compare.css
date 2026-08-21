@@ -55,19 +55,19 @@
   /* —— 第三期：移动块跨栏连线（move-connectors.js 出口变量，勿改名） ——
      两层用不同色相区分：A↔B（Yours↔Result）蓝、B↔C（Result↔Theirs）紫。
      -stroke 为描边色，-fill 为连接带填充色（必须比描边更淡，否则会盖住栏间背景）。 */
-  --diff-connector-ab: rgba(56, 139, 253, 0.7);
-  --diff-connector-ab-fill: rgba(56, 139, 253, 0.14);
-  --diff-connector-bc: rgba(163, 113, 247, 0.7);
-  --diff-connector-bc-fill: rgba(163, 113, 247, 0.14);
+  --diff-connector-ab: rgba(56, 139, 253, 0.5);
+  --diff-connector-ab-fill: rgba(56, 139, 253, 0.1);
+  --diff-connector-bc: rgba(163, 113, 247, 0.5);
+  --diff-connector-bc-fill: rgba(163, 113, 247, 0.1);
 
   /* —— 独属内容连线（'diff' 层，move-connectors.js 的 VARIANT_PAINT 同款色相）——
      与行内高亮同色：绿连绿（仅右侧独有 / 新增）、红连红（仅左侧独有 / 删除），
      用户一眼能看出「这条线连的是哪一块高亮」。颜色直接派生自 --diff-*-rgb
      （与 --diff-word-*-bg 同源），-fill 用更低 alpha 避免盖住栏间背景。 */
-  --diff-connector-added: rgba(var(--diff-added-rgb), 0.75);
-  --diff-connector-added-fill: rgba(var(--diff-added-rgb), 0.16);
-  --diff-connector-removed: rgba(var(--diff-removed-rgb), 0.75);
-  --diff-connector-removed-fill: rgba(var(--diff-removed-rgb), 0.16);
+  --diff-connector-added: rgba(var(--diff-added-rgb), 0.55);
+  --diff-connector-added-fill: rgba(var(--diff-added-rgb), 0.1);
+  --diff-connector-removed: rgba(var(--diff-removed-rgb), 0.55);
+  --diff-connector-removed-fill: rgba(var(--diff-removed-rgb), 0.1);
 
   /* —— 第三期：位置概览面板（location-pane.js） —— */
   --lp-bg: var(--bg-secondary);
@@ -106,16 +106,16 @@
 
   --diff-move-bg: rgba(56, 139, 253, 0.3);
 
-  --diff-connector-ab: rgba(88, 166, 255, 0.8);
-  --diff-connector-ab-fill: rgba(88, 166, 255, 0.2);
-  --diff-connector-bc: rgba(188, 140, 255, 0.8);
-  --diff-connector-bc-fill: rgba(188, 140, 255, 0.2);
+  --diff-connector-ab: rgba(88, 166, 255, 0.55);
+  --diff-connector-ab-fill: rgba(88, 166, 255, 0.14);
+  --diff-connector-bc: rgba(188, 140, 255, 0.55);
+  --diff-connector-bc-fill: rgba(188, 140, 255, 0.14);
 
   /* 与字词底色同源（同 --diff-*-rgb），仅 alpha 更高以便连线可见。 */
-  --diff-connector-added: rgba(var(--diff-added-rgb), 0.85);
-  --diff-connector-added-fill: rgba(var(--diff-added-rgb), 0.2);
-  --diff-connector-removed: rgba(var(--diff-removed-rgb), 0.85);
-  --diff-connector-removed-fill: rgba(var(--diff-removed-rgb), 0.2);
+  --diff-connector-added: rgba(var(--diff-added-rgb), 0.6);
+  --diff-connector-added-fill: rgba(var(--diff-added-rgb), 0.14);
+  --diff-connector-removed: rgba(var(--diff-removed-rgb), 0.6);
+  --diff-connector-removed-fill: rgba(var(--diff-removed-rgb), 0.14);
 
   --lp-track: rgba(255, 255, 255, 0.06);
   --lp-bar-change: rgba(88, 166, 255, 0.7);
@@ -231,28 +231,14 @@
   filter: brightness(1.08);
 }
 
-/* 方向选择器：三枚按钮拼成一条分段控件（<<左 | 全部 | 右>>）。
-   相邻边框用负 margin 折叠，避免出现 2px 的粗接缝。 */
-.compare-dir-group {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-}
-.compare-dir-group .compare-dir-btn {
-  border-radius: 0;
-  margin-left: -1px;
-}
-.compare-dir-group .compare-dir-btn:first-child {
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-  margin-left: 0;
-}
-.compare-dir-group .compare-dir-btn:last-child {
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-/* 选中态压在相邻按钮之上，否则高亮边框会被后一枚的普通边框盖掉半边 */
-.compare-dir-group .compare-dir-btn.active {
-  position: relative;
-  z-index: 1;
+/* ⑫ 合并操作面板：把「应用非冲突变更 + 行内高亮 + 计数」三控件视觉聚合成一个工具面板。
+   纯 CSS（background/border/radius/padding），不改 DOM 层级；.merge-only 在对照模式下仍 display:none。 */
+.compare-merge-group {
+  gap: 8px;
+  padding: 3px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
 }
 
 /* 「行内高亮」下拉：label 包住 span + select，整体当成一枚工具栏控件对齐 */
@@ -288,7 +274,8 @@
   color: var(--text-primary);
 }
 
-/* 状态计数（「6 处变更，2 处冲突」）：纯文本指示，不可点击 */
+/* 状态计数（「6 处变更，2 处冲突」）：纯文本指示，不可点击。
+   需求⑪：默认用黑色主文字色（--text-primary）突出计数，存在冲突时再转警示色。 */
 .compare-status-count {
   display: inline-flex;
   flex: 0 0 auto;
@@ -297,7 +284,7 @@
   padding: 0 8px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   white-space: nowrap;
   user-select: none;
 }
@@ -508,7 +495,8 @@
    列宽对齐 a↔b 的 .cm-merge-revert (67px)；overflow:hidden 使屏外块按钮被裁掉，
    按钮以 position:absolute + top 随滚动/刷新重定位到对应差异块。 */
 .cm-compare-revert-bc {
-  flex: 0 0 67px;
+  /* 需求②：B↔C revert 列与 a↔b 的 .cm-merge-revert 同步收窄约 20%（67px → 54px） */
+  flex: 0 0 54px;
   position: relative;
   overflow: hidden;
   background: var(--bg-secondary);
@@ -581,7 +569,8 @@
 }
 .cm-move-connector {
   fill: none;
-  stroke-width: 1.5;
+  /* 需求④：连线描边略减细（1.5 → 1.25），配合 --diff-connector-* 透明度下调，减轻视觉杂乱 */
+  stroke-width: 1.25;
   vector-effect: non-scaling-stroke;
 }
 .cm-move-connector-ab {
@@ -605,6 +594,13 @@
   fill: var(--diff-connector-removed-fill);
 }
 
+/* 需求②：对比页行号栏 + 各行 gutter 单元格内边距收窄约 20%（参照 editor.css G20，
+   其基线 6px/4px 收到 3.6px/2.4px；此处再降到 4.8px/3.2px，仅缩内边距不缩字号）。
+   #compareRoot 提权确保压过 editor.css 的 .editor-container 同款规则。 */
+#compareRoot .cm-gutters .cm-gutterElement {
+  padding: 0 4.8px 0 3.2px;
+}
+
 /* revert 列（MergeView 的 revertDOM，即「⇄ 接受此块」按钮所在的窄列）必须压在
    连线层之上。实测 @codemirror/merge 6.12.2 的 baseTheme 只给它 position:relative
    （dist/index.js:1090-1095），z-index 为 auto ≡ 0，与本层（z-index:1）同处一个
@@ -617,8 +613,9 @@
   z-index: 2;
   /* 库默认 width:1.6em，只够放一个箭头字形；本项目的块级按钮是「⇄ 采纳此块 /
      采纳左 ▶ / ◀ 采纳右」这类文字按钮，需保留足够宽度避免逐字折行。
-     经用户反馈收窄 20%（84px → 67px），按钮仍用 nowrap + ellipsis 兜底不折行。 */
-  width: 67px;
+     经用户反馈收窄 20%（84px → 67px）；需求②再收窄约 20%（67px → 54px），
+     按钮仍用 nowrap + ellipsis 兜底不折行。 */
+  width: 54px;
 }
 
 /* ── 块级操作按钮组（renderRevertControl 返回的容器） ──
@@ -926,7 +923,8 @@
   background: color-mix(in srgb, var(--danger) 16%, transparent);
 }
 .cm-compare-chunk-gutter {
-  width: 1.2em;
+  /* 需求②：± 标记列收窄约 20%（1.2em → 0.96em） */
+  width: 0.96em;
   color: var(--text-muted);
 }
 .cm-compare-chunk-marker {
@@ -939,6 +937,33 @@
 }
 .cm-compare-chunk-gutter .cm-compare-chunk-marker {
   color: var(--text-secondary);
+}
+/* 需求③：± / − 标记含义增强（纯 CSS，不动 JS）。
+   compare-line-markers.js 在差异行渲染 .cm-compare-chunk-marker 文本（± 修改 / − 删除）；
+   悬浮时以 ::after 显示说明性 tooltip。标记所在 gutter 宽度有限，tooltip 定位到右侧
+   覆盖编辑区，规避 gutter 自身溢出裁切。 */
+#compareRoot .cm-compare-chunk-marker {
+  position: relative;
+  cursor: help;
+}
+#compareRoot .cm-compare-chunk-marker:hover::after {
+  content: "差异行标记：± 修改（同时含增/删）  − 删除";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 6px;
+  z-index: 60;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: #1f2937;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25));
 }
 
 /* ── 自定义块级按钮（renderRevertControl：接受此块 / 采纳左 / 采纳右） ──
@@ -1209,7 +1234,8 @@ body.mode-merge #btnColToggle {
      .save-poll-modal     居中对话框卡片
      .save-poll-path      绝对路径 + 文件名展示区
      .save-poll-hint      说明文字
-     .save-poll-input     另存为文件名输入
+   （需求①⑦⑬：另存为已改为直接调原生 showSaveFilePicker，不再自建文件名输入，
+     .save-poll-input 类已随 save-poll.js 的输入弹窗一并移除。）
    按钮（保存/另存为/不保存/取消）由 save-poll.js 用内联 flex 容器承载，
    此处统一外观。save-poll.js 当前用内联 style 占位，下面用 !important 覆盖，
    使弹窗走本项目的明暗主题变量（避免硬编码深色）。
@@ -1253,18 +1279,6 @@ body.mode-merge #btnColToggle {
   color: var(--text-secondary) !important;
   margin-bottom: 12px !important;
   line-height: 1.5 !important;
-}
-.save-poll-input {
-  width: 100% !important;
-  box-sizing: border-box !important;
-  padding: 8px 10px !important;
-  margin: 10px 0 14px !important;
-  background: var(--bg-tertiary) !important;
-  border: 1px solid var(--border-primary) !important;
-  border-radius: var(--radius-sm) !important;
-  color: var(--text-primary) !important;
-  font-family: var(--font-mono) !important;
-  font-size: 13px !important;
 }
 /* 四个按钮（保存/另存为/不保存/取消）统一外观；首枚（保存）用 accent 强调，
    末枚（取消）用 danger 警示，便于一眼区分主/次动作。 */

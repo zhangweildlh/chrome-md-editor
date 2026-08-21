@@ -227,9 +227,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 批量合并相关元素（对齐 JetBrains Merge Revisions 顶部栏）──
   const btnApplyNonConflicting = $("btnApplyNonConflicting");
-  const btnAcceptLeft = $("btnAcceptLeft");
-  const btnAcceptAll = $("btnAcceptAll");
-  const btnAcceptRight = $("btnAcceptRight");
+  // 需求⑩：方向选择器（btnAcceptLeft / btnAcceptAll / btnAcceptRight）已删除，不再声明
   const selHighlightWords = $("selHighlightWords");
   const statusCountEl = $("compareStatusCount");
   const compareViewHeader = $("compareViewHeader");
@@ -624,6 +622,18 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 滚动同步按钮状态
   function updateScrollButton() {
     if (btnScroll) {
+      // 需求⑤：无有效跨滚动盒链接（两栏等场景各栏共用同一滚动盒 → 同步天然恒开、
+      // 控制器 isEffective()=false 为 no-op）时，按钮置灰并说明，避免「点了没反应」。
+      const effective = !!(
+        scrollSync &&
+        (typeof scrollSync.isEffective !== "function" || scrollSync.isEffective())
+      );
+      btnScroll.classList.toggle("disabled", !effective);
+      if (!effective) {
+        btnScroll.classList.remove("active");
+        btnScroll.title = "滚动同步：各栏共用同一滚动盒（两栏模式），天然同步，无需开关";
+        return;
+      }
       btnScroll.classList.toggle("active", scrollSyncEnabled);
       btnScroll.title = scrollSyncEnabled
         ? "滚动同步：开（点击关闭）"
@@ -967,7 +977,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     // 补齐 UI：刷新 per-pane 标题（Yours / Result / Theirs）与差异/冲突计数。
     // 首帧 diff 尚未落定，计数可能为 0；onRefresh 订阅后会在 diff 算完时再刷一次。
     updatePaneHeader();
-    syncDirectionTooltips();
     // 修复 R5：createCompareMergeView 内部默认 wordDiffMode='word'，而 #selHighlightWords
     // 是页面级静态控件，其值在 render 间不会重置。若不回填，用户选「关闭 / 按字符」后
     // 一旦重渲染（切换视图模式、重新载入文件），装饰会悄悄退回「按词」，
@@ -1286,7 +1295,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       const a = getContent("a");
       const b = getContent("b") || getContent("c") || "";
       const diffText = buildDiffText(a, b);
-      const target = await showSaveAsDialog({ suggestedName: "diff.txt" });
+      const target = await showSaveAsDialog({ suggestedName: "diff.txt", types: [{ description: "文本文件", accept: { "text/plain": [".txt"] } }] });
       if (target) await ioBridge.saveAs(target, diffText); // 写入新文件，不覆盖源
     } catch (e) {
       // 用户取消保存：忽略 AbortError
@@ -1437,24 +1446,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (el) el.classList.toggle("is-off", !!paneOffState[p]);
   }
 
-  // ── 方向选择器文案（按模式动态，修复低-1：两栏 left/right 实为 Yours↔Theirs）──
-  // 合并/三栏：left=Yours→结果、right=Theirs→结果；对照两栏：left=Yours→Theirs、right=Theirs→Yours。
-  function syncDirectionTooltips() {
-    const isTwo = mode === "compare" && colCount === 2;
-    if (btnAcceptLeft)
-      btnAcceptLeft.title = isTwo
-        ? "采纳左侧全部块（本地 → 对方）"
-        : "采纳左侧全部块（本地 → 合并结果）";
-    if (btnAcceptAll)
-      btnAcceptAll.title = isTwo
-        ? "用左栏覆盖全部（本地优先）"
-        : "两侧全部采纳（先左后右，右侧覆盖冲突处）";
-    if (btnAcceptRight)
-      btnAcceptRight.title = isTwo
-        ? "采纳右侧全部块（对方 → 本地）"
-        : "采纳右侧全部块（对方 → 合并结果）";
-  }
-
   // ── 关闭某栏：仅视觉隐藏该栏（display:none）+ 触发重绘 ──
   // 简单方案：给 compare-panes 加 pane-off-<p> 类，CSS 收缩为该栏宽度 0；
   // 不能用 CSS 隐藏整列（会破坏 MergeView 的滚动联动），故仅收缩宽度。
@@ -1539,113 +1530,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     updateStatusCount();
   }
 
-  // ── 方向选择器：<< 左 / 全部 / 右 >> 批量接受某一侧全部块（含冲突块）──
-  // 关键正确性：向同一 dstView 写入多个块必须合并为【单次 dispatch】，
-  // 否则后续块 dstFrom/dstTo 仍基于原始文档、从第 2 个起写错位置（漂移）。
-  // 收集每一块的 changes（from/to/insert），按 dstFrom 升序排序后整批 dispatch。
-  function acceptAllDir(dir) {
-    if (!instance || typeof instance.getChunks !== "function") return;
-    const chunks = instance.getChunks() || [];
-    const isTwo = colCount === 2;
-
-    function bulkTo(srcView, dstView, layerChunks) {
-      if (!srcView || !dstView || !layerChunks.length) return;
-      const len = dstView.state.doc.length;
-      const sorted = [...layerChunks].sort((a, b) => a.dstFrom - b.dstFrom);
-      // 防御：相邻块区间重叠则中止，避免静默损坏文档（同 applyNonConflicting）
-      for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i - 1].dstTo > sorted[i].dstFrom) {
-          console.error(
-            `[compare] 批量接受 ${dir} 检测到重叠块区间，已中止以免损坏文档`
-          );
-          return;
-        }
-      }
-      const changes = sorted.map((c) => ({
-        from: Math.min(c.dstFrom, len),
-        to: Math.min(c.dstTo, len),
-        insert: srcView.state.doc.sliceString(c.srcFrom, c.srcTo),
-      }));
-      dstView.dispatch({ changes });
-    }
-
-    if (dir === "left" || dir === "all") {
-      if (isTwo) {
-        const views = instance.getLayerViews("ab");
-        bulkTo(views.srcView, views.dstView, chunks.filter((c) => c.layer === "ab"));
-      } else if (dir === "left") {
-        const views = instance.getLayerViews("ab"); // a→b (Yours→Result)
-        bulkTo(views.srcView, views.dstView, chunks.filter((c) => c.layer === "ab"));
-      }
-      // dir === "all" 三栏：与下方 right 阶段合并为单次 dispatch，避免 ab 层被 bc 层覆盖。
-    }
-    if (dir === "right" || dir === "all") {
-      if (isTwo) {
-        // 两栏右：b→a（Theirs→Yours）。
-        // ① dir==='all' 时上面的 left 阶段刚改写过 b，快照里的 dstFrom/dstTo 已过期，必须重取；
-        // ② 把 src/dst 角色对调后交给 bulkTo，从而复用同一套「按 dstFrom 排序 + 重叠区间校验
-        //    + 越界钳制」防御。此前这里是手写 dispatch，缺重叠校验，相邻块接触时 CM6 会直接
-        //    抛 Overlapping changes，导致后续 syncRevertControls / updateStatusCount 都不执行。
-        const srcChunks = dir === "all" ? instance.getChunks() || [] : chunks;
-        const rightChunks = srcChunks
-          .filter((c) => c.layer === "ab")
-          .map((c) => ({
-            ...c,
-            srcFrom: c.dstFrom, // 取 b（Theirs）的内容
-            srcTo: c.dstTo,
-            dstFrom: c.srcFrom, // 写回 a（Yours）的区间
-            dstTo: c.srcTo,
-          }));
-        // getLayerViews('right') 即 { srcView: mv.b, dstView: mv.a }，两栏实例已提供该反向端点
-        const views = instance.getLayerViews("right");
-        bulkTo(views.srcView, views.dstView, rightChunks);
-      } else if (dir === "right") {
-        // 三栏单独右：Theirs→Result（bc 层）
-        const views = instance.getLayerViews("bc"); // theirsView→b
-        bulkTo(views.srcView, views.dstView, chunks.filter((c) => c.layer === "bc"));
-      }
-      // dir === "all" 三栏：在下面统一处理。
-    }
-
-    // 三栏「全部」：把 ab + bc 两层 changes 合并为单次 dispatch（同 applyNonConflictingChunks）。
-    // 关键修复（H1）：冲突块在 ab 层与 bc 层都映射到【同一个 Result 区域】；若两层都压入，
-    // 区间重叠会触发下方重叠守卫整轮 return，导致冲突文档点「全部」完全无反应（合并核心失效）。
-    // 按 tooltip「右侧覆盖冲突处」语义：ab 层只压【非冲突】块，冲突块改由 bc 层（右/Theirs）压入并覆盖，
-    // 使每个 Result 区域仅被表示一次，单次 dispatch 满足 CM6 非重叠约束。
-    if (!isTwo && dir === "all") {
-      const abViews = instance.getLayerViews("ab");
-      const bcViews = instance.getLayerViews("bc");
-      const allChanges = [];
-      const pushAll = (srcView, dstView, list) => {
-        if (!srcView || !dstView || !list.length) return;
-        const dstLen = dstView.state.doc.length;
-        const srcLen = srcView.state.doc.length;
-        for (const c of list) {
-          allChanges.push({
-            from: Math.min(c.dstFrom, dstLen),
-            to: Math.min(c.dstTo, dstLen),
-            insert: srcView.state.doc.sliceString(
-              Math.min(c.srcFrom, srcLen),
-              Math.min(c.srcTo, srcLen)
-            ),
-          });
-        }
-      };
-      pushAll(abViews.srcView, abViews.dstView, chunks.filter((c) => c.layer === "ab" && !c.conflict));
-      pushAll(bcViews.srcView, bcViews.dstView, chunks.filter((c) => c.layer === "bc"));
-      allChanges.sort((a, b) => a.from - b.from);
-      for (let i = 1; i < allChanges.length; i++) {
-        if (allChanges[i - 1].to > allChanges[i].from) {
-          console.error("[compare] 三栏「全部」块区间重叠，已中止");
-          return;
-        }
-      }
-      abViews.dstView.dispatch({ changes: allChanges });
-    }
-    if (instance.syncRevertControls) instance.syncRevertControls();
-    updateStatusCount();
-  }
-
   // ── 行内字词高亮粒度切换 ──
   function onHighlightWordsChange() {
     if (!selHighlightWords || !instance) return;
@@ -1674,6 +1558,14 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     });
   if (btnScroll)
     btnScroll.addEventListener("click", () => {
+      // 需求⑤：控制器无有效同步链接（两栏共用滚动盒）时按钮已置灰，点击直接忽略，
+      // 不再产生「翻转了高亮但底层无效」的假开关。
+      if (
+        !scrollSync ||
+        (typeof scrollSync.isEffective === "function" && !scrollSync.isEffective())
+      ) {
+        return;
+      }
       // M5（补充）：compare.js 持有本地开关态 scrollSyncEnabled，按钮翻转它并推给唯一控制器
       // instance.scrollSync（含三栏 B↔C / A↔C）；不再直接 toggle 控制器内部态，否则按钮高亮
       // （updateScrollButton 只读 compare.js 的 scrollSyncEnabled）会与真实开关脱钩。
@@ -1718,43 +1610,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。
   if (btnApplyNonConflicting)
     btnApplyNonConflicting.addEventListener("click", applyNonConflictingChunks);
-  // 修复 R7：CSS 已定义 .compare-dir-btn.active（选中态压在相邻按钮之上），此前无人添加该类，
-  // 属死代码。方向选择器是【即时动作】而非持久模式，故不做持久选中态，
-  // 改为点击后短暂点亮 —— 批量合并的文档变化常在视口外，缺少反馈时用户无法确认「点中了哪个」。
-  const DIR_FLASH_MS = 700;
-  const dirFlashTimers = new WeakMap();
-  function flashDirBtn(btn) {
-    if (!btn) return;
-    btn.classList.add("active");
-    const prev = dirFlashTimers.get(btn);
-    if (prev) clearTimeout(prev); // 连点时重置计时，避免前一次的定时器提前熄灯
-    dirFlashTimers.set(
-      btn,
-      setTimeout(() => {
-        btn.classList.remove("active");
-        dirFlashTimers.delete(btn);
-      }, DIR_FLASH_MS)
-    );
-  }
-
   // B↔C 逐块采纳已迁移至 compare-merge.js（acceptBcChunkAt + mountBcRevertColumn），
   // 本文件不再持有 bulk 采纳逻辑；工具栏顶部「批量采纳方向」仍走 getLayerViews('bc')。
 
-  if (btnAcceptLeft)
-    btnAcceptLeft.addEventListener("click", () => {
-      flashDirBtn(btnAcceptLeft);
-      acceptAllDir("left");
-    });
-  if (btnAcceptAll)
-    btnAcceptAll.addEventListener("click", () => {
-      flashDirBtn(btnAcceptAll);
-      acceptAllDir("all");
-    });
-  if (btnAcceptRight)
-    btnAcceptRight.addEventListener("click", () => {
-      flashDirBtn(btnAcceptRight);
-      acceptAllDir("right");
-    });
   if (selHighlightWords)
     selHighlightWords.addEventListener("change", onHighlightWordsChange);
 

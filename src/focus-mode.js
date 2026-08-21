@@ -21,6 +21,20 @@ const LS = {
 let focusMode = localStorage.getItem(LS.focus) === '1';
 let typewriter = localStorage.getItem(LS.typewriter) === '1';
 
+// ⑱ Win11 记事本默认值（用于显示设置「默认」按钮一键恢复）
+// 来源：Win11 记事本默认字体 'Lucida Console, 宋体'、字号 12px（小五）、
+// 行距 1.0（单倍）、字间距 0px；界面密度取 standard（= 默认观感），配色用默认 classic。
+// 预览字号记事本无对应概念，保持本应用默认 15px（不动）。
+export const WIN11_DEFAULTS = {
+  editorFont: 12,
+  editorFontFamily: "'Lucida Console', 宋体",
+  editorLetterSpacing: 0,
+  editorLineHeight: 1.0,
+  previewFont: 15,
+  density: 'standard',
+  colorScheme: 'classic',
+};
+
 // ---- 专注 / 打字机 ----
 export function isFocusMode() { return focusMode; }
 export function isTypewriter() { return typewriter; }

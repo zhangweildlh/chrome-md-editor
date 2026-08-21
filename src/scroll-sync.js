@@ -249,6 +249,9 @@ export function createScrollSync(opts) {
   /** @type {Array<{box: HTMLElement, type: string, handler: Function}>} */
   const focusHandlers = [];
   let activeItem = null; // 最近聚焦/交互的栏原始项（激活栏）
+  /** 真正建立监听的「跨滚动盒」对数（linkPair 仅在两端滚动盒不同时才 +1）。
+   *  两栏 MergeView 等场景下各栏共用一个滚动盒，此值为 0 → 控制器是 no-op。 */
+  let linkedPairs = 0;
 
   // ---- 解析当前栏 ----
   function resolvePanes() {
@@ -291,6 +294,7 @@ export function createScrollSync(opts) {
     by.addEventListener("scroll", h2);
     scrollHandlers.push({ box: bx, handler: h1 });
     scrollHandlers.push({ box: by, handler: h2 });
+    linkedPairs++; // 仅当两端滚动盒不同、真正建立同步链接时计数
   }
 
   function detachAll() {
@@ -298,6 +302,7 @@ export function createScrollSync(opts) {
     scrollHandlers.length = 0;
     for (const { box, type, handler } of focusHandlers) box.removeEventListener(type, handler);
     focusHandlers.length = 0;
+    linkedPairs = 0; // 解绑后重置，refresh() 会重新计数
   }
 
   // 跟踪激活栏：focusin（可聚焦栏）与 pointerdown（预览等不可聚焦栏）双保险。
@@ -405,6 +410,15 @@ export function createScrollSync(opts) {
     return checkAligned(resolvePanes());
   }
 
+  /**
+   * 控制器是否真的建立了至少一对「跨滚动盒」同步链接。
+   * 返回 false 表示各栏共用同一个滚动盒（如两栏 MergeView），滚动同步天然恒开、
+   * 按钮无意义——供 UI 层据此禁用/隐藏「滚动同步」按钮（见 compare.js / compare.css）。
+   */
+  function isEffective() {
+    return linkedPairs > 0;
+  }
+
   /** 重新解析 views() 并重建滚动/焦点监听（对照·合并页切换模式/重建视图后调用）。 */
   function refresh() {
     detachAll();
@@ -426,7 +440,7 @@ export function createScrollSync(opts) {
   // 构造即装配监听（编辑页视图稳定；对照/合并页重建后调用 refresh() 即可）。
   refresh();
 
-  return { enable, disable, toggle, alignToActive, keepAsIs, isAligned, refresh, destroy };
+  return { enable, disable, toggle, alignToActive, keepAsIs, isAligned, isEffective, refresh, destroy };
 }
 
 export default createScrollSync;

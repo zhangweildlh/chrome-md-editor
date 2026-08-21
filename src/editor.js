@@ -166,6 +166,7 @@ import {
   getEditorLetterSpacing,
   setEditorLineHeight,
   getEditorLineHeight,
+  WIN11_DEFAULTS,
 } from './focus-mode.js';
 // A-9 超长 Base64 行折叠
 import { initBase64Fold } from './base64-fold.js';
@@ -3361,11 +3362,57 @@ function bindEvents() {
             setEditorFontFamily(eFontFamily.value);
     });
     if (eLetterSpacing) eLetterSpacing.addEventListener('change', () => {
-            setEditorLetterSpacing(eLetterSpacing.value || '');
+            // ⑰ 修复：原 `eLetterSpacing.value || ''` 会把合法值 "0" 误判为假值而清空；
+            // 改为显式空串判断，保留 "0" 等边界值。
+            setEditorLetterSpacing(eLetterSpacing.value === '' ? '' : eLetterSpacing.value);
     });
     if (eLineHeight) eLineHeight.addEventListener('change', () => {
-            setEditorLineHeight(eLineHeight.value || '');
+            setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
     });
+    // ⑱ Win11 记事本默认值「默认」按钮：点击写入 Win11 默认并触发对应 setter
+    displayPopover.querySelectorAll('.field-default-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const d = WIN11_DEFAULTS;
+        switch (btn.dataset.default) {
+          case 'editorFont': setEditorFontSize(d.editorFont); if (eFont) eFont.value = d.editorFont; break;
+          case 'editorFontFamily': setEditorFontFamily(d.editorFontFamily); if (eFontFamily) eFontFamily.value = d.editorFontFamily; break;
+          case 'editorLetterSpacing': setEditorLetterSpacing(d.editorLetterSpacing); if (eLetterSpacing) eLetterSpacing.value = d.editorLetterSpacing; break;
+          case 'editorLineHeight': setEditorLineHeight(d.editorLineHeight); if (eLineHeight) eLineHeight.value = d.editorLineHeight; break;
+          case 'previewFont': setPreviewFontSize(d.previewFont); if (pFont) pFont.value = d.previewFont; break;
+          case 'density': setDensity(d.density); if (density) density.value = d.density; break;
+          case 'colorScheme': setColorScheme(d.colorScheme); if (colorScheme) colorScheme.value = d.colorScheme; break;
+        }
+      });
+    });
+    // ⑱ HTML Agent 契约「默认」按钮：id = btnDefault* + class = style-default-btn。
+    // 与上方 field-default-btn 走完全相同的 setter 路径（editor.js:3349-3371 那批），
+    // 并把控件显示值同步（select.value / input.value）。HTML 侧尚未加这些 id 时用 if 守卫跳过。
+    const defaultBtnIds = [
+      ['btnDefaultFontSize', 'editorFont', eFont],
+      ['btnDefaultFont', 'editorFontFamily', eFontFamily],
+      ['btnDefaultLetterSpacing', 'editorLetterSpacing', eLetterSpacing],
+      ['btnDefaultLineHeight', 'editorLineHeight', eLineHeight],
+      ['btnDefaultPreviewFontSize', 'previewFont', pFont],
+      ['btnDefaultDensity', 'density', density],
+      ['btnDefaultColorScheme', 'colorScheme', colorScheme],
+    ];
+    for (const [btnId, key, control] of defaultBtnIds) {
+      const btn = displayPopover.querySelector(`#${btnId}`);
+      if (!btn) continue;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = WIN11_DEFAULTS[key];
+        if (key === 'editorFont') setEditorFontSize(val);
+        else if (key === 'editorFontFamily') setEditorFontFamily(val);
+        else if (key === 'editorLetterSpacing') setEditorLetterSpacing(val);
+        else if (key === 'editorLineHeight') setEditorLineHeight(val);
+        else if (key === 'previewFont') setPreviewFontSize(val);
+        else if (key === 'density') setDensity(val);
+        else if (key === 'colorScheme') setColorScheme(val);
+        if (control) control.value = val;
+      });
+    }
     document.addEventListener('click', (e) => {
       if (!displayPopover.hidden && !displayPopover.contains(e.target) && e.target !== btnDisplaySettings) {
         displayPopover.hidden = true;
