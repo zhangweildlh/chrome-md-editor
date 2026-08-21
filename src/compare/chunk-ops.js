@@ -63,6 +63,12 @@ export function acceptChunk({ srcView, dstView, srcFrom, srcTo, dstFrom, dstTo }
 //   3) 把源侧选中行（含行尾换行）整体替换为目标侧对应行。
 // 选区为空时取光标所在行；选区与 chunk 无交集时回退到「chunk 内光标当前行」。
 //
+// ⚠️ 行不对称 chunk（源行数 ≠ 目标行数，如 3 行替换 1 行）：按行索引映射 + 目标端
+// 钳制（dstFirstLine/dstLastLine 都 clamp 到 dst 块范围）后，「选中源某行」会把
+// 【整个目标块区域】替换为【该选中源行（含行尾换行）】——即整块目标被单行替换、
+// 源块其余行不写入。这是「逐行采纳」语义在不对称块上的既定取舍（测试仅锁定行对称
+// 场景）；如需「整块原子替换」请直接使用 acceptChunk。
+//
 // @param {{srcView:object, dstView:object, srcFrom:number, srcTo:number, dstFrom:number, dstTo:number, selection:object}} args
 //        selection：源视图的 selection 对象，需含 .main.{anchor,head}（CodeMirror 契约）
 // @returns {boolean} 是否实际产生了写入（无任何相交行时为 false，不改动文档）

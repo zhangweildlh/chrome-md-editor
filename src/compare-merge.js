@@ -58,8 +58,9 @@ import {
   DEFAULT_MAX_LINE_DISTANCE,
 } from "./compare/delta-align.js";
 // 块级「采纳」按钮复用统一的写入原语（单次 dispatch、区间校验），不自己拼 changes。
-// acceptChunk 用于整块覆写（B↔C 逐块采纳等）；acceptChunkAtCursor 用于光标/选区粒度局部采纳。
-import { acceptChunk, acceptChunkAtCursor } from "./compare/chunk-ops.js";
+// acceptChunkAtCursor 用于光标/选区粒度局部采纳（A↔B 与 B↔C 内联按钮，需求⑧）；
+// 整块覆写已不再需要（computeBcAcceptRange 的区间算术仍保留给越界钳制单测）。
+import { acceptChunkAtCursor } from "./compare/chunk-ops.js";
 // MergeView 内的 view.scrollDOM 不是滚动盒（可滚余量恒 0、且收不到 scroll 事件），
 // 取滚动盒一律走 scrollBoxOf —— 理由见 compare/scroll-box.js 顶部说明。
 import { scrollBoxOf } from "./compare/scroll-box.js";
@@ -661,17 +662,17 @@ function makeBcRevertGroup(onAccept) {
   const single = mk(
     "cm-compare-revert cm-compare-revert-single",
     "⇄ 采纳此块",
-    "采纳此块：用中间栏内容覆写右栏"
+    "采纳此块：仅采纳中间栏光标 / 选区所在行（而非整块）"
   );
   const left = mk(
     "cm-compare-revert cm-compare-accept-left",
     "采纳左 ▶",
-    "采纳左：用中间栏(b)内容覆写右栏(c)"
+    "采纳左：仅用中间栏(b)光标 / 选区所在行覆写右栏(c)"
   );
   const right = mk(
     "cm-compare-revert cm-compare-accept-right",
     "◀ 采纳右",
-    "采纳右：用右栏(c)内容覆写中间栏(b)"
+    "采纳右：仅用右栏(c)光标 / 选区所在行覆写中间栏(b)"
   );
   wire(single, "left");
   wire(left, "left");
@@ -1286,18 +1287,23 @@ export function createCompareMergeView(opts) {
         // 方向映射 + 越界钳制委托给纯函数 computeBcAcceptRange（可被 node 单测锁定）；
         // srcSide='c' → 源取 Theirs(theirsView)、目标落 Result(mv.b)；否则反之。
         const r = computeBcAcceptRange(target, dir, bLen, cLen);
-        acceptChunk({
-          srcView: r.srcSide === "c" ? theirsView : mv.b,
-          dstView: r.srcSide === "c" ? mv.b : theirsView,
+        const srcView = r.srcSide === "c" ? theirsView : mv.b;
+        const dstView = r.srcSide === "c" ? mv.b : theirsView;
+        // 需求⑧：B↔C 内联按钮与 A↔B 列一致，按「光标 / 选区粒度」局部采纳——
+        // 只采纳源视图光标所在行 / 选中行，不再整块覆写（整块行为已确认为 BUG）。
+        const ok = acceptChunkAtCursor({
+          srcView,
+          dstView,
           srcFrom: r.srcFrom,
           srcTo: r.srcTo,
           dstFrom: r.dstFrom,
           dstTo: r.dstTo,
+          selection: srcView.state.selection,
         });
-        if (scheduler) scheduler.scheduleRefresh();
-        return true;
+        if (ok && scheduler) scheduler.scheduleRefresh();
+        return ok;
       } catch (err) {
-        console.error("[compare-merge] B↔C 采纳块失败:", err);
+        console.error("[compare-merge] B↔C 局部采纳失败:", err);
         return false;
       }
     }

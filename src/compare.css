@@ -59,6 +59,8 @@
   --diff-connector-ab-fill: rgba(56, 139, 253, 0.1);
   --diff-connector-bc: rgba(163, 113, 247, 0.5);
   --diff-connector-bc-fill: rgba(163, 113, 247, 0.1);
+  /* 需求④：重叠连线的水平错开步长（px），move-connectors.js 运行时读取，缺省 2px */
+  --diff-connector-overlap-step: 2px;
 
   /* —— 独属内容连线（'diff' 层，move-connectors.js 的 VARIANT_PAINT 同款色相）——
      与行内高亮同色：绿连绿（仅右侧独有 / 新增）、红连红（仅左侧独有 / 删除），

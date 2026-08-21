@@ -1611,7 +1611,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   if (btnApplyNonConflicting)
     btnApplyNonConflicting.addEventListener("click", applyNonConflictingChunks);
   // B↔C 逐块采纳已迁移至 compare-merge.js（acceptBcChunkAt + mountBcRevertColumn），
-  // 本文件不再持有 bulk 采纳逻辑；工具栏顶部「批量采纳方向」仍走 getLayerViews('bc')。
+  // 本文件不再持有 bulk 采纳逻辑（需求⑩ 已删除顶部「批量采纳方向」按钮，
+  // 全量采纳入口仅剩「应用非冲突变更」applyNonConflictingChunks）。
 
   if (selHighlightWords)
     selHighlightWords.addEventListener("change", onHighlightWordsChange);
