@@ -1110,10 +1110,29 @@ body {
   gap: 2px;
 }
 
-/* A4 按钮群右移：中段+右段按钮整体靠右（logo 留在最左）。
-   此前「右段 margin-left:auto」会在中段与右段之间产生大间隙（已知问题2），故只对中段
-   .toolbar-center 生效：剩余空间集中在中段之前（logo 与按钮群之间），段内间距不变，
-   不再出现「隔断符/按钮间距过大」。溢出时仍由 .toolbar 横向滚动。 */
+/* L-2 窄窗溢出修复：41 个功能按钮 + logo + 右段总宽超出常见窗口（~1050px）导致
+   右侧按钮被 .toolbar 的 overflow-x 裁切不可点（v1.9.8 实测）。压缩中段按钮 32→29px、
+   段内 gap 2→0、右段按钮同压缩、logo 间距收紧，使按钮群（含右段）在 ~1040px 窗口完整
+   可见；更窄窗口仍由 toolbar-scroll 滚动箭头兜底。btnScroll（含文字）保持 auto。 */
+.toolbar-center {
+  gap: 0;
+}
+.toolbar-center .toolbar-btn:not(#btnScroll) {
+  width: 29px;
+  height: 29px;
+}
+.toolbar-right .toolbar-btn {
+  width: 29px;
+  height: 29px;
+}
+.toolbar-left .logo {
+  margin-right: 6px;
+}
+
+/* L-1 按钮群定位（v1.9.8 实测修正）：margin 左右 auto → 中段在
+   [toolbar-left 之后, toolbar-right 之前] 区间居中；因 left(logo) 宽、right(图片按钮) 窄，
+   几何中心自然落在视口中心略偏右，符合「居中略往右」预期（替代 v1.9.8 的 margin-left:auto 靠右，
+   后者使按钮群抵近右缘）。段内间距不变；溢出时仍由 .toolbar 横向滚动。 */
 .toolbar-right {
   flex: 0 0 auto;
 }
@@ -1122,6 +1141,7 @@ body {
   flex: 0 0 auto;
   justify-content: flex-start;
   margin-left: auto;
+  margin-right: auto;
 }
 
 .logo {

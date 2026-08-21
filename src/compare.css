@@ -186,7 +186,8 @@
   flex: 0 0 auto;
   gap: 4px;
   height: 30px;
-  padding: 0 10px;
+  /* L-2 窄窗减宽：padding 10→8px，降低对比页 22 按钮总宽，更多按钮在常见窗口可见 */
+  padding: 0 8px;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
