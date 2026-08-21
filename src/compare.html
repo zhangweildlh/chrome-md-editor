@@ -68,21 +68,23 @@
 
         <div class="toolbar-divider"></div>
 
-        <!-- 批量合并（对齐 JetBrains Merge Revisions 顶部栏）：
-             非冲突一键应用 + 方向选择器 + 行内高亮粒度 + 状态计数。
-             整组包 .merge-only：对照模式（body.compare-mode-compare）下整体 display:none，
-             仅合并模式可见（由 C1 切 body 类控制）。 -->
+        <!-- ⑪ 操作簇：插入图片 / 导出结果 / 导出Diff（从原 toolbar-right、文件导出组并入，按目标顺序重排） -->
+        <div class="toolbar-group compare-action-group">
+          <button class="compare-toolbar-btn" id="btnAddImages" title="插入图片：选择图片并插入到当前活动栏的光标处">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>插入图片</button>
+          <button class="compare-toolbar-btn" id="btnExportResult" title="把合并结果另存为新文件">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出结果</button>
+          <button class="compare-toolbar-btn" id="btnExportDiff" title="导出 Git 风格的 diff 文本报告">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8"/><path d="M8 6h6a2 2 0 0 1 2 2v2"/><path d="M8 18h6a2 2 0 0 0 2-2v-2"/></svg>导出 diff</button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <!-- ⑫ 合并操作面板（merge-only）：应用非冲突变更 + 行内高亮 + 计数，视觉聚合成一个工具面板（样式见 compare.css .compare-merge-group）。
+             注：原「采纳左/全部/右」方向组（#btnAcceptLeft/#btnAcceptAll/#btnAcceptRight）已按需求⑩删除，本面板仅余三个控件。 -->
         <div class="toolbar-group compare-merge-group merge-only">
           <button class="compare-toolbar-btn compare-toolbar-btn-primary" id="btnApplyNonConflicting" title="一键应用所有不冲突的变更（冲突块保留给人工裁决）">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>应用非冲突变更</button>
-          <div class="compare-dir-group" role="group" aria-label="批量接受方向">
-            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptLeft" data-dir="left" title="采纳左侧全部块（本地 → 对方/合并结果）">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="11 18 5 12 11 6"/></svg>◀ 左侧</button>
-            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptAll" data-dir="all" title="两侧全部采纳（先左后右，右侧覆盖冲突处）">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 12 7 17 17 7"/><polyline points="11 17 13 19 22 9"/></svg>全部</button>
-            <button class="compare-toolbar-btn compare-dir-btn" id="btnAcceptRight" data-dir="right" title="采纳右侧全部块（对方/合并结果 → 本地）">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>右侧 ▶</button>
-          </div>
           <label class="compare-toolbar-field" for="selHighlightWords">
             <span class="compare-toolbar-field-label">行内高亮</span>
             <select class="compare-toolbar-select" id="selHighlightWords" title="行内字词级高亮粒度：关闭 / 按词 / 按字符">
@@ -93,23 +95,8 @@
           </label>
           <span class="compare-status-count" id="compareStatusCount" title="当前差异块与冲突块数量">0 处变更，0 处冲突</span>
         </div>
-
-        <div class="toolbar-divider"></div>
-
-        <!-- 文件 / 保存 / 导出 -->
-        <div class="toolbar-group">
-          <button class="compare-toolbar-btn" id="btnExportResult" title="把合并结果另存为新文件">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出结果</button>
-          <button class="compare-toolbar-btn" id="btnExportDiff" title="导出 Git 风格的 diff 文本报告">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8"/><path d="M8 6h6a2 2 0 0 1 2 2v2"/><path d="M8 18h6a2 2 0 0 0 2-2v-2"/></svg>导出 diff</button>
-        </div>
       </div>
 
-      <div class="toolbar-right">
-        <!-- 图片插入入口 -->
-        <button class="compare-toolbar-btn" id="btnAddImages" title="插入图片：选择图片并插入到当前活动栏的光标处">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>插入图片</button>
-      </div>
     </header>
 
     <main class="compare-main" id="compareRoot">

@@ -5,11 +5,20 @@
 
 let onboardingOverlay = null;
 
+// 已被用户关闭后记忆，下次打开不再自动弹（帮助按钮 force:true 仍可主动调出）
+const ONBOARDED_KEY = 'md-editor-onboarded';
+
 /**
  * @param {{ force?: boolean, mode?: 'start' | 'guide' }} [options]
  */
 export function showOnboarding(options = {}) {
   const force = Boolean(options.force);
+  // 已被用户关闭（且非帮助按钮主动调用）→ 跳过，避免每次打开扩展都被引导层遮挡侧栏按钮（L-2）
+  if (!force) {
+    try {
+      if (localStorage.getItem(ONBOARDED_KEY) === '1') return;
+    } catch (_) { /* 隐私模式/禁用 → 退化显示 */ }
+  }
   const mode = options.mode === 'guide' ? 'guide' : 'start';
 
   if (onboardingOverlay) {
@@ -143,20 +152,28 @@ export function showOnboarding(options = {}) {
   container.querySelectorAll('[data-action]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const action = btn.dataset.action;
+      // 任何关闭类动作（拖入/打开文件夹/先空白开始/关闭说明）→ 记忆已引导，下次不再自动弹
+      const markOnboarded = () => { try { localStorage.setItem(ONBOARDED_KEY, '1'); } catch (_) {} };
       if (action === 'drag') {
         hideOnboarding();
+        markOnboarded();
       } else if (action === 'folder') {
         hideOnboarding();
+        markOnboarded();
         setTimeout(() => {
           document.dispatchEvent(new CustomEvent('onboarding:open-folder'));
         }, 150);
       } else if (action === 'example') {
         loadExampleFile();
+        // example 加载后通常进入编辑态，视为已完成引导
+        markOnboarded();
       } else if (action === 'guide') {
+        // 切换到「使用说明」模式 → 不记忆（用户只是浏览说明，未必完成引导）
         hideOnboarding();
         showOnboarding({ force: true, mode: 'guide' });
       } else if (action === 'close' || action === 'close-empty') {
         hideOnboarding();
+        markOnboarded();
       }
     });
   });

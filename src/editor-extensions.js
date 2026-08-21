@@ -10,7 +10,6 @@ import {
   lineNumbers, highlightActiveLineGutter, highlightSpecialChars,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor,
   highlightActiveLine, keymap, EditorView, ViewPlugin, Decoration,
-  highlightWhitespace,
 } from '@codemirror/view';
 import { EditorState, Annotation, Compartment, RangeSetBuilder, StateField } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -161,11 +160,56 @@ const selectionMatchHighlighter = ViewPlugin.fromClass(
  */
 // ==========================================
 // G8 显示选项：空格 / 换行符 / 换行标记 / Unicode 控制字符 的可视化开关
-//  - 空格：highlightWhitespace()（官方，.cm-highlightSpace/Tab 显示 ·/→）
-//  - 换行符/换行标记：自定义行尾 Decoration.widget（↵ / ¶），无官方扩展
+//  - 空格：自定义 whitespace 插件（㉑），空格带 cm-space-dot（契约类，CSS Agent 染红），
+//    制表符保持官方 cm-highlightTab（→），见下方 highlightSpaceDots()。
+//  - 换行符/换行标记：自定义行尾 Decoration.line + CSS ::after（↵ / ¶），零 widget DOM
 //  - Unicode 控制字符：highlightSpecialChars()（官方，零宽/方向等显示为框符）
 // 独立 Compartment 实现动态开关（heynote 范式：初始注入 + reconfigure 切换）。
 // ==========================================
+// ㉑ 空格 → 红色居中小圆点：自定义 whitespace 插件（替代官方 highlightWhitespace()）。
+// 与官方实现同语义：按可见行扫描，连续空白（空格/制表符/NBSP 等 \s）合并为一个
+// Decoration.mark；首字符为制表符则带 cm-highlightTab（沿用现有 → 样式），否则带
+// cm-space-dot + cm-highlightSpace 双类：cm-space-dot 是 HTML/CSS Agent 的契约类，
+// cm-highlightSpace 沿用现有红点规则，保证 CSS 更新前空格渲染不中断。
+// 与 highlightSpecialChars（Unicode 控制字符）/ eol 行尾标记互不干扰（独立 Compartment）。
+function buildWhitespaceDecorations(view) {
+  const builder = new RangeSetBuilder();
+  for (const { from, to } of view.visibleRanges) {
+    let line = view.state.doc.lineAt(from);
+    for (let i = from; i <= to; ) {
+      const lineEnd = line.to;
+      for (; i < lineEnd; i++) {
+        const ch = line.text[i - line.from];
+        if (ch === ' ' || ch === '\t') {
+          let next = i + 1;
+          for (; next < lineEnd && /\s/.test(line.text[next - line.from]); next++) {}
+          const cls = ch === '\t' ? 'cm-highlightTab' : 'cm-space-dot cm-highlightSpace';
+          builder.add(i, next, Decoration.mark({ class: `${cls} cm-whitespace` }));
+          i = next;
+        }
+      }
+      if (i >= to) break;
+      line = view.state.doc.lineAt(i);
+    }
+  }
+  return builder.finish();
+}
+
+function highlightSpaceDots() {
+  return ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.view = view;
+      this.decorations = buildWhitespaceDecorations(view);
+    }
+    update(update) {
+      // 文档变化或视口滚动时重建可见区装饰（与官方 highlightWhitespace 相同的更新策略）
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildWhitespaceDecorations(update.view);
+      }
+    }
+  }, { decorations: (v) => v.decorations });
+}
+
 export const showWhitespaceCompartment = new Compartment();
 export const showEolCompartment = new Compartment();
 export const showEolMarkCompartment = new Compartment();
@@ -213,7 +257,7 @@ export function applyInvisiblesSettings(view, settings = {}) {
       effects.push(comp.reconfigure(settings[key] ? ext : []));
     }
   };
-  push(showWhitespaceCompartment, 'space', highlightWhitespace());
+  push(showWhitespaceCompartment, 'space', highlightSpaceDots());
   push(showEolCompartment, 'eol', eolWidgetExt);
   push(showEolMarkCompartment, 'eolMark', eolMarkWidgetExt);
   push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());
@@ -290,7 +334,7 @@ export function createEditorExtensions(opts = {}) {
     EditorView.lineWrapping,
     themeCompartment.of(theme),
     // G8 显示选项 compartments（初始按设置注入；动态切换走 applyInvisiblesSettings）
-    showWhitespaceCompartment.of(invis.space ? highlightWhitespace() : []),
+    showWhitespaceCompartment.of(invis.space ? highlightSpaceDots() : []),
     showEolCompartment.of(invis.eol ? eolWidgetExt : []),
     showEolMarkCompartment.of(invis.eolMark ? eolMarkWidgetExt : []),
     // 注意：编辑页专属 updateListener 不放入工厂（见上方函数注释 / 设计文档 §8.3）

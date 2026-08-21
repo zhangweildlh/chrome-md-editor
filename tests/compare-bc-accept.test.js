@@ -159,6 +159,17 @@ test("源码契约：acceptBcChunkAt 调用 computeBcAcceptRange(target, dir, bL
   );
 });
 
+test("源码契约：acceptBcChunkAt 按需求⑧ 走 acceptChunkAtCursor（光标/选区粒度，防退回整块）", () => {
+  // 变异式护栏：若有人把 B↔C 按钮退回「整块 acceptChunk」写法（无 selection 传递），
+  // 本断言精确变红。B↔C 与 A↔B 同为需求⑧ 覆盖范围，必须光标/选区粒度。
+  assert.ok(
+    /function acceptBcChunkAt\(i, dir\)\s*\{[\s\S]*?acceptChunkAtCursor\(\{[\s\S]*?selection:\s*srcView\.state\.selection/.test(
+      code
+    ),
+    "acceptBcChunkAt 应按需求⑧ 走 acceptChunkAtCursor 并传 srcView 的 selection（光标/选区粒度）"
+  );
+});
+
 test("源码契约：computeBcAcceptRange 为已导出纯函数", () => {
   assert.ok(
     /export function computeBcAcceptRange\(chunk, dir, bLen, cLen\)/.test(code),

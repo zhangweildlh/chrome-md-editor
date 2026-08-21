@@ -166,6 +166,7 @@ import {
   getEditorLetterSpacing,
   setEditorLineHeight,
   getEditorLineHeight,
+  WIN11_DEFAULTS,
 } from './focus-mode.js';
 // A-9 超长 Base64 行折叠
 import { initBase64Fold } from './base64-fold.js';
@@ -305,6 +306,30 @@ import { getAutoPairClose } from './auto-pair.js';
 
 // 符号配对高亮（selectedBracketHighlight 现已提取到 ./bracket-highlight.js，见顶部 import）
 
+// G8 显示选项持久化键与读取（模块顶层，供 createEditor 与 bindEvents 共用：
+// 曾定义于 createEditor 内导致 bindEvents 引用抛 ReferenceError、中断后续全部事件绑定，
+// 表现为大量按钮点击无效 + 工具栏滚动箭头缺失。函数定义不执行，规避 node 顶层 localStorage 陷阱）。
+const INVIS_KEYS = {
+  space: 'md-editor-invis-space',
+  eol: 'md-editor-invis-eol',
+  eolMark: 'md-editor-invis-eolmark',
+  specialChars: 'md-editor-invis-specialchars',
+};
+// F3：localStorage 不可用（隐私模式/被禁用）时返回默认值，避免编辑器初始化崩溃
+function readInvisibles() {
+  const defaults = { space: false, eol: false, eolMark: false, specialChars: true };
+  try {
+    return {
+      space: localStorage.getItem(INVIS_KEYS.space) === '1',
+      eol: localStorage.getItem(INVIS_KEYS.eol) === '1',
+      eolMark: localStorage.getItem(INVIS_KEYS.eolMark) === '1',
+      specialChars: localStorage.getItem(INVIS_KEYS.specialChars) !== '0',
+    };
+  } catch {
+    return defaults;
+  }
+}
+
 // ==========================================
 // 编辑器初始化
 // ==========================================
@@ -383,28 +408,6 @@ graph LR
 
 *开始编辑你的 Markdown 文档吧！*
 `;
-
-  // G8 显示选项持久化键与读取（默认：空格/换行符/换行标记关，Unicode 控制字符开）
-  const INVIS_KEYS = {
-    space: 'md-editor-invis-space',
-    eol: 'md-editor-invis-eol',
-    eolMark: 'md-editor-invis-eolmark',
-    specialChars: 'md-editor-invis-specialchars',
-  };
-  // F3：localStorage 不可用（隐私模式/被禁用）时返回默认值，避免编辑器初始化崩溃
-  function readInvisibles() {
-    const defaults = { space: false, eol: false, eolMark: false, specialChars: true };
-    try {
-      return {
-        space: localStorage.getItem(INVIS_KEYS.space) === '1',
-        eol: localStorage.getItem(INVIS_KEYS.eol) === '1',
-        eolMark: localStorage.getItem(INVIS_KEYS.eolMark) === '1',
-        specialChars: localStorage.getItem(INVIS_KEYS.specialChars) !== '0',
-      };
-    } catch {
-      return defaults;
-    }
-  }
 
   // 共享扩展工厂接入（设计文档 §8）：原内联扩展数组整体迁入 createEditorExtensions，
   // 自定义快捷键经 extraKeymap 注入；编辑页专属 updateListener 不进工厂（§8.3），下方单独追加。
@@ -1813,6 +1816,9 @@ async function handleSaveAs() {
     } else {
       // 降级路径（非 Chromium 环境）：已触发浏览器下载，无法自动覆盖原文件。
       currentFileHandle = null;
+      // L-4 修复：下载即成功保存（内容已落盘），呼吸灯应转绿；此前仅 toast 未 markSaved，
+      // 导致浏览器侧（无 showSaveFilePicker 降级下载）保存后文件状态灯永远停在「未保存」橙。
+      markSaved();
       showToast('已下载到本地下载目录（无法自动覆盖原文件）', 'success');
     }
   } catch (err) {
@@ -3356,11 +3362,57 @@ function bindEvents() {
             setEditorFontFamily(eFontFamily.value);
     });
     if (eLetterSpacing) eLetterSpacing.addEventListener('change', () => {
-            setEditorLetterSpacing(eLetterSpacing.value || '');
+            // ⑰ 修复：原 `eLetterSpacing.value || ''` 会把合法值 "0" 误判为假值而清空；
+            // 改为显式空串判断，保留 "0" 等边界值。
+            setEditorLetterSpacing(eLetterSpacing.value === '' ? '' : eLetterSpacing.value);
     });
     if (eLineHeight) eLineHeight.addEventListener('change', () => {
-            setEditorLineHeight(eLineHeight.value || '');
+            setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
     });
+    // ⑱ Win11 记事本默认值「默认」按钮：点击写入 Win11 默认并触发对应 setter
+    displayPopover.querySelectorAll('.field-default-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const d = WIN11_DEFAULTS;
+        switch (btn.dataset.default) {
+          case 'editorFont': setEditorFontSize(d.editorFont); if (eFont) eFont.value = d.editorFont; break;
+          case 'editorFontFamily': setEditorFontFamily(d.editorFontFamily); if (eFontFamily) eFontFamily.value = d.editorFontFamily; break;
+          case 'editorLetterSpacing': setEditorLetterSpacing(d.editorLetterSpacing); if (eLetterSpacing) eLetterSpacing.value = d.editorLetterSpacing; break;
+          case 'editorLineHeight': setEditorLineHeight(d.editorLineHeight); if (eLineHeight) eLineHeight.value = d.editorLineHeight; break;
+          case 'previewFont': setPreviewFontSize(d.previewFont); if (pFont) pFont.value = d.previewFont; break;
+          case 'density': setDensity(d.density); if (density) density.value = d.density; break;
+          case 'colorScheme': setColorScheme(d.colorScheme); if (colorScheme) colorScheme.value = d.colorScheme; break;
+        }
+      });
+    });
+    // ⑱ HTML Agent 契约「默认」按钮：id = btnDefault* + class = style-default-btn。
+    // 与上方 field-default-btn 走完全相同的 setter 路径（editor.js:3349-3371 那批），
+    // 并把控件显示值同步（select.value / input.value）。HTML 侧尚未加这些 id 时用 if 守卫跳过。
+    const defaultBtnIds = [
+      ['btnDefaultFontSize', 'editorFont', eFont],
+      ['btnDefaultFont', 'editorFontFamily', eFontFamily],
+      ['btnDefaultLetterSpacing', 'editorLetterSpacing', eLetterSpacing],
+      ['btnDefaultLineHeight', 'editorLineHeight', eLineHeight],
+      ['btnDefaultPreviewFontSize', 'previewFont', pFont],
+      ['btnDefaultDensity', 'density', density],
+      ['btnDefaultColorScheme', 'colorScheme', colorScheme],
+    ];
+    for (const [btnId, key, control] of defaultBtnIds) {
+      const btn = displayPopover.querySelector(`#${btnId}`);
+      if (!btn) continue;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = WIN11_DEFAULTS[key];
+        if (key === 'editorFont') setEditorFontSize(val);
+        else if (key === 'editorFontFamily') setEditorFontFamily(val);
+        else if (key === 'editorLetterSpacing') setEditorLetterSpacing(val);
+        else if (key === 'editorLineHeight') setEditorLineHeight(val);
+        else if (key === 'previewFont') setPreviewFontSize(val);
+        else if (key === 'density') setDensity(val);
+        else if (key === 'colorScheme') setColorScheme(val);
+        if (control) control.value = val;
+      });
+    }
     document.addEventListener('click', (e) => {
       if (!displayPopover.hidden && !displayPopover.contains(e.target) && e.target !== btnDisplaySettings) {
         displayPopover.hidden = true;
@@ -4148,6 +4200,13 @@ function init() {
 
   // v1.8.5：工具栏横向溢出滚动按钮（已知问题3）
   initToolbarScroll('#toolbar');
+
+  // L-3：窗口 resize（含最小化→最大化恢复）后强制 CM6 重测布局。
+  // 360Chromex 等浏览器在最小化时对后台页做渲染节流，恢复时 ResizeObserver 事件可能
+  // 丢失/延迟，导致编辑区 lineWrapping 错位（第二行首字挤到第一行末）。显式 requestMeasure 兜底。
+  window.addEventListener('resize', () => {
+    if (editor) requestAnimationFrame(() => editor.requestMeasure());
+  });
 
   // 初始化预览区可编辑
   initPreviewEditing();

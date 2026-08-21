@@ -159,13 +159,9 @@ test('save-poll: 无源 target（合并结果 b）点「保存」走 saveAs', as
   const p = runSavePoll(panes, ['a', 'b']);
   await click('保存'); // a → 覆盖写盘
   await click('保存'); // b 无源 → 打开另存为弹窗
-  // 在另存为弹窗中填文件名并确认
-  const inputs = Array.from(document.body.querySelectorAll('.save-poll-input'));
-  assert.ok(inputs.length > 0, '无源栏「保存」应弹出另存为输入框');
-  const input = inputs[inputs.length - 1];
-  input.value = 'merged.md';
-  clickButton('选择路径并保存');
-  await flush();
+  // 需求①⑦⑬：另存为直接调原生 showSaveFilePicker（node/linkedom 下不可用，
+  // 自动降级 ioBridge.pickSaveTarget → picked）。不再自建文件名输入弹窗，
+  // 故不再查询 .save-poll-input / 点击「选择路径并保存」。
 
   const res = await p;
   assert.equal(res.aborted, false);

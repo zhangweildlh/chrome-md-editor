@@ -57,8 +57,10 @@ import {
   buildExclusiveConnectorPairs,
   DEFAULT_MAX_LINE_DISTANCE,
 } from "./compare/delta-align.js";
-// 块级「采纳右侧」按钮复用统一的写入原语（单次 dispatch、区间校验），不自己拼 changes。
-import { acceptChunk } from "./compare/chunk-ops.js";
+// 块级「采纳」按钮复用统一的写入原语（单次 dispatch、区间校验），不自己拼 changes。
+// acceptChunkAtCursor 用于光标/选区粒度局部采纳（A↔B 与 B↔C 内联按钮，需求⑧）；
+// 整块覆写已不再需要（computeBcAcceptRange 的区间算术仍保留给越界钳制单测）。
+import { acceptChunkAtCursor } from "./compare/chunk-ops.js";
 // MergeView 内的 view.scrollDOM 不是滚动盒（可滚余量恒 0、且收不到 scroll 事件），
 // 取滚动盒一律走 scrollBoxOf —— 理由见 compare/scroll-box.js 顶部说明。
 import { scrollBoxOf } from "./compare/scroll-box.js";
@@ -489,20 +491,21 @@ function rangesOverlap(f1, t1, f2, t2) {
  * 并塞进 .cm-merge-revert 列；该列上挂了一个 **mousedown** 监听（revertClicked），
  * 它从 e.target 一路上溯到「revertDOM 的直接子节点」，据其 data-chunk 执行
  * revertControls 指定方向（本项目恒为 a→b）的整块覆写。
- * 因此：
- *   · 「接受此块 / ACCEPT LEFT」= 让事件正常冒泡给库，一行自定义代码都不用写；
- *   · 「ACCEPT RIGHT」= 必须在 mousedown 阶段 stopPropagation 掐断冒泡，
- *      否则库会先把 a→b 写一遍，我们再写一遍右侧，产生双重写入。
- * 【勿改成 click 上拦截】库监听的是 mousedown，click 时早已写完。
+ *
+ * 需求⑧：内联按钮默认即「光标 / 选区粒度」局部采纳（不再走库的整块 a→b）。
+ * 故本工厂让三个按钮全部自接线——mousedown 阶段 stopPropagation 掐断冒泡，
+ * 阻止库的默认整块覆写；click 阶段调用 onAccept(i, dir) 走 acceptChunkAtCursor。
+ * 另在 box 自身也拦截 mousedown 冒泡，确保「点在按钮组留白处」也不会触发库的整块 revert。
+ * 【勿在 click 上才拦截】库监听的是 mousedown，click 时早已写完。
  *
  * 返回的是 div 而非 button：库的外部主题有 `.cm-merge-revert button{position:absolute}`，
  * 若直接返回 button，两个并列按钮会绝对定位叠在一起。改由外层 div 承担绝对定位
  * （compare.css 中 #compareRoot 提权覆盖），内部 button 复位为 static。
  *
- * @param {(chunkIndex:number)=>void} onAcceptRight 采纳右侧时的回调，入参为 data-chunk
+ * @param {(chunkIndex:number, dir:'left'|'right')=>void} onAccept 采纳回调，dir='left' 表示采纳源→结果（采纳左/单按钮），'right' 表示对端→结果（采纳右）
  * @returns {HTMLDivElement}
  */
-function makeRevertGroup(onAcceptRight) {
+function makeRevertGroup(onAccept) {
   const box = document.createElement("div");
   box.className = "cm-compare-revert-group";
 
@@ -516,32 +519,50 @@ function makeRevertGroup(onAcceptRight) {
     return btn;
   };
 
-  // 非冲突块：单按钮（沿用既有语义与类名 cm-compare-revert）
-  box.appendChild(
-    mk("cm-compare-revert cm-compare-revert-single", "⇄ 采纳此块", "采纳此块（将左侧内容并入结果）")
+  // 三个按钮全部自接线：掐断冒泡，阻止库内 .cm-merge-revert 列默认的整块 a→b 覆写，
+  // 改为走 acceptChunkAtCursor 做「光标/选区粒度」局部采纳（需求⑧）。
+  const wire = (btn, dir) => {
+    btn.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+    });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const idx = Number(box.dataset.chunk);
+      if (Number.isFinite(idx)) onAccept(idx, dir);
+    });
+  };
+
+  // 非冲突块：单按钮（沿用既有语义与类名 cm-compare-revert）；方向同「采纳左」（源→结果）
+  const single = mk(
+    "cm-compare-revert cm-compare-revert-single",
+    "⇄ 采纳此块",
+    "采纳此块：仅采纳左栏光标 / 选区所在的行，而非整块"
   );
   // 冲突块 / 两栏：双向按钮
   // 箭头语义 = 内容流向：左栏内容向右写入结果（采纳左 ▶），右栏内容向左写入结果（◀ 采纳右）。
-  box.appendChild(
-    mk("cm-compare-revert cm-compare-accept-left", "采纳左 ▶", "采纳左侧：用左栏内容覆写本块")
+  const left = mk(
+    "cm-compare-revert cm-compare-accept-left",
+    "采纳左 ▶",
+    "采纳左侧：仅用左栏光标 / 选区所在行覆写本块对应行"
   );
   const right = mk(
     "cm-compare-revert cm-compare-accept-right",
     "◀ 采纳右",
-    "采纳右侧：用右栏内容覆写本块"
+    "采纳右侧：仅用右栏光标 / 选区所在行覆写本块对应行"
   );
-  // 掐断冒泡，阻止库的默认 a→b 覆写（理由见上方大段说明）
-  right.addEventListener("mousedown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-  });
-  right.addEventListener("click", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const idx = Number(box.dataset.chunk);
-    if (Number.isFinite(idx)) onAcceptRight(idx);
-  });
+  wire(single, "left");
+  wire(left, "left");
+  wire(right, "right");
+  box.appendChild(single);
+  box.appendChild(left);
   box.appendChild(right);
+
+  // 整组拦截 mousedown 冒泡，确保库内默认整块 revert 永不触发（内联按钮恒为光标/选区粒度）
+  box.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+  });
   return box;
 }
 
@@ -641,17 +662,17 @@ function makeBcRevertGroup(onAccept) {
   const single = mk(
     "cm-compare-revert cm-compare-revert-single",
     "⇄ 采纳此块",
-    "采纳此块：用中间栏内容覆写右栏"
+    "采纳此块：仅采纳中间栏光标 / 选区所在行（而非整块）"
   );
   const left = mk(
     "cm-compare-revert cm-compare-accept-left",
     "采纳左 ▶",
-    "采纳左：用中间栏(b)内容覆写右栏(c)"
+    "采纳左：仅用中间栏(b)光标 / 选区所在行覆写右栏(c)"
   );
   const right = mk(
     "cm-compare-revert cm-compare-accept-right",
     "◀ 采纳右",
-    "采纳右：用右栏(c)内容覆写中间栏(b)"
+    "采纳右：仅用右栏(c)光标 / 选区所在行覆写中间栏(b)"
   );
   wire(single, "left");
   wire(left, "left");
@@ -1043,9 +1064,9 @@ export function createCompareMergeView(opts) {
       collapseUnchanged: collapse,
       diffConfig,
       // 自定义中文接受按钮：revert a→b 即把当前块从 Yours 拷入 Result。
-      // 冲突块会由 revertSync 追加「采纳右 ▶」（Theirs→Result），见下方 acceptRightAt。
+      // 冲突块会由 revertSync 追加「采纳右 ▶」（Theirs→Result），见下方 acceptPartialThree。
       revertControls: "a-to-b",
-      renderRevertControl: () => makeRevertGroup((i) => acceptRightAt(i)),
+      renderRevertControl: () => makeRevertGroup((i, dir) => acceptPartialThree(i, dir)),
     });
 
     // 右侧 Theirs 编辑器（独立挂载到 parent，紧随 MergeView 之后）。
@@ -1200,33 +1221,49 @@ export function createCompareMergeView(opts) {
     }
 
     /**
-     * ACCEPT RIGHT：把与第 i 个 A↔B 块相交的 Theirs 块写进 Result。
-     * @param {number} i .cm-merge-revert 列上的 data-chunk（即 mv 的 chunk 下标）
+     * 三栏 局部采纳：把第 i 个 A↔B 块的「源视图光标 / 选区所在行」写入对端，而非整块（需求⑧）。
+     *   dir 'left'（采纳左 ▶ / 单按钮）= a→b（Yours→Result）
+     *   dir 'right'（◀ 采纳右）= Theirs→Result：定位与 ab.dst（Result 坐标）相交的 bc 块，
+     *        取该 bc 块在 Theirs 侧的对应行写入 Result。
+     * @param {number} i A↔B 块下标（data-chunk）
+     * @param {'left'|'right'} dir
      * @returns {boolean}
      */
-    function acceptRightAt(i) {
+    function acceptPartialThree(i, dir) {
       try {
         const model = buildChunkModel();
         const target = model.ab[i];
         if (!target) return false;
+        if (dir === "left") {
+          return acceptChunkAtCursor({
+            srcView: mv.a, // 源 = Yours（a）
+            dstView: mv.b, // 目标 = Result（b）
+            srcFrom: target.srcFrom, // fromA
+            srcTo: target.srcTo, // toA
+            dstFrom: target.dstFrom, // fromB
+            dstTo: target.dstTo, // toB
+            selection: mv.a.state.selection,
+          });
+        }
+        // dir 'right'：Theirs→Result
+        const len = mv.b.state.doc.length;
         const hit = model.bc.find((y) =>
           rangesOverlap(target.dstFrom, target.dstTo, y.dstFrom, y.dstTo)
         );
         if (!hit) return false;
         // dst 越界钳制：Result 尾部块的 toA 可能等于「文档长度+1」（含行尾换行），
         // 直接喂给 dispatch 会抛 RangeError。
-        const len = mv.b.state.doc.length;
-        acceptChunk({
-          srcView: theirsView,
-          dstView: mv.b,
-          srcFrom: hit.srcFrom,
+        return acceptChunkAtCursor({
+          srcView: theirsView, // 源 = Theirs（c）
+          dstView: mv.b, // 目标 = Result（b）
+          srcFrom: hit.srcFrom, // Theirs 侧
           srcTo: hit.srcTo,
-          dstFrom: Math.min(hit.dstFrom, len),
+          dstFrom: Math.min(hit.dstFrom, len), // Result 侧（越界钳制）
           dstTo: Math.min(hit.dstTo, len),
+          selection: theirsView.state.selection,
         });
-        return true;
       } catch (err) {
-        console.error("[compare-merge] 采纳右侧块失败:", err);
+        console.error("[compare-merge] 三栏局部采纳失败:", err);
         return false;
       }
     }
@@ -1250,18 +1287,23 @@ export function createCompareMergeView(opts) {
         // 方向映射 + 越界钳制委托给纯函数 computeBcAcceptRange（可被 node 单测锁定）；
         // srcSide='c' → 源取 Theirs(theirsView)、目标落 Result(mv.b)；否则反之。
         const r = computeBcAcceptRange(target, dir, bLen, cLen);
-        acceptChunk({
-          srcView: r.srcSide === "c" ? theirsView : mv.b,
-          dstView: r.srcSide === "c" ? mv.b : theirsView,
+        const srcView = r.srcSide === "c" ? theirsView : mv.b;
+        const dstView = r.srcSide === "c" ? mv.b : theirsView;
+        // 需求⑧：B↔C 内联按钮与 A↔B 列一致，按「光标 / 选区粒度」局部采纳——
+        // 只采纳源视图光标所在行 / 选中行，不再整块覆写（整块行为已确认为 BUG）。
+        const ok = acceptChunkAtCursor({
+          srcView,
+          dstView,
           srcFrom: r.srcFrom,
           srcTo: r.srcTo,
           dstFrom: r.dstFrom,
           dstTo: r.dstTo,
+          selection: srcView.state.selection,
         });
-        if (scheduler) scheduler.scheduleRefresh();
-        return true;
+        if (ok && scheduler) scheduler.scheduleRefresh();
+        return ok;
       } catch (err) {
-        console.error("[compare-merge] B↔C 采纳块失败:", err);
+        console.error("[compare-merge] B↔C 局部采纳失败:", err);
         return false;
       }
     }
@@ -1493,28 +1535,35 @@ export function createCompareMergeView(opts) {
     : [];
 
   /**
-   * 两栏 ACCEPT RIGHT：把第 i 个块的 Theirs(b) 内容写回 Yours(a)。
-   * （ACCEPT LEFT 方向 a→b 由库的 revertControls:'a-to-b' 直接承担，无需自定义。）
+   * 两栏 局部采纳：把第 i 个块的「源视图光标 / 选区所在行」写入对端，而非整块（需求⑧）。
+   *   dir 'left'（采纳左 ▶ / 单按钮）= a→b（Yours→Theirs）
+   *   dir 'right'（◀ 采纳右）= b→a（Theirs→Yours），a 被 opts.aReadonly 锁定时静默忽略
    * @param {number} i
+   * @param {'left'|'right'} dir
    * @returns {boolean}
    */
-  function acceptRightTwo(i) {
+  function acceptPartialTwo(i, dir) {
     try {
       const c = safeChunks(mv.a.state)[i];
       if (!c) return false;
-      if (mv.a.state.readOnly) return false; // a 被 opts.aReadonly 锁定：静默忽略
-      const len = mv.a.state.doc.length;
-      acceptChunk({
-        srcView: mv.b,
-        dstView: mv.a,
-        srcFrom: c.fromB,
-        srcTo: c.toB,
-        dstFrom: Math.min(c.fromA, len),
-        dstTo: Math.min(c.toA, len),
+      if (dir === "right" && mv.a.state.readOnly) return false; // a 被锁定：静默忽略
+      const srcView = dir === "right" ? mv.b : mv.a;
+      const dstView = dir === "right" ? mv.a : mv.b;
+      const srcFrom = dir === "right" ? c.fromB : c.fromA;
+      const srcTo = dir === "right" ? c.toB : c.toA;
+      const dstFrom = dir === "right" ? c.fromA : c.fromB;
+      const dstTo = dir === "right" ? c.toA : c.toB;
+      return acceptChunkAtCursor({
+        srcView,
+        dstView,
+        srcFrom,
+        srcTo,
+        dstFrom,
+        dstTo,
+        selection: srcView.state.selection,
       });
-      return true;
     } catch (err) {
-      console.error("[compare-merge] 两栏采纳右侧块失败:", err);
+      console.error("[compare-merge] 两栏局部采纳失败:", err);
       return false;
     }
   }
@@ -1537,7 +1586,7 @@ export function createCompareMergeView(opts) {
     // 两栏也提供块级操作：语义为 ACCEPT LEFT(a→b) / ACCEPT RIGHT(b→a)，
     // 故这里恒为双按钮形态（两栏没有三方冲突概念）。
     revertControls: "a-to-b",
-    renderRevertControl: () => makeRevertGroup((i) => acceptRightTwo(i)),
+    renderRevertControl: () => makeRevertGroup((i, dir) => acceptPartialTwo(i, dir)),
   });
 
   // 两栏恒双向：把所有块下标都标成 dual

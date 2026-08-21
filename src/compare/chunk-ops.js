@@ -48,6 +48,105 @@ export function acceptChunk({ srcView, dstView, srcFrom, srcTo, dstFrom, dstTo }
   });
 }
 
+// 光标 / 选区粒度「局部采纳」：只把 chunk 中与源视图当前选择（或光标行）相交的部分
+// 写入目标视图，而非整块。用于栏间内联采纳按钮（makeRevertGroup 创建的
+// cm-compare-accept-left / cm-compare-accept-right / cm-compare-revert-single，需求⑧）。
+//
+// 与 acceptChunk 同样使用单次 dispatch 安全原语（沿用 assertRange 区间校验），
+// 不引入任何新的派发路径。
+//
+// ── 坐标映射（关键）──
+// chunk 给出源侧区间 [srcFrom, srcTo) 与目标侧区间 [dstFrom, dstTo)，二者在各自视图里
+// 是【逐行对齐】的差异块（第 i 个源行 ↔ 第 i 个目标行）。因此：
+//   1) 在源视图里求「选取区间」与「chunk 源行范围」相交的行集合；
+//   2) 按行索引把这些行映射到目标视图的对应行；
+//   3) 把源侧选中行（含行尾换行）整体替换为目标侧对应行。
+// 选区为空时取光标所在行；选区与 chunk 无交集时回退到「chunk 内光标当前行」。
+//
+// ⚠️ 行不对称 chunk（源行数 ≠ 目标行数，如 3 行替换 1 行）：按行索引映射 + 目标端
+// 钳制（dstFirstLine/dstLastLine 都 clamp 到 dst 块范围）后，「选中源某行」会把
+// 【整个目标块区域】替换为【该选中源行（含行尾换行）】——即整块目标被单行替换、
+// 源块其余行不写入。这是「逐行采纳」语义在不对称块上的既定取舍（测试仅锁定行对称
+// 场景）；如需「整块原子替换」请直接使用 acceptChunk。
+//
+// @param {{srcView:object, dstView:object, srcFrom:number, srcTo:number, dstFrom:number, dstTo:number, selection:object}} args
+//        selection：源视图的 selection 对象，需含 .main.{anchor,head}（CodeMirror 契约）
+// @returns {boolean} 是否实际产生了写入（无任何相交行时为 false，不改动文档）
+export function acceptChunkAtCursor({
+  srcView,
+  dstView,
+  srcFrom,
+  srcTo,
+  dstFrom,
+  dstTo,
+  selection,
+}) {
+  if (!srcView || !dstView) {
+    throw new Error('acceptChunkAtCursor: 需要 srcView 与 dstView');
+  }
+  if (!selection || !selection.main) {
+    throw new Error('acceptChunkAtCursor: 需要 selection.main');
+  }
+  const srcDoc = srcView.state.doc;
+  const dstDoc = dstView.state.doc;
+  const { anchor, head } = selection.main;
+
+  // 源侧无内容可采纳（纯插入块源侧为空区间）→ 无法按源行局部采纳
+  if (srcFrom >= srcTo) return false;
+
+  // 1) 选取区间（源视图字符坐标）
+  const hasSel = anchor !== head;
+  let selFrom, selTo;
+  if (hasSel) {
+    selFrom = Math.min(anchor, head);
+    selTo = Math.max(anchor, head);
+  } else {
+    const line = srcDoc.lineAt(head);
+    selFrom = line.from;
+    selTo = line.to;
+  }
+
+  // 2) chunk 的源行范围
+  const srcLineStart = srcDoc.lineAt(srcFrom).number;
+  const srcLineEnd = srcDoc.lineAt(srcTo - 1).number;
+  const dstLineStart = dstDoc.lineAt(dstFrom).number;
+
+  // 3) 求与选取相交的源行（行 [from,to) 与选取 [selFrom,selTo) 相交）
+  const selLines = [];
+  for (let L = srcLineStart; L <= srcLineEnd; L++) {
+    const ln = srcDoc.line(L);
+    if (ln.from < selTo && ln.to > selFrom) selLines.push(L);
+  }
+  // 4) 交集为空 → 回退到「chunk 内光标当前行」
+  if (!selLines.length) {
+    const cur = srcDoc.lineAt(head).number;
+    if (cur >= srcLineStart && cur <= srcLineEnd) selLines.push(cur);
+  }
+  if (!selLines.length) return false; // 选取与 chunk 无交集、且光标不在 chunk 内 → 不改动
+
+  const firstL = selLines[0];
+  const lastL = selLines[selLines.length - 1];
+
+  // 5) 源侧字符区间：选中行 + 其行尾换行（到下一行行首，或文档末尾）
+  const pSrcFrom = srcDoc.line(firstL).from;
+  const pSrcTo = lastL < srcDoc.lines ? srcDoc.line(lastL + 1).from : srcDoc.length;
+  const insertText = srcDoc.sliceString(pSrcFrom, pSrcTo);
+
+  // 6) 目标侧字符区间：按行索引映射（chunk 内 src 第 i 行 ↔ dst 第 i 行），并钳到 dst 块范围
+  const dstLineEnd = dstDoc.lineAt(Math.max(dstFrom, dstTo - 1)).number;
+  const dstFirstLine = Math.min(dstLineStart + (firstL - srcLineStart), dstLineEnd);
+  const dstLastLine = Math.min(dstLineStart + (lastL - srcLineStart), dstLineEnd);
+  const pDstFrom = dstDoc.line(dstFirstLine).from;
+  const pDstTo =
+    dstLastLine < dstDoc.lines ? dstDoc.line(dstLastLine + 1).from : dstDoc.length;
+
+  // 7) 单次 dispatch 局部采纳（沿用 acceptChunk 的区间校验）
+  assertRange('src', pSrcFrom, pSrcTo);
+  assertRange('dst', pDstFrom, pDstTo);
+  dstView.dispatch({ changes: { from: pDstFrom, to: pDstTo, insert: insertText } });
+  return true;
+}
+
 // 从待处理列表移除指定块（标记已处理，不改文档内容），返回新列表。
 // 保持不可变：返回过滤后的新数组，原列表不被修改。
 export function rejectChunk(list, chunkId) {

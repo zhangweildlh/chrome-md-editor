@@ -128,6 +128,21 @@ const MIN_BAND_WIDTH = 14;
 const FALLBACK_BAND = 2;
 
 /**
+ * 滚动/缩放重绘的 debounce 窗口（ms）。高频 scroll / 缩放事件合并，停止后补一次最终位，性能友好。
+ * 取较小值：leading edge 已保证滚动起步即时跟随，trailing edge 仅在停止后补绘（见 draw()）。
+ */
+const DRAW_DEBOUNCE_MS = 60;
+
+/**
+ * 重叠连线的水平错开步长（px）默认值。可被 `--diff-connector-overlap-step` 覆盖（B 在 compare.css 调）。
+ * 取小值：只在「多条连线真的叠在一起」时轻微错开，避免无谓偏移。
+ */
+const OVERLAP_STEP_DEFAULT = 2;
+
+/** 重叠错开的最大级数，封顶以防偏移量累积压住栏间正文。 */
+const OVERLAP_MAX_LEVEL = 6;
+
+/**
  * 【resize 落定补绘】尺寸稳定后的补绘采样帧（相对「尺寸不再变化」那一帧的偏移），指数退避。
  *
  * 【为什么必须补绘】ResizeObserver 回调触发的那次 draw，早于 MergeView 重算 spacer
@@ -218,9 +233,43 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+/** 当前时间戳（优先 performance.now，退化到 Date.now）。 */
+function now() {
+  return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+}
+
 function clamp(v, lo, hi) {
   if (!(hi > lo)) return lo;
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * 同层内纵向区间互相覆盖的 ribbon 沿 x 轻微错开，避免多条连线在栏间堆叠成一条（需求④）。
+ * 仅当「源端区间相交 且 目标端区间也相交」才视为平行堆叠（斜跨的不算）。
+ * 偏移量 = 层数 × step；step 来自 --diff-connector-overlap-step（B 调）或默认值。
+ * 注意：buf 会被原地按源端顶部排序，仅影响输出顺序，ribbon 的 index/data-pair 不变。
+ * @param {Array<{sTop:number,sBottom:number,dTop:number,dBottom:number,spec:object}>} buf
+ * @param {number} baseX1 本层连线起点 x（未偏移）
+ * @param {number} baseX2 本层连线终点 x（未偏移）
+ * @param {number} step 单级错开步长（px）
+ * @param {number} maxLevel 最大错开级数（封顶，避免压住正文）
+ */
+function applyOverlapOffset(buf, baseX1, baseX2, step, maxLevel) {
+  if (!buf || buf.length < 2) return;
+  buf.sort((a, b) => a.sTop - b.sTop);
+  for (let i = 0; i < buf.length; i++) {
+    let level = 0;
+    for (let j = 0; j < i; j++) {
+      const p = buf[j];
+      const srcOverlap = buf[i].sTop <= p.sBottom && p.sTop <= buf[i].sBottom;
+      const dstOverlap = buf[i].dTop <= p.dBottom && p.dTop <= buf[i].dBottom;
+      if (srcOverlap && dstOverlap) level++;
+    }
+    if (level <= 0) continue;
+    const off = Math.min(level, maxLevel) * step;
+    const e = buf[i];
+    e.spec.d = ribbonPath(baseX1 + off, baseX2 + off, e.sTop, e.sBottom, e.dTop, e.dBottom);
+  }
 }
 
 /**
@@ -262,7 +311,9 @@ export function createConnectorPainter(opts) {
   }
   container.appendChild(svg);
 
-  let rafId = 0;
+  let drawTimer = 0; // 滚动/缩放重绘的 debounce 句柄（setTimeout）
+  let drawLeadingAt = 0; // 上次 leading-edge 绘制时间戳（节流，避免每帧重绘）
+  let overlapStep = OVERLAP_STEP_DEFAULT; // 重叠错开步长（运行时从 CSS 变量刷新）
   let destroyed = false;
 
   // ── resize 落定补绘的状态（详见 SETTLE_SAMPLE_FRAMES 注释）──
@@ -285,6 +336,24 @@ export function createConnectorPainter(opts) {
       bottom: rect.bottom - box.top,
       right: rect.right - box.left,
     };
+  }
+
+  /**
+   * 读重叠错开步长：优先取 `--diff-connector-overlap-step`（B 在 compare.css 调），
+   * 取不到 / 非法时回退 OVERLAP_STEP_DEFAULT。变量定义在 :root，container 继承可得。
+   */
+  function readOverlapStep() {
+    let v = OVERLAP_STEP_DEFAULT;
+    try {
+      if (typeof getComputedStyle === "function" && container && container.ownerDocument) {
+        const raw = getComputedStyle(container).getPropertyValue("--diff-connector-overlap-step");
+        const n = parseFloat(raw);
+        if (Number.isFinite(n) && n > 0) v = n;
+      }
+    } catch (_) {
+      /* 非浏览器环境：忽略 */
+    }
+    return v;
   }
 
   /**
@@ -490,6 +559,7 @@ export function createConnectorPainter(opts) {
   function computeGeometry() {
     const layers = getLayers() || [];
     const box = originBox();
+    overlapStep = readOverlapStep(); // 运行时刷新重叠错开步长（B 改 CSS 即时生效）
     /** @type {Array<{d:string,layerName:string,fill:string,stroke:string,index:number}>} */
     const specs = [];
     /** 因超过 MAX_PAIRS_PER_LAYER 被丢弃的连接带总条数（跨层累加）。 */
@@ -527,6 +597,8 @@ export function createConnectorPainter(opts) {
         x2 = mid + MIN_BAND_WIDTH / 2;
       }
 
+      /** 本层 ribbon 缓冲：先收集几何，统一做重叠水平偏移后再落 spec。 */
+      const layerBuf = [];
       const overflow = layerItem.pairs.length - MAX_PAIRS_PER_LAYER;
       const pairs = overflow > 0 ? layerItem.pairs.slice(0, MAX_PAIRS_PER_LAYER) : layerItem.pairs;
       if (overflow > 0) droppedPairs += overflow;
@@ -573,15 +645,22 @@ export function createConnectorPainter(opts) {
         // 「独属内容连线与其高亮块同色」这条需求就落在 variant 这一档上。
         const variant = typeof p.variant === "string" ? p.variant : "";
         const vPaint = VARIANT_PAINT[variant];
-        specs.push({
-          d: ribbonPath(x1, x2, sTop, sBottom, dTop, dBottom),
-          layerName,
-          variant,
-          fill: p.fill || (vPaint && vPaint.fill) || layerFill,
-          stroke: p.stroke || (vPaint && vPaint.stroke) || layerStroke,
-          index: i,
+        layerBuf.push({
+          sTop, sBottom, dTop, dBottom,
+          spec: {
+            d: ribbonPath(x1, x2, sTop, sBottom, dTop, dBottom),
+            layerName,
+            variant,
+            fill: p.fill || (vPaint && vPaint.fill) || layerFill,
+            stroke: p.stroke || (vPaint && vPaint.stroke) || layerStroke,
+            index: i,
+          },
         });
       }
+
+      // 重叠水平错开，避免多条连线在栏间堆叠成一条（见 applyOverlapOffset，需求④）。
+      applyOverlapOffset(layerBuf, x1, x2, overlapStep, OVERLAP_MAX_LEVEL);
+      for (const buf of layerBuf) specs.push(buf.spec);
     }
 
     // 几何指纹：把「画出来会长什么样」压成一个字符串。补绘采样时用它判断
@@ -694,32 +773,49 @@ export function createConnectorPainter(opts) {
    * 请求一次重绘。滚动事件会高频触发，这里用 rAF 把同一帧内的多次调用合并成一次。
    * 无 rAF 的环境（node 单测）直接同步绘制，保证测试可断言。
    */
+  /**
+   * 请求一次重绘。滚动/缩放事件高频触发，这里用「leading + trailing 节流」把重绘频率
+   * 压到每 DRAW_DEBOUNCE_MS 最多一次（约 16fps），而非每动画帧一次（约 60fps），
+   * 既显著降本（需求④·性能），连线又能在滚动中持续跟随、停止后补最终位（不卡顿、不冻结）。
+   * 无定时器环境（node 单测）直接同步绘制，保证测试可断言。
+   */
   function draw() {
     if (destroyed) return;
-    if (typeof requestAnimationFrame !== "function") {
+    if (typeof setTimeout !== "function") {
       drawNow();
       return;
     }
-    if (rafId) return; // 本帧已排队
-    rafId = requestAnimationFrame(() => {
-      rafId = 0;
+    const t = now();
+    const elapsed = t - drawLeadingAt;
+    if (elapsed >= DRAW_DEBOUNCE_MS) {
+      // 节流窗口已过 → 立即绘制并重置窗口
+      drawLeadingAt = t;
       drawNow();
-    });
+      if (drawTimer) {
+        clearTimeout(drawTimer);
+        drawTimer = 0;
+      }
+    } else if (!drawTimer) {
+      // 窗口内 → 仅预约一次 trailing 绘制，保证窗口末/停止后补最终位
+      drawTimer = setTimeout(() => {
+        drawTimer = 0;
+        drawLeadingAt = now();
+        drawNow();
+      }, DRAW_DEBOUNCE_MS - elapsed);
+    }
   }
 
   function destroy() {
     destroyed = true;
     try {
-      // 必须先取消挂起的 rAF：否则销毁后回调仍会跑，触碰已卸载的 DOM。
-      // 补绘观察窗同理，且它是**连续续帧**的，漏取消会一直空转到硬上限。
-      if (typeof cancelAnimationFrame === "function") {
-        if (rafId) cancelAnimationFrame(rafId);
-        if (settleRaf) cancelAnimationFrame(settleRaf);
-      }
+      // 必须先取消挂起的定时器 / rAF：否则销毁后回调仍会跑，触碰已卸载的 DOM。
+      // 补绘观察窗（settleRaf）是连续续帧的，漏取消会一直空转到硬上限。
+      if (typeof clearTimeout === "function" && drawTimer) clearTimeout(drawTimer);
+      if (typeof cancelAnimationFrame === "function" && settleRaf) cancelAnimationFrame(settleRaf);
     } catch (_) {
       /* 忽略 */
     }
-    rafId = 0;
+    drawTimer = 0;
     settleRaf = 0;
     try {
       if (svg.parentNode) svg.parentNode.removeChild(svg);

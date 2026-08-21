@@ -3,8 +3,10 @@
 // 职责：
 //   1) runSavePoll(panes, order)  —— 从左到右逐栏弹原生 DOM modal，
 //      四按钮：保存(覆盖源) / 另存为(新文件，不覆盖) / 不保存(跳过) / 取消(中止整轮)。
-//   2) showSaveAsDialog({ suggestedName }) —— 另存为弹窗，经 ioBridge.pickSaveTarget
-//      拿回新目标描述符 { handle } | { path }。
+//   2) showSaveAsDialog({ suggestedName, types }) —— 另存为「文件选择」，与编辑器「打开文件」
+//      同款：直接调原生 File System Access API（window.showSaveFilePicker），不再自建
+//      文件名输入弹窗（需求①⑦⑬）。返回新目标描述符 { handle } | { path } | null（取消）。
+//      Tauri / 非安全上下文经 ioBridge.pickSaveTarget 降级。
 //
 // 依赖约定（§5.6，由 B2 Agent 在 src/compare/io-bridge.js 实现，本文件只按签名调用）：
 //   ioBridge.write(target, content)            —— 覆盖写入既有目标
@@ -26,7 +28,14 @@
 //   - [可选] path : 仅在浏览器无法取得完整绝对路径时，由调用方显式传入完整路径用于展示
 // order：栏键数组（如 ['a','b','c']），决定轮询从左到右顺序。
 
-import { ioBridge } from './compare/io-bridge.js';
+import { ioBridge, isTauri } from './compare/io-bridge.js';
+
+// 「另存为」原生保存框的默认文件类型（与 src/file-picker.js 的 MD_SAVE_TYPES 一致）。
+// 调用方可通过 showSaveAsDialog({ types }) 覆盖（如 diff 导出传 .txt）。
+const MD_SAVE_TYPES = [{
+  description: 'Markdown 文件',
+  accept: { 'text/markdown': ['.md'] },
+}];
 
 // 重入保护（M2）：同一时刻只允许一轮保存轮询在跑，防止连按 Ctrl+S / 保存中返回
 // 触发并发多轮、叠加 .save-poll-overlay、重复写盘。入口检查，finally 复位。
@@ -132,13 +141,6 @@ const BTN_STYLE = [
   'font-size:13px',
 ].join(';') + ';';
 
-const INPUT_STYLE = [
-  'width:100%', 'box-sizing:border-box', 'padding:8px 10px', 'margin:10px 0 14px',
-  'background:#2a2a30', 'border:1px solid #4a4a52', 'border-radius:6px',
-  'color:#e8e8ea', 'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
-  'font-size:13px',
-].join(';') + ';';
-
 // 通用：构造覆盖层 + 居中卡片，返回 { overlay, box, close }。
 function buildOverlay() {
   const overlay = document.createElement('div');
@@ -228,62 +230,44 @@ function showPaneSaveDialog(pane) {
 }
 
 // ---------------------------------------------------------------------------
-// 另存为弹窗：返回 Promise<target | null>
-//   target 形如 { handle }（浏览器）或 { path }（Tauri），由 ioBridge.pickSaveTarget 返回。
+// 另存为「文件选择」：返回 Promise<target | null>
+//   与编辑器「打开文件」（file-picker.js → window.showOpenFilePicker）同款，直接调原生
+//   保存框 window.showSaveFilePicker，一步选定路径 + 文件名（不再自建文件名输入弹窗）。
+//   返回：{ handle }（浏览器）| { path }（Tauri）| { download, name }（非安全上下文降级）
+//         | null（用户取消 / 无可用途径）。
+//   suggestedName 作为保存框默认文件名；types 为 FSAPI 文件类型过滤（默认 Markdown）。
 // ---------------------------------------------------------------------------
-export async function showSaveAsDialog({ suggestedName } = {}) {
-  return new Promise((resolve) => {
-    const { box, close, setEscResolver } = buildOverlay();
+export async function showSaveAsDialog({ suggestedName, types } = {}) {
+  const name = (typeof suggestedName === 'string' && suggestedName.trim())
+    ? suggestedName.trim()
+    : 'untitled.md';
 
-    const title = document.createElement('div');
-    title.textContent = '另存为';
-    title.style.cssText = 'font-size:15px;font-weight:600;margin-bottom:2px;';
+  // 浏览器安全上下文（https / 扩展页）：原生 File System Access API 保存框。
+  // Tauri 内不走此路（其描述符须为 { path }，见 ioBridge.write 的 Tauri 分支）。
+  if (!isTauri && typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: name,
+        types: types || MD_SAVE_TYPES,
+      });
+      return { handle };
+    } catch (err) {
+      // 用户取消 → null（调用方按「跳过」处理，不报错）
+      if (err && err.name === 'AbortError') return null;
+      // 其余错误（如沙箱 SecurityError）→ 落到 Tauri / 非安全上下文降级
+      console.warn('[save-poll] showSaveFilePicker 不可用，降级 pickSaveTarget：', err);
+    }
+  }
 
-    const sub = document.createElement('div');
-    sub.style.cssText = HINT_STYLE + 'margin-bottom:0;';
-    sub.textContent = '输入文件名（将作为保存框的默认名），随后在系统/浏览器保存框中选择路径。';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'save-poll-input';
-    input.style.cssText = INPUT_STYLE;
-    input.value = suggestedName || 'untitled.md';
-
-    const bar = document.createElement('div');
-    bar.style.cssText = 'display:flex;gap:0;';
-
-    const btnOk = document.createElement('button');
-    btnOk.textContent = '选择路径并保存';
-    btnOk.style.cssText = BTN_STYLE + 'background:#0e639c;border-color:#1177bb;';
-    btnOk.onclick = async () => {
-      const name = (input.value || '').trim() || suggestedName || 'untitled.md';
-      close();
-      try {
-        const target = await resolvePickSaveTarget(name);
-        resolve(target || null);
-      } catch (err) {
-        console.error('[save-poll] pickSaveTarget 失败：', err);
-        resolve(null);
-      }
-    };
-
-    const btnCancel = document.createElement('button');
-    btnCancel.textContent = '取消';
-    btnCancel.style.cssText = BTN_STYLE;
-    btnCancel.onclick = () => { close(); resolve(null); };
-
-    bar.appendChild(btnOk);
-    bar.appendChild(btnCancel);
-
-    box.appendChild(title);
-    box.appendChild(sub);
-    box.appendChild(input);
-    box.appendChild(bar);
-
-    setEscResolver(() => resolve(null));
-    input.focus();
-    input.select();
-  });
+  // Tauri（返回 { path }）/ 非安全上下文（返回 { download, name } 由 write 走 Blob 下载）。
+  try {
+    const target = await resolvePickSaveTarget(name);
+    return target || null;
+  } catch (err) {
+    if (err && err.name === 'AbortError') return null; // 用户取消
+    console.error('[save-poll] pickSaveTarget 失败：', err);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

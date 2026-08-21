@@ -1110,10 +1110,29 @@ body {
   gap: 2px;
 }
 
-/* A4 按钮群右移：中段+右段按钮整体靠右（logo 留在最左）。
-   此前「右段 margin-left:auto」会在中段与右段之间产生大间隙（已知问题2），故只对中段
-   .toolbar-center 生效：剩余空间集中在中段之前（logo 与按钮群之间），段内间距不变，
-   不再出现「隔断符/按钮间距过大」。溢出时仍由 .toolbar 横向滚动。 */
+/* L-2 窄窗溢出修复：41 个功能按钮 + logo + 右段总宽超出常见窗口（~1050px）导致
+   右侧按钮被 .toolbar 的 overflow-x 裁切不可点（v1.9.8 实测）。压缩中段按钮 32→29px、
+   段内 gap 2→0、右段按钮同压缩、logo 间距收紧，使按钮群（含右段）在 ~1040px 窗口完整
+   可见；更窄窗口仍由 toolbar-scroll 滚动箭头兜底。btnScroll（含文字）保持 auto。 */
+.toolbar-center {
+  gap: 0;
+}
+.toolbar-center .toolbar-btn:not(#btnScroll) {
+  width: 29px;
+  height: 29px;
+}
+.toolbar-right .toolbar-btn {
+  width: 29px;
+  height: 29px;
+}
+.toolbar-left .logo {
+  margin-right: 6px;
+}
+
+/* L-1 按钮群定位（v1.9.8 实测修正）：margin 左右 auto → 中段在
+   [toolbar-left 之后, toolbar-right 之前] 区间居中；因 left(logo) 宽、right(图片按钮) 窄，
+   几何中心自然落在视口中心略偏右，符合「居中略往右」预期（替代 v1.9.8 的 margin-left:auto 靠右，
+   后者使按钮群抵近右缘）。段内间距不变；溢出时仍由 .toolbar 横向滚动。 */
 .toolbar-right {
   flex: 0 0 auto;
 }
@@ -1122,6 +1141,7 @@ body {
   flex: 0 0 auto;
   justify-content: flex-start;
   margin-left: auto;
+  margin-right: auto;
 }
 
 .logo {
@@ -1707,6 +1727,32 @@ body {
   content: '\00b6'; /* ¶ */
 }
 
+/* ㉑ 显示空格 → 红色居中小圆点（VS Code Render Whitespace dot 风格，染红）。
+   highlightWhitespace() 给空格加 .cm-highlightSpace、给制表符加 .cm-highlightTab，
+   CM6 默认是灰色径向点/箭头；此处覆盖为红色，圆点居中（circle at 50% 55%）。 */
+.editor-container .cm-editor .cm-content .cm-highlightSpace {
+  background-image: radial-gradient(circle at 50% 55%, var(--danger) 30%, transparent 8%);
+  background-position: center;
+}
+.editor-container .cm-editor .cm-content .cm-highlightTab {
+  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23e5484d" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>');
+  background-size: auto 100%;
+  background-position: right 90%;
+  background-repeat: no-repeat;
+}
+
+/* ㉑ 空格 → 红色居中小圆点（JS Agent 渲染 .cm-space-dot span，内容 '·' / '◦'）。
+   红色走主题 --danger、字号略小、垂直居中、不改变行高（line-height:1 + vertical-align:middle）。
+   选择器仅命中空格 span，不影响其它 .cm-specialChar。 */
+.cm-space-dot {
+  color: var(--danger) !important;
+  font-size: 0.7em;
+  line-height: 1;
+  vertical-align: middle;
+  text-indent: 0;
+  user-select: none;
+}
+
 .editor-container .cm-editor.cm-focused {
   outline: none;
 }
@@ -1907,9 +1953,12 @@ body {
    ========================================== */
 .markdown-body {
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  /* ⑯ 预览同步：字体族 / 字间距 / 行间距随编辑器显示设置刷新（与编辑区一致）；
+     字号仍走独立的预览字号设置（--preview-font-size，默认 15px）。 */
+  font-family: var(--editor-font-family);
   font-size: var(--preview-font-size);
-  line-height: 1.7;
+  line-height: var(--editor-line-height);
+  letter-spacing: var(--editor-letter-spacing);
   word-wrap: break-word;
 }
 
@@ -2191,6 +2240,46 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ㉓-B 设置菜单按钮文案突破边界：标题与「默认」按钮同行，
+   标题过长时省略号截断，避免溢出弹窗（.style-popover 已限宽）。 */
+.modal-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px; /* ⑱ 默认按钮与标签间距 6px 左右 */
+  min-width: 0;
+}
+.modal-field-head > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ⑱ 「默认」按钮样式：小号、弱化视觉（透明底、hover 浅底、圆角小、垂直居中）。
+   .field-default-btn 为现状类名，.style-default-btn 为需求 ⑱ 的目标类名，
+   两者一并提供样式，JS/HTML 使用任一均生效。 */
+.field-default-btn,
+.style-default-btn {
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all var(--transition-fast);
+}
+.field-default-btn:hover,
+.style-default-btn:hover {
+  color: var(--accent);
+  border-color: var(--border-subtle);
+  background: var(--bg-hover);
 }
 
 .modal-actions {
