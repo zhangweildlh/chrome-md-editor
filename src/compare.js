@@ -37,6 +37,8 @@ import { runSavePoll, showSaveAsDialog } from "./save-poll.js";
 // 本文件只消费、不再自建（修复 H1：避免三栏下重复监听 / 按钮失效）。
 // 文件读写桥（导出 diff 写盘走 ioBridge.saveAs）
 import { ioBridge } from "./compare/io-bridge.js";
+// 共享 Tauri 环境判定（R3 修复 ④：拖放 EXE 侧需 isTauriEnv 守卫）
+import { isTauriEnv } from "./tauri-env.js";
 // 活动栏（用户最后聚焦的栏）状态与保存链路
 import {
   setActivePane,
@@ -278,6 +280,26 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       } catch (_) {}
       unsubscribeStatus = null;
     }
+
+  // R3 修复 ⑤：通用错误 toast（不阻塞交互、3s 自动消失），让 EXE 侧 dialog.open 抛错时
+  // 用户能看到失败原因（之前只 console.error 不可见，导致「点击无效」困惑）。
+  function showCompareErrorToast(message) {
+    if (typeof document === "undefined" || !document.body) return;
+    const toast = document.createElement("div");
+    toast.style.cssText = [
+      "position:fixed", "left:50%", "bottom:24px", "transform:translateX(-50%)",
+      "z-index:100001", "padding:10px 18px", "background:#5a1d1d", "color:#ffd7d7",
+      "border:1px solid #8a2d2d", "border-radius:8px",
+      "font-family:system-ui,-apple-system,sans-serif", "font-size:13px",
+      "box-shadow:0 8px 24px rgba(0,0,0,0.5)", "pointer-events:none",
+      "max-width:80vw", "white-space:pre-wrap", "word-break:break-all",
+    ].join(";");
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 3000);
+  }
     if (locationPane) {
       try {
         locationPane.destroy();
@@ -634,10 +656,13 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         btnScroll.title = "滚动同步：各栏共用同一滚动盒（两栏模式），天然同步，无需开关";
         return;
       }
+      // R3 修复 ⑨⑩：三栏模式下 A/B 栏在同一个 MergeView .cm-scroller 内共享滚动盒，
+      // 这是 CM6 MergeView 架构行为，开关无法解除（结构性联动）。开关仅控制
+      // A↔C / B↔C 跨盒链接。tooltip 明确告知用户，避免「不激活时 A/B 仍同步」困惑。
       btnScroll.classList.toggle("active", scrollSyncEnabled);
       btnScroll.title = scrollSyncEnabled
-        ? "滚动同步：开（点击关闭）"
-        : "滚动同步：关（点击开启）";
+        ? "滚动同步：开（点击关闭；A/B 栏因 MergeView 共享滚动盒天然联动，开关仅控制与 C 栏的同步）"
+        : "滚动同步：关（点击开启；A/B 栏因 MergeView 共享滚动盒天然联动，无法关闭）";
     }
   }
 
@@ -1264,6 +1289,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       // 用户取消选择：忽略 AbortError
       if (!(e && e.name === "AbortError")) {
         console.error("[compare] 选择文件失败:", e);
+        // R3 修复 ⑤：在 EXE/浏览器侧都让用户看到失败原因（之前只 console.error 不可见）
+        showCompareErrorToast("打开文件失败：" + (e && e.message ? e.message : String(e)));
       }
     }
   }
@@ -1839,6 +1866,61 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     };
     document.addEventListener("dragover", onPageDragOver, true); // 捕获阶段
     document.addEventListener("drop", onPageDrop, true);
+
+    // R3 修复 ④：Tauri 桌面壳（EXE）下 HTML5 drop 事件的 dataTransfer.files 恒为空——
+    // Tauri 2.x 默认把 OS 拖放文件由 Rust 层拦截，文件路径通过 tauri://drag-drop 自定义
+    // 事件派发到 webview（payload.paths）。浏览器侧保留 HTML5 drop 行为不变；EXE 侧
+    // 通过 isTauriEnv() 守卫注册 Tauri 拖放监听，按路径走 compare-shims.readFile
+    // （Rust read_multiple_text_files 命令）读取 → 与 HTML5 drop 同一路由分发到 a/b/c 栏。
+    if (typeof isTauriEnv === "function" && isTauriEnv()) {
+      const onTauriDragOver = (e) => {
+        const p = e && e.payload;
+        if (p && (p.type === "over" || p.type === "enter")) {
+          e.preventDefault();
+        }
+      };
+      const onTauriDrop = async (e) => {
+        try {
+          const p = e && e.payload;
+          if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
+          e.preventDefault();
+          // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻一份）
+          const { readFile } = await import("./compare-shims.js");
+          const dropped = [];
+          for (const path of p.paths) {
+            try {
+              const name = String(path).split(/[\\/]/).pop() || String(path);
+              const content = await readFile(path);
+              dropped.push({ name, content, target: { path } });
+            } catch (err) {
+              console.warn("[compare] Tauri 拖放读取失败:", path, err);
+            }
+          }
+          if (!dropped.length) return;
+          const active = getActivePane();
+          const targets = resolveDropTargets(active, mode, files, dropped.length);
+          for (let i = 0; i < dropped.length; i++) {
+            const t = targets[i];
+            if (t === "a") files.a = dropped[i];
+            else if (t === "b") files.b = dropped[i];
+            else if (t === "c" && mode === "compare" && colCount === 3) files.c = dropped[i];
+            else if (t === "c" && mode === "merge") files.b = dropped[i];
+          }
+          setSlotText(fileSlots.a, files.a);
+          setSlotText(fileSlots.b, files.b);
+          skipSaveOnNextRender = true;
+          render();
+        } catch (err) {
+          console.error("[compare] Tauri 拖放处理失败:", err);
+        }
+      };
+      window.addEventListener("tauri://drag-enter", onTauriDragOver);
+      window.addEventListener("tauri://drag-over", onTauriDragOver);
+      window.addEventListener("tauri://drag-drop", onTauriDrop);
+      // Tauri 2.x 替代命名（getCurrentWindow 派发的事件名）
+      window.addEventListener("tauri://file-drop", onTauriDrop);
+      window.addEventListener("tauri://file-drop-hover", onTauriDragOver);
+    }
   }
 
   // ── 调试钩子（仅当 cmp-debug=1 时暴露，生产默认不暴露，便于自动化探针读取真实状态） ──
