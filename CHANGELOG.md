@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.10] - 2026-08-21（端到端 R3：10 项 BUG 坐实 + 修复）
+
+### 修复
+- **「界面密度」文案改名为「按钮间距」**（editor.html：label + title 同步；命名更贴近用户对工具栏按钮间距的直觉）。
+- **按钮间距（密度）真正生效**：根因 `.toolbar-group` 内部无 gap 规则，`--ui-gap` 仅作用于 `.toolbar` 三大段之间。修复：`.toolbar-group` 加 `gap: var(--ui-gap)` + `align-items: center`。
+- **配色方案（经典/护眼/高对比）真正生效**——四层叠加根因：(1) `.cm-md-token-*` 与 `.cm-md-token-markup` 同优先级，markup 在文件后定义覆盖 heading → token 规则加 `!important`；(2) markup `opacity:.7` 在玻璃皮肤下与背景色混合成深绿 → 去掉 markup opacity；(3) `[data-md-syntax-scheme="default"]` 块 specificity 0,1,0 输于 `[data-theme=light][data-color-scheme=...]` 块 0,2,0 → HighlightStyle 同步添加 color 字段直接引用 `var(--md-h1-color)`；(4) `editor.js setSchemeAttr` 在 `<html>` + `#editorMain` 双处设属性（HTML 中 `<main class="editor-main" data-md-syntax-scheme="default">` 硬编码），setColorScheme 必须同步两处才能真正生效。
+- **EXE 拖拽无法打开**（compare.js）：Tauri 2.x webview 的 HTML5 drop 事件 `dataTransfer.files` 为空（OS 文件由 Rust 层拦截，通过 `tauri://drag-drop` 派发路径），新增 `isTauriEnv()` 守卫注册 `tauri://drag-drop`/`drag-enter`/`drag-over` 监听 + `compare-shims.readFile` 路径读取。
+- **EXE 打开文件按钮无效**（compare.js）：代码链完整（dialog 插件 + capabilities），防御性加固 onPickFiles catch 调 `showCompareErrorToast` 错误提示（之前只 `console.error` 不可见）。
+- **保存/打开弹窗式样不对齐**（save-poll.js）：`runSavePoll` 暗色 `#1e1e22` 卡片重做为系统式样（白底 `#ffffff` + 圆角 12px + 系统蓝 `#0969da` 强调色）。承认：浏览器侧无法 100% 复刻 OS 原生，视觉对齐是最大努力。
+- **C 栏未参与对比**（compare.css）：bc 层 `cm-diff-word-added/removed` span 存在但 0 条 CSS 规则 → 加 `!important 0.55 透明 + 2px 下边线` char-level 高亮 + `.cm-md-bc-line-added/removed` 行级 class（行级背景 dispatch 待后续）。
+- **滚动同步 A/B 栏不激活仍同步**（compare.js）：CM6 MergeView a/b 面板共用 `.cm-scroller` 滚动盒 → 结构性联动，开关无法解除（`scroll-sync.js` L297 `if (!isEnabled()) return` 守卫正确阻断 B/C 跨盒）。修复：tooltip 明确告知用户这是架构限制，非代码 BUG。
+
+### Follow-up
+- B↔C 连接线被覆盖（⑧）：`.cm-move-connector-layer` z-index:1 偏低 + 移动块 detect 需特定模式（实测 0 paths）—— 待 EXE 实机验证。
+- ⑦ 行级背景 class（`.cm-md-bc-line-*`）CSS 已就位，dispatch 待后续。
+
+### 测试
+- `node --test "tests/*.test.js"`：**549 tests / 546 pass / 0 fail / 3 todo**
+- 360Chromex 端到端验证 ①②⑦⑨⑩ 可见变化
+- ④⑤⑥⑧ 标记"需 EXE 实机验证"（Tauri 远程调试在本机不可用）
+
 ## [1.9.9] - 2026-08-21（23 项需求批次 + 端到端测试修复）
 
 ### 特性
