@@ -1888,4 +1888,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // 默认渲染两栏（空文档），保证页面有可见内容
   render();
+  // 空态初始化：首次 render 可能未创建 instance（无文件），updateScrollButton 未被调用，
+  // 这里补一次让 btnScroll 置灰并显示"加载文件后可用"提示，避免空态下按钮看着可点但实际无效
+  updateScrollButton();
 })();
