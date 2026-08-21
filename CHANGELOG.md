@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
-## [Unreleased]
+## [1.9.9] - 2026-08-21（23 项需求批次 + 端到端测试修复）
 
 ### 特性
 - 文件选择弹窗统一（①⑦⑬）：编辑/预览与对比页所有「打开/保存/另存」的文件选择统一为浏览器原生 picker（File System Access API，图2风格）；对比页「导出 diff」直出原生保存框（.txt 类型）。
