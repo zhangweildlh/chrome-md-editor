@@ -55,11 +55,15 @@
 
 ## #4 EXE 侧 对比/合并页 拖拽 md/.txt 无法在 A/B/C 栏打开
 
-**结论：✅(EXE) 桥接已就位，底层 Tauri 文件读取通道已真机验证可用；真实拖拽待显示交互**
+**结论：🔧 已实施方案A架构根治（commit 待合入，CI 重编译复测中）**
 
-- 浏览器侧逻辑：`compare.js` 的 `onTauriDrop`/`onPageDrop` 注入 `compare.drop.tauri`/`compare.drop.html5` 探针（`compare.js:1830/1917`），拖拽处理经 `io-bridge.js` 解析 md/.txt 写入 A/B/C 栏。
-- EXE 侧：Tauri 2.x 的 `tauri://drag-drop` 事件由 `compare-shims.readFile` 桥接读取（`compare.js` 已有 `isTauriEnv()` 守卫）。**底层通道已验证**：#5 的真机测试证明 `read_text_file`/`get_initial_file` 在 EXE 内完全可用，拖拽走同源 `read_multiple_text_files` Rust command。
-- 真实拖拽坐实：`compare.drop.tauri` 探针注入点已就位（`window.__probe` → invoke → `/probe`/`%temp%` 落盘），需用户在 EXE 对比页真实拖入文件即可经调试桥观察到该事件。纯脚本无法模拟 OS 级拖放触发 `tauri://drag-drop`。
+- **真机坐实（2026-08-23 20:20，EXE PID 14212，CME_DEBUG=1）**：用户在 EXE 对比页真实拖入 `.md` 文件，**文件未被打开**；调试桥环形缓冲 `/probe` 与落盘 `%temp%/cme-exe-probe-14212.jsonl` 均无 `compare.drop.tauri` 事件（最后一条事件仍为 `12:16:09 btnColToggle`）。直接证明 EXE 对比页拖放通道在修复前**完全不工作**。
+- **根因链（两阶段，已彻底厘清）**：
+  1. **阶段一（已修）**：`compare.js` 原用 `window.addEventListener("tauri://drag-drop")` / `tauri://file-drop` 监听 OS 文件拖放，该 `tauri://*` 自定义事件在 Tauri 2.x WebView2 下**不可靠、不会触发**。→ 改为 `getCurrentWebview().onDragDropEvent`（commit fe89db1）。
+  2. **阶段二（真正根因，方案A 根治）**：即便换用 `onDragDropEvent`，EXE 对比页拖放仍失效。最终真机对照证明：**Tauri/Wry 的 OS 文件拖放事件仅在「初始 webview 页面上下文」派发（已知缺陷 wry#904）**。而 `btnCompare` 此前用 `window.location.href='compare.html'`（同 webview 导航）或 `window.open`（新 webview）跳离 editor.html 初始上下文，导航后 Rust 级 drop handler 通道随之失效，且 editor.js 的持久 `onDragDropEvent` 监听随 editor.html 卸载而销毁，导致转发也失效。
+  3. **关键对照证据**：编辑器主页（初始上下文）拖入 `.md` 能正常打开（PID 10772 坐实），同一 EXE 对比页拖入则恒失败——锁定「上下文切换」为唯一变量。
+- **修复（方案A，架构级）**：对比/合并 UI 不再导航离开 editor.html，而是**内嵌进 editor.html 初始上下文**（`#compareHost` 隐藏容器，含完整对比 DOM + `compare.css`）。EXE 下 `btnCompare` 改为：显示 `#compareHost` + 动态 `import('./compare.js')`（DOM 查询经 `HOST` 作用域隔离，避免与 editor.html 既有 `#outlinePanel`/`#outlineClose` 冲突）+ 隐藏主页 UI；editor.js 的**持久 `onDragDropEvent` 监听（已在初始上下文、真机坐实可用）**在 `__inCompare` 且 host 可见时把路径转发给 `window.__compareHandleTauriDrop`，对比页即可收到拖放。对比页「返回主界面」仅隐藏 host 并还原主页 UI，绝不导航。`compare.js` 在集成模式下跳过自身 `onDragDropEvent` 注册（避免与 editor.js 重复监听同一 drop）。浏览器侧（Chrome 扩展）仍走独立 `compare.html`，不受影响。
+- **待复测**：CI 重编译 EXE 后，在 EXE 对比/合并页真实拖入 `.md`，预期调试桥出现 `compare.drop.tauri` 且文件落入 A/B/C 栏；并返回主界面后主页拖放仍正常。
 
 ---
 
@@ -87,10 +91,10 @@
 
 ## #7 EXE 侧 合并功能 拖拽 md/.txt 无法在 A/B/C 栏打开
 
-**结论：✅(EXE) 与 #4 同源，桥接已就位；底层通道已真机验证（见 #5）；真实拖拽待显示交互**
+**结论：🔧 与 #4 同源（wry#904 上下文切换根因），已随方案A一并根治**
 
-- 合并与对比共用同一 `io-bridge` 拖拽/打开管线，`compare.drop.tauri` 探针覆盖合并视图拖拽入口。
-- 底层 Tauri 文件读取通道（#5 坐实）证明合并拖拽走同源可用。
+- 合并与对比共用同一套 `onDragDropEvent` → `handleTauriDrop` → a/b/c 栏分发链路；方案A 把对比 UI 内嵌 editor.html 初始上下文后，合并页三栏拖放同样走 editor.js 持久监听转发，根因一并消除。
+- **待复测**：CI 重编译 EXE 后，在 EXE 合并页（三栏）真实拖入 `.md`，验证落入 A/B/C 栏且调试桥出现 `compare.drop.tauri`。
 
 ---
 

@@ -1,7 +1,8 @@
 // compare.js — 对比合并页面入口与控制器（T1 骨架 + T2/T4/T4b 整合）
 //
 // 职责：
-//   1. 读取 window.__compareMount 提供的挂载约定（root / mountPoints / fileSlots / imageDrop）。
+//   1. 挂载点取自当前文档 DOM（集成模式下来自 editor.html 的 #compareHost，由 HOST 作用域隔离；
+//      独立 compare.html 模式下来自页面自身）。不再依赖 window.__compareMount。
 //   2. 根据工具栏按钮切换「两栏 / 三栏」两种视图（对比/合并必为两栏或三栏，无单栏）。
 //   3. 绑定文件选择、块导航、图片插入、导出结果 / 导出 diff 报告。
 //
@@ -21,6 +22,10 @@
 // window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
 // 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销。
 import './debug-probe.js';
+// 方案A：对比样式经 JS import 引入，确保无论独立 compare.html 还是内嵌 editor.html
+// （对比 UI 集成进编辑器初始上下文）都能随 compare.js 加载而生效，不依赖 HTML <link>
+// 在编辑器页被 Vite 构建图裁剪。浏览器侧 compare.html 的 <link> 仍保留作为兜底。
+import './compare.css';
 
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
@@ -80,18 +85,29 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MAX_WIDTH_ABS } from "./outline-const.js";
 
 (function bootstrapCompare() {
-  // 标记当前处于对比/合并页（同 webview 导航），供 editor.js 持久 drop 监听转发判断。
+  // 方案A（根治 #4/#7 EXE 对比页拖放失效）：
+  //   EXE(Tauri/WebView2) 下，OS 文件拖放事件仅在「初始 webview 页面上下文」派发
+  //   （已知缺陷 wry#904）。此前 btnCompare 用 window.location.href='compare.html'
+  //   或 window.open 跳离 editor.html，导致对比页 drop 永远收不到。
+  //   现改为：对比 UI 直接内嵌进 editor.html（#compareHost），不再导航离开初始上下文。
+  //   editor.js 的持久 onDragDropEvent 监听（已在初始上下文、真机坐实可用）转发到
+  //   window.__compareHandleTauriDrop 即可让对比页收到拖放。
+  //   HOST 作用域：集成模式下所有 getElementById/querySelector 限定在 #compareHost 内，
+  //   避免与 editor.html 既有 #outlinePanel/#outlineClose 等 ID 冲突。
+  const HOST = (typeof window !== "undefined" && window.__compareHost) || document;
+  const integrated = !!(typeof window !== "undefined" && window.__compareIntegrated);
+  // 标记当前处于对比/合并页，供 editor.js 持久 drop 监听转发判断。
   window.__inCompare = true;
-  // 挂载点直接取自 compare.html 中定义的 DOM 节点（不再依赖 window.__compareMount，
-  // 该约定在 compare.html 中并未注入，否则会导致整页无法初始化）。
-  const root = document.getElementById("compareRoot");
+  // 挂载点直接取自 compare DOM 中定义的 DOM 节点（集成模式下来自 #compareHost，
+  // 独立模式下来自 compare.html 自身）。用 HOST.getElementById 作用域隔离。
+  const root = HOST.getElementById("compareRoot");
   const mountPoints = {
-    two: document.getElementById("viewTwo"),
-    three: document.getElementById("viewThree"),
+    two: HOST.getElementById("viewTwo"),
+    three: HOST.getElementById("viewThree"),
   };
   const fileSlots = {
-    a: document.getElementById("fileSlotA"),
-    b: document.getElementById("fileSlotB"),
+    a: HOST.getElementById("fileSlotA"),
+    b: HOST.getElementById("fileSlotB"),
   };
   if (!root || !mountPoints.two || !mountPoints.three) {
     console.error(
@@ -203,8 +219,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     ];
   }
 
-  // ── DOM 查询 ──
-  const $ = (id) => document.getElementById(id);
+  // ── DOM 查询（作用域隔离：集成模式下限定在 #compareHost，避免与 editor.html 既有 ID 冲突）──
+  const $ = (id) => HOST.getElementById(id);
   // 模式切换：对照 / 合并（按钮由 C3 在 compare.html 注入，此处做 null 保护）
   const btnModeCompare = $("btnModeCompare");
   const btnModeMerge = $("btnModeMerge");
@@ -503,7 +519,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 宽度常量取自 ./outline-const.js（F5 单一事实源）
 
   function outlineMaxWidth() {
-    const root = document.getElementById("compareRoot");
+    const root = HOST.getElementById("compareRoot");
     const avail = root ? root.clientWidth : 0;
     if (!avail) return OUTLINE_MAX_WIDTH_ABS;
     // 不写死上限：窄窗口下 520px 会把编辑区挤没，取「主区宽度的 45%」与绝对上限的较小值。
@@ -511,7 +527,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   function applyOutlineWidth(px, { persist = false } = {}) {
-    const panel = document.getElementById("outlinePanel");
+    const panel = HOST.getElementById("outlinePanel");
     if (!panel) return;
     const n = Number(px);
     const w = Number.isFinite(n)
@@ -531,16 +547,16 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // .view-hidden（display:none!important），此时若分隔条还在，右侧会挂空条。
   // CSS 选不到「前一个兄弟」，故用 MutationObserver 监听 class 变化统一同步。
   function syncOutlineDockState() {
-    const root = document.getElementById("compareRoot");
-    const panel = document.getElementById("outlinePanel");
+    const root = HOST.getElementById("compareRoot");
+    const panel = HOST.getElementById("outlinePanel");
     if (!root || !panel) return;
     const visible = panel.classList.contains("open") && !panel.classList.contains("view-hidden");
     root.classList.toggle("outline-docked-open", visible);
   }
 
   function initCompareOutlineDock() {
-    const panel = document.getElementById("outlinePanel");
-    const resizer = document.getElementById("resizerCompareOutline");
+    const panel = HOST.getElementById("outlinePanel");
+    const resizer = HOST.getElementById("resizerCompareOutline");
     if (!panel) return;
 
     let saved = null;
@@ -1457,7 +1473,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           ? { a: "文件一", b: "文件二", c: "文件三" }
           : { a: "文件一", b: "文件二" };
     for (const p of ["a", "b", "c"]) {
-      const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
+      const el = HOST.querySelector(`.pane-header[data-pane="${p}"]`);
       if (!el) continue;
       const isVisible = visiblePanes.includes(p);
       el.hidden = !isVisible;
@@ -1476,7 +1492,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 关闭态视觉同步（修复 R6）：CSS 已定义 .pane-header.is-off，此前无人添加该类 ──
   function syncPaneOffClass(p) {
-    const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
+    const el = HOST.querySelector(`.pane-header[data-pane="${p}"]`);
     if (el) el.classList.toggle("is-off", !!paneOffState[p]);
   }
 
@@ -1654,7 +1670,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // ── 返回主界面（D8）：有未保存改动 → 先走保存轮询；取消则留页内；否则关闭/返回 ──
   // compare 页由 editor 经 window.open 打开，可脚本关闭；若部分环境禁止
   // window.close（页面未真正关闭），则降级跳转到 editor.html，避免用户被困。
-  const btnBackToEditor = document.getElementById('btnBackToEditor');
+  const btnBackToEditor = HOST.getElementById('btnBackToEditor');
   if (btnBackToEditor) {
     btnBackToEditor.addEventListener("click", async () => {
       // 任一栏相对初始内容 dirty → 必须先走保存轮询（§5.1 / D8）
@@ -1670,7 +1686,24 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           return; // 出错也留在页内，避免丢失改动
         }
       }
-      // 全部处理完（或本就无改动）→ 关闭 / 返回主界面
+      // 全部处理完（或本就无改动）→ 返回主界面
+      if (integrated) {
+        // 方案A：集成模式下对比 UI 内嵌于 editor.html，绝不导航（导航会销毁编辑器状态）。
+        // 隐藏 #compareHost 并复位 __inCompare，同时通过自定义事件通知 editor.js 还原主页 UI。
+        try {
+          if (window.__compareHost && typeof window.__compareHost.setAttribute === "function") {
+            window.__compareHost.setAttribute("hidden", "");
+          }
+        } catch (_) {}
+        window.__inCompare = false;
+        try {
+          window.dispatchEvent(new CustomEvent("compare:exit"));
+        } catch (_) {}
+        if (typeof window.__probe === "function") {
+          window.__probe("compare.backToEditor", { integrated: true });
+        }
+        return;
+      }
       try { window.close(); } catch (_) {}
       window.location.href = 'editor.html';
     });
@@ -1679,7 +1712,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // ── per-pane 标题栏：勾选框（关闭/恢复栏）与关闭按钮 ──
   for (const p of ["a", "b", "c"]) {
     const toggle = paneToggles[p];
-    const closeBtn = document.querySelector(
+    const closeBtn = HOST.querySelector(
       `.pane-header-close[data-pane="${p}"]`
     );
     if (toggle) {
@@ -1889,6 +1922,12 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     // 通过 isTauriEnv() 守卫注册 Tauri 拖放监听，按路径走 compare-shims.readFile
     // （Rust read_multiple_text_files 命令）读取 → 与 HTML5 drop 同一路由分发到 a/b/c 栏。
     if (typeof isTauriEnv === "function" && isTauriEnv()) {
+      // 方案A：集成模式下（对比 UI 内嵌 editor.html 初始上下文），editor.js 的
+      // 持久 onDragDropEvent 监听已在初始 webview 上下文注册并负责转发到
+      // window.__compareHandleTauriDrop，此处【不再】重复注册，避免同一 drop 被
+      // 两个监听各处理一次（双开文件/双渲染）。独立 compare.html 模式（浏览器侧 /
+      // Chrome 扩展）仍由本文件自行注册。
+      if (!integrated) {
       // R3 修复 ④ 修正：Tauri 2.x 在 WebView2 下 window 的 tauri://drag-drop /
       // tauri://file-drop 自定义事件不可靠（editor.js 同结论）。桌面端必须用
       // getCurrentWebview().onDragDropEvent 接收 OS 文件拖放，payload.type==='drop'
@@ -1912,6 +1951,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           }
         }
       })();
+      } // end if (!integrated)
 
       // 抽成独立函数，避免 onDragDropEvent 闭包内过深嵌套；逻辑与 HTML5 drop 同一路由。
       // 同时挂到 window，供 editor.js 的持久 onDragDropEvent 监听在对比页转发调用
