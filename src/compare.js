@@ -1899,8 +1899,15 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
             if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
             handleTauriDrop(p.paths);
           });
+          // 诊断探针：确认 onDragDropEvent 注册成功（区别于事件未触发）
+          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+            window.__probe('compare.tauri.drop.register', { ok: true });
+          }
         } catch (err) {
           console.error("[compare] Tauri 拖放监听注册失败:", err);
+          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+            window.__probe('compare.tauri.drop.register', { ok: false, error: String(err && err.message || err) });
+          }
         }
       })();
 

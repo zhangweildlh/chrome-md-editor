@@ -3301,8 +3301,15 @@ function bindEvents() {
             showToast('请拖入 .md 或 .markdown 文件', 'error');
           }
         });
+        // 诊断探针：确认主编辑器 onDragDropEvent 注册成功
+        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+          window.__probe('editor.tauri.drop.register', { ok: true });
+        }
       } catch (e) {
         // 监听注册失败不影响双击打开；忽略
+        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+          window.__probe('editor.tauri.drop.register', { ok: false, error: String(e && e.message || e) });
+        }
       }
     })();
   }
