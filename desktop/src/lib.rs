@@ -24,6 +24,7 @@ mod debug_bridge {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::path::PathBuf;
+    use std::thread;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
@@ -82,7 +83,7 @@ mod debug_bridge {
         }
         ENABLED.store(true, Ordering::Relaxed);
         // 写一行启动标记
-        append_line(&format(
+        append_line(&format!(
             "{{\"t\":\"{}\",\"seq\":0,\"session\":\"boot\",\"env\":\"exe\",\"event\":\"debug.bridge.start\",\"data\":{{\"port\":{}}}}}",
             now_iso(),
             PORT
@@ -92,7 +93,7 @@ mod debug_bridge {
             let listener = match TcpListener::bind(("127.0.0.1", PORT)) {
                 Ok(l) => l,
                 Err(e) => {
-                    append_line(&format(
+                    append_line(&format!(
                         "{{\"t\":\"{}\",\"event\":\"debug.bridge.bind_fail\",\"data\":{{\"err\":\"{}\"}}}}",
                         now_iso(),
                         e
@@ -100,7 +101,7 @@ mod debug_bridge {
                     return;
                 }
             };
-            append_line(&format(
+            append_line(&format!(
                 "{{\"t\":\"{}\",\"event\":\"debug.bridge.listening\",\"data\":{{\"addr\":\"127.0.0.1:{}\"}}}}",
                 now_iso(),
                 PORT
