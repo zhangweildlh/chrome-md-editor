@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [Unreleased] - 2026-08-23（分支 feat/fix-whitespace-deco-freeze-20260823）
+
+### 修复
+- **显示选项卡死（致命）→ 已修复**：根因 `editor-extensions.js` 的 `buildWhitespaceDecorations` 对行尾位置 `doc.lineAt(line.to)` 返回本行导致无限空转（死循环）。修复后 `pos = line.to + 1` 跨入下一行，越界即终止。`space=1` 场景下点击「显示空格 / 增强 / 其他」不再冻结（360Chromex 真机复验通过）。
+- **「按钮间距」下拉无效 → 已修复**：根因 `editor.css` 存在两段同选择器 `.toolbar-group`（`gap: var(--ui-gap)` 与 `gap: 4px` 同特异性、后者覆盖前者），导致 `--ui-gap` 永远被钉死为 4px。修复：合并为唯一权威来源 `gap: var(--ui-gap)`。三档（compact=2px / standard=4px / comfortable=14px）精确跟随（360Chromex 真机复验通过）。
+
+### 新增
+- **调试桥 + 前端探针（开发者能力，默认关闭）**：
+  - 前端 `src/debug-probe.js`：统一捕获初始化完成、按钮点击、拖拽 drop、打开文件回调、合并结果等运行态事件；通过 `window.__probe(event, data)` 暴露。
+  - 浏览器侧（扩展）：经 `console.log('[PROBE]'+json)` 输出，由外部 CDP 采集器（连 9222）落盘 `%temp%/cme-browser-probe-<ts>.jsonl`。
+  - EXE 侧（Tauri）：经 `window.__TAURI__.invoke('write_probe_log')` 由 Rust 落盘 `%temp%/cme-exe-probe-<pid>.jsonl`；并新增 `127.0.0.1:9555` 调试 HTTP 接口（`/health`/`/probe`/`/state`），受编译期 `feature="debug-bridge"` + 运行时 `CME_DEBUG=1` 双重门控，不污染生产构建。
+  - 启用开关：`?debug=1` / `localStorage['cme-debug']=1` / `window.__CME_DEBUG__=true`。
+
+### 待验证（EXE 侧，本机无 cargo 构建）
+- #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性，待真机（带 `CME_DEBUG=1`）构建验证；探针已注入 `compare.js` 拖拽入口，可据 `%temp%` 日志坐实。
+
 ## [1.9.10] - 2026-08-21（端到端 R3：10 项 BUG 坐实 + 修复）
 
 ### 修复

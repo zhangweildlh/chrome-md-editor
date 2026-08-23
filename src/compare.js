@@ -17,6 +17,11 @@
 // 禁用类名闸门：
 //   严禁使用方案列明的禁用类名。本文件按钮统一用 compare-toolbar-btn。
 
+// 运行态探针（调试桥）：默认关闭，需 ?debug=1 或 localStorage['cme-debug']=1 或
+// window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
+// 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销。
+import './debug-probe.js';
+
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
@@ -1819,6 +1824,15 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       if (md.length) {
         const dropped = await readCompareFiles(md);
         if (dropped.length) {
+          // 探针（调试桥）：HTML5 drop 路由结果，供坐实 #4/#7 拖拽是否落入 a/b/c 栏
+          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+            const active = getActivePane();
+            window.__probe('compare.drop.html5', {
+              source: 'html5', mode, active,
+              fileCount: md.length, droppedCount: dropped.length,
+              names: dropped.map((d) => d.name || (d.target && d.target.path) || '?'),
+            });
+          }
           // 拖拽多文件路由（BUG 5）：按活动栏优先填入 + 其余按 a→b→c 顺序填入空栏。
           // 先记录活动栏：drop 事件期间焦点可能受 drop 自身影响漂移，使用 drop 事件触发瞬间的活动栏。
           const active = getActivePane();
@@ -1898,6 +1912,14 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           }
           if (!dropped.length) return;
           const active = getActivePane();
+          // 探针（调试桥）：Tauri(EXE) drop 路由结果，供坐实 #4/#7 EXE 拖拽是否落入 a/b/c 栏
+          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+            window.__probe('compare.drop.tauri', {
+              source: 'tauri', mode, active,
+              pathCount: p.paths.length, droppedCount: dropped.length,
+              names: dropped.map((d) => d.name || (d.target && d.target.path) || '?'),
+            });
+          }
           const targets = resolveDropTargets(active, mode, files, dropped.length);
           for (let i = 0; i < dropped.length; i++) {
             const t = targets[i];

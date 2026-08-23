@@ -1036,19 +1036,20 @@ mark {
   flex-shrink: 0;
 }
 
-/* 窄屏微调：收紧间距 */
+/* 窄屏微调：收紧内边距，但间距仍跟随 --ui-gap（密度档位），
+   避免硬编码 px 覆盖 setDensity 设置的变量，导致「按钮间距」下拉在窄窗失效（#2）。 */
 @media (max-width: 900px) {
   .toolbar {
     padding: 0 8px;
-    gap: 4px;
+    gap: var(--ui-gap);
   }
   .toolbar-left,
   .toolbar-center,
   .toolbar-right {
-    gap: 2px;
+    gap: var(--ui-gap);
   }
   .toolbar-group {
-    gap: 2px;
+    gap: var(--ui-gap);
   }
 }
 
@@ -1247,7 +1248,9 @@ body {
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  /* #2 修复：gap 跟随 --ui-gap（密度档位 2/4/14px），与上方 .toolbar-group 规则统一唯一来源。
+     原写死 4px 会以「后定义者胜」覆盖前者 gap: var(--ui-gap)，导致「按钮间距」下拉失效。 */
+  gap: var(--ui-gap);
   padding: 2px 0;
   border-radius: var(--radius-sm);
 }

@@ -8,6 +8,10 @@
 // 必须在 src/editor.js 顶部以 ES Module 形式 import，否则 vite 不会把它打包进
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
 import './desktop-shims.js';
+// 运行态探针（调试桥）：默认关闭，需 ?debug=1 或 localStorage['cme-debug']=1 或
+// window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
+// 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销（关闭时仅挂 no-op）。
+import './debug-probe.js';
 
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
 import { EditorState, Transaction } from '@codemirror/state';
@@ -4268,6 +4272,11 @@ function init() {
 
   // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
   openInitialCliFile();
+
+  // 探针：编辑器初始化完成标记（供外部观测 init 是否执行到底、有无早崩）
+  if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+    window.__probe('editor.init.done', { version: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : null) });
+  }
 }
 
 // ==========================================
