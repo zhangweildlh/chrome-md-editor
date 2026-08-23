@@ -36,18 +36,40 @@
     return false;
   }
 
-  if (!isEnabled()) {
-    // 默认关闭：挂一个 no-op，调用方无需判空
-    window.__probe = function () {};
-    return;
+  // 是否在 Tauri(EXE) 环境：若是，则异步查询 Rust 侧调试桥是否已启用（CME_DEBUG=1），
+  // 对齐 Rust 的运行时门控——前端跟着 Rust 一起开/关，避免双重开关不一致。
+  const isTauri =
+    '__TAURI_INTERNALS__' in window || (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function');
+
+  // 显式开关（URL / localStorage / 全局变量）命中即开。
+  const explicitOn =
+    window.__CME_DEBUG__ === true ||
+    (typeof localStorage !== 'undefined' && localStorage.getItem('cme-debug') === '1') ||
+    (typeof location !== 'undefined' && /[?&]debug=1\b/.test(location.search));
+
+  // 运行态：默认按显式开关；Tauri 下额外异步确认 Rust 调试桥状态（CME_DEBUG=1），
+  // 对齐 Rust 运行时门控——前端跟着 Rust 一起开/关，避免双重开关不一致。
+  let ENABLED = explicitOn;
+  if (!ENABLED && isTauri) {
+    try {
+      const inv = (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) ||
+        (window.__TAURI__ && window.__TAURI__.invoke);
+      if (inv) {
+        Promise.resolve(inv('debug_bridge_status'))
+          .then((on) => {
+            if (on) {
+              ENABLED = true;
+              emit('probe.init.runtime', { via: 'rust-bridge', isTauri: true });
+            }
+          })
+          .catch(() => {});
+      }
+    } catch (_) { /* ignore */ }
   }
 
   // ---------------------------------------------------------------------------
   // 2. 环境判定（复用项目既有约定，绝不 import '@tauri-apps/*'）
   // ---------------------------------------------------------------------------
-  const isTauri =
-    '__TAURI_INTERNALS__' in window || (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function');
-
   function getInvoke() {
     const internals = window.__TAURI_INTERNALS__;
     if (internals && typeof internals.invoke === 'function') return internals.invoke;
@@ -64,6 +86,7 @@
   let seq = 0;
 
   function emit(event, data) {
+    if (!ENABLED) return;
     const entry = {
       t: new Date().toISOString(),
       seq: ++seq,

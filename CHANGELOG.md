@@ -23,6 +23,10 @@ Project uses Semantic Versioning.
 
 ### 修复（CI）
 - **Desktop Build 未启用调试桥**（`desktop-build.yml`）：原 `npm run tauri build` 未传 `--features debug-bridge`，导致 fork CI 产物不含调试桥（`9555` 端口不监听）。修复：构建命令改为 `npm run tauri build -- --features debug-bridge`，使后续 EXE 在 `CME_DEBUG=1` 下暴露调试端口与探针日志。
+- **Rust 调试桥编译错误**（`desktop/src/lib.rs`）：修复 `format` 宏漏写 `!`（3 处）与缺 `use std::thread`，使 `debug-bridge` feature 可正常编译；新增 `debug_bridge_status` command 供前端查询运行时启用状态。
+
+### 增强（探针联动）
+- **EXE 前端探针自动跟随 Rust 调试桥**（`src/debug-probe.js`）：Tauri 环境下异步查询 `debug_bridge_status`（CME_DEBUG=1 门控），与 Rust 运行时门控对齐——前端探针随 EXE 调试桥一起开/关，无需手动设 localStorage。
 
 ### 待验证（EXE 侧，本机无 cargo 构建）
 - #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性，待真机（带 `CME_DEBUG=1`）构建验证；探针已注入 `compare.js` 拖拽入口，可据 `%temp%` 日志坐实。

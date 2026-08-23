@@ -159,6 +159,12 @@ mod debug_bridge {
     }
 }
 
+// 供前端查询调试桥是否在运行时启用（CME_DEBUG=1）
+#[tauri::command]
+fn debug_bridge_status() -> bool {
+    debug_bridge::is_enabled()
+}
+
 // 记录「启动时通过命令行传入的 .md 文件」
 struct AppState {
     initial_file: Mutex<Option<String>>,
@@ -355,6 +361,8 @@ pub fn run() {
             save_compare_result,
             #[cfg(feature = "debug-bridge")]
             write_probe_log,
+            #[cfg(feature = "debug-bridge")]
+            debug_bridge_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
