@@ -47,9 +47,10 @@
     (typeof localStorage !== 'undefined' && localStorage.getItem('cme-debug') === '1') ||
     (typeof location !== 'undefined' && /[?&]debug=1\b/.test(location.search));
 
-  // 运行态：默认按显式开关；Tauri 下额外异步确认 Rust 调试桥状态（CME_DEBUG=1），
-  // 对齐 Rust 运行时门控——前端跟着 Rust 一起开/关，避免双重开关不一致。
-  let ENABLED = explicitOn;
+  // 运行态：默认按显式开关；Tauri(EXE) 环境下，只要 Rust 调试桥存在（CME_DEBUG=1 启用），
+  // 前端即默认启用探针——避免初始事件（如 editor.init.done）在异步确认前丢失。
+  // 浏览器侧（非 EXE）仍严格按显式开关，不受影响。
+  let ENABLED = explicitOn || isTauri;
   if (!ENABLED && isTauri) {
     try {
       const inv = (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) ||
