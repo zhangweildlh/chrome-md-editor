@@ -12,6 +12,10 @@ import './desktop-shims.js';
 // window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
 // 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销（关闭时仅挂 no-op）。
 import './debug-probe.js';
+// 方案A+：对比/合并 UI 内嵌 editor.html 初始上下文（#compareHost）。compare.js 随编辑器首页
+// 静态加载（同源 chunk），规避 Tauri/WebView2 下动态 import 分包不确定性导致的「对比模块加载失败」。
+// 浏览器侧 compare.html 仍独立加载同一 compare.js（Vite 会去重为同一 chunk）。
+import './compare.js';
 
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
 import { EditorState, Transaction } from '@codemirror/state';
@@ -3245,29 +3249,20 @@ function bindEvents() {
         const mainEls = [document.getElementById('toolbar'), document.getElementById('editorMain'), document.getElementById('statusbar'), document.getElementById('taskListPanel')];
         for (const el of mainEls) { if (el) el.setAttribute('hidden', ''); }
         window.__inCompare = true;
-        // 动态 import compare.js（仅首次执行其 IIFE；模块缓存保证不重复挂载）。
+        // 方案A+：对比模块（compare.js）已由 editor.html 静态引入（同源 chunk），
+        // 随编辑器首页一同加载，规避 Tauri/WebView2 下动态 import 分包不确定性导致的
+        //「对比模块加载失败」。若因异常未挂载（如构建产物缺失），给出可读错误并回退。
         if (!window.__compareMounted) {
-          try {
-            await import('./compare.js');
-            window.__compareMounted = true;
-          } catch (err) {
-            console.error('[editor] 加载对比模块失败:', err);
-            // 把真实错误经调试桥上报，便于坐实失败原因（EXE 无 CDP，无法直接看 console）
-            if (typeof window.__probe === 'function') {
-              window.__probe('compare.load.error', {
-                message: String(err && err.message ? err.message : err),
-                stack: String(err && err.stack ? err.stack : ''),
-              });
-            }
-            const detail = err && err.message ? err.message : String(err);
-            showToast('对比模块加载失败: ' + detail, 'error');
-            // 加载失败：回退显示主界面
-            host.setAttribute('hidden', '');
-            for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
-            window.__inCompare = false;
-            setTimeout(() => { intentionalLeave = false; }, 100);
-            return;
+          console.error('[editor] 对比模块未就绪（window.__compareMounted 为假）');
+          if (typeof window.__probe === 'function') {
+            window.__probe('compare.load.error', { message: 'compare.js 未挂载（可能构建产物缺失）', mounted: false });
           }
+          showToast('对比模块加载失败：请重新编译部署', 'error');
+          host.setAttribute('hidden', '');
+          for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
+          window.__inCompare = false;
+          setTimeout(() => { intentionalLeave = false; }, 100);
+          return;
         }
         if (typeof window.__probe === 'function') {
           window.__probe('compare.enter.integrated', { ok: true });
