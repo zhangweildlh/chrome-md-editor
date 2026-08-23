@@ -1887,21 +1887,30 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     // 通过 isTauriEnv() 守卫注册 Tauri 拖放监听，按路径走 compare-shims.readFile
     // （Rust read_multiple_text_files 命令）读取 → 与 HTML5 drop 同一路由分发到 a/b/c 栏。
     if (typeof isTauriEnv === "function" && isTauriEnv()) {
-      const onTauriDragOver = (e) => {
-        const p = e && e.payload;
-        if (p && (p.type === "over" || p.type === "enter")) {
-          e.preventDefault();
-        }
-      };
-      const onTauriDrop = async (e) => {
+      // R3 修复 ④ 修正：Tauri 2.x 在 WebView2 下 window 的 tauri://drag-drop /
+      // tauri://file-drop 自定义事件不可靠（editor.js 同结论）。桌面端必须用
+      // getCurrentWebview().onDragDropEvent 接收 OS 文件拖放，payload.type==='drop'
+      // 时携带真实路径数组 payload.paths。
+      (async () => {
         try {
-          const p = e && e.payload;
-          if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
-          e.preventDefault();
-          // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻一份）
+          const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+          await getCurrentWebview().onDragDropEvent((event) => {
+            const p = event && event.payload;
+            if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
+            handleTauriDrop(p.paths);
+          });
+        } catch (err) {
+          console.error("[compare] Tauri 拖放监听注册失败:", err);
+        }
+      })();
+
+      // 抽成独立函数，避免 onDragDropEvent 闭包内过深嵌套；逻辑与 HTML5 drop 同一路由。
+      async function handleTauriDrop(paths) {
+        try {
+          // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻）
           const { readFile } = await import("./compare-shims.js");
           const dropped = [];
-          for (const path of p.paths) {
+          for (const path of paths) {
             try {
               const name = String(path).split(/[\\/]/).pop() || String(path);
               const content = await readFile(path);
@@ -1916,7 +1925,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
             window.__probe('compare.drop.tauri', {
               source: 'tauri', mode, active,
-              pathCount: p.paths.length, droppedCount: dropped.length,
+              pathCount: paths.length, droppedCount: dropped.length,
               names: dropped.map((d) => d.name || (d.target && d.target.path) || '?'),
             });
           }
@@ -1935,13 +1944,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         } catch (err) {
           console.error("[compare] Tauri 拖放处理失败:", err);
         }
-      };
-      window.addEventListener("tauri://drag-enter", onTauriDragOver);
-      window.addEventListener("tauri://drag-over", onTauriDragOver);
-      window.addEventListener("tauri://drag-drop", onTauriDrop);
-      // Tauri 2.x 替代命名（getCurrentWindow 派发的事件名）
-      window.addEventListener("tauri://file-drop", onTauriDrop);
-      window.addEventListener("tauri://file-drop-hover", onTauriDragOver);
+      }
     }
   }
 
