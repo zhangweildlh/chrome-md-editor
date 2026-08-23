@@ -80,6 +80,8 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MAX_WIDTH_ABS } from "./outline-const.js";
 
 (function bootstrapCompare() {
+  // 标记当前处于对比/合并页（同 webview 导航），供 editor.js 持久 drop 监听转发判断。
+  window.__inCompare = true;
   // 挂载点直接取自 compare.html 中定义的 DOM 节点（不再依赖 window.__compareMount，
   // 该约定在 compare.html 中并未注入，否则会导致整页无法初始化）。
   const root = document.getElementById("compareRoot");
@@ -1912,6 +1914,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       })();
 
       // 抽成独立函数，避免 onDragDropEvent 闭包内过深嵌套；逻辑与 HTML5 drop 同一路由。
+      // 同时挂到 window，供 editor.js 的持久 onDragDropEvent 监听在对比页转发调用
+      // （规避 Tauri/Wry 新 webview / 导航后 drop 事件失效 wry#904）。
+      window.__compareHandleTauriDrop = handleTauriDrop;
       async function handleTauriDrop(paths) {
         try {
           // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻）

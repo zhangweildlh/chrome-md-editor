@@ -3302,6 +3302,12 @@ function bindEvents() {
           const payload = event.payload;
           if (payload.type !== 'drop') return;
           const paths = payload.paths || [];
+          // 对比/合并页（同 webview 导航后）Tauri 新 webview drop 失效（wry#904），
+          // 由编辑器主页持久监听转发：在对比页时把路径交给对比逻辑处理，不在此打开文件。
+          if (typeof window !== 'undefined' && window.__inCompare && typeof window.__compareHandleTauriDrop === 'function') {
+            window.__compareHandleTauriDrop(paths);
+            return;
+          }
           const md = paths.find((p) => /\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(p));
           if (md) {
             openFileByPath(md);
