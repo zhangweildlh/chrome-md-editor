@@ -18,6 +18,12 @@ Project uses Semantic Versioning.
   - EXE 侧（Tauri）：经 `window.__TAURI__.invoke('write_probe_log')` 由 Rust 落盘 `%temp%/cme-exe-probe-<pid>.jsonl`；并新增 `127.0.0.1:9555` 调试 HTTP 接口（`/health`/`/probe`/`/state`），受编译期 `feature="debug-bridge"` + 运行时 `CME_DEBUG=1` 双重门控，不污染生产构建。
   - 启用开关：`?debug=1` / `localStorage['cme-debug']=1` / `window.__CME_DEBUG__=true`。
 
+### 修复
+- **「保持文件」弹窗 UI 与编辑/预览页「打开文件」弹窗不一致（#6）→ 已修复**：根因 `save-poll.js` 的 `buildOverlay()` 用内联硬编码颜色自建 `.save-poll-overlay` / `.save-poll-modal`，与全站 `.modal-overlay` / `.modal-card` 体系两套样式。修复：弹窗复用全站 `.modal-overlay` / `.modal-card` / `.modal-actions` / `.modal-title` / `.modal-hint` / `.modal-btn` / `.modal-btn-primary` 类名，移除硬编码色彩，外观与全站一致且随明暗主题自适应。`save-poll.test.js` 4/4 通过。
+
+### 修复（CI）
+- **Desktop Build 未启用调试桥**（`desktop-build.yml`）：原 `npm run tauri build` 未传 `--features debug-bridge`，导致 fork CI 产物不含调试桥（`9555` 端口不监听）。修复：构建命令改为 `npm run tauri build -- --features debug-bridge`，使后续 EXE 在 `CME_DEBUG=1` 下暴露调试端口与探针日志。
+
 ### 待验证（EXE 侧，本机无 cargo 构建）
 - #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性，待真机（带 `CME_DEBUG=1`）构建验证；探针已注入 `compare.js` 拖拽入口，可据 `%temp%` 日志坐实。
 
