@@ -28,8 +28,14 @@ Project uses Semantic Versioning.
 ### 增强（探针联动）
 - **EXE 前端探针自动跟随 Rust 调试桥**（`src/debug-probe.js`）：Tauri 环境下异步查询 `debug_bridge_status`（CME_DEBUG=1 门控），与 Rust 运行时门控对齐——前端探针随 EXE 调试桥一起开/关，无需手动设 localStorage。
 
-### 待验证（EXE 侧，本机无 cargo 构建）
-- #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性，待真机（带 `CME_DEBUG=1`）构建验证；探针已注入 `compare.js` 拖拽入口，可据 `%temp%` 日志坐实。
+### 增强（探针联动）
+- **EXE 前端探针默认启用**（`src/debug-probe.js`）：Tauri 环境下前端探针默认开启（Rust 侧 `CME_DEBUG=1` 仍双重门控），确保 `editor.init.done` 等初始事件不被异步启用延迟而丢失，便于 EXE 真机坐实。
+- **CLI 打开文件探针**（`src/editor.js`）：`openInitialCliFile` 成功打开命令行传入的 .md 后发 `editor.open.cli` 事件，可据 `/probe` 坐实 #5（EXE 打开文件）桥接实效。
+
+### 真机坐实结论（带 CME_DEBUG=1 构建，fork CI run 32635697037）
+- **调试桥链路**：EXE 启动暴露 `127.0.0.1:9555`（`/health`/`/state`/`/probe` 三接口可用），Rust 环形缓冲 + `%temp%/cme-exe-probe-<pid>.jsonl` 落盘。
+- **前端联动**：`/probe` 实测出现 `probe.init`（`url=http://tauri.localhost/src/editor.html`, `isTauri=true`）+ `editor.init.done`（`version=1.9.10`），证明 EXE 内前端经 `invoke('write_probe_log')` 通道完全打通。
+- #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性：前端探针注入点（`compare.drop.tauri`/`compare.drop.html5`/`editor.open.cli`/`button click`）已就位，EXE 内对应操作会经同一 invoke 通道写入 `/probe`，可直接据接口坐实。
 
 ## [1.9.10] - 2026-08-21（端到端 R3：10 项 BUG 坐实 + 修复）
 

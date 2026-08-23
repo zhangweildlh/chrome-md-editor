@@ -1766,6 +1766,7 @@ async function openInitialCliFile() {
     const { invoke } = await import('@tauri-apps/api/core');
     const path = await invoke('get_initial_file');
     if (path) {
+      if (typeof window.__probe === 'function') window.__probe('editor.open.cli', { path });
       await openFileByPath(path);
       return;
     }
