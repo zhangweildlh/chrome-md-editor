@@ -3252,7 +3252,15 @@ function bindEvents() {
             window.__compareMounted = true;
           } catch (err) {
             console.error('[editor] 加载对比模块失败:', err);
-            showToast('对比模块加载失败', 'error');
+            // 把真实错误经调试桥上报，便于坐实失败原因（EXE 无 CDP，无法直接看 console）
+            if (typeof window.__probe === 'function') {
+              window.__probe('compare.load.error', {
+                message: String(err && err.message ? err.message : err),
+                stack: String(err && err.stack ? err.stack : ''),
+              });
+            }
+            const detail = err && err.message ? err.message : String(err);
+            showToast('对比模块加载失败: ' + detail, 'error');
             // 加载失败：回退显示主界面
             host.setAttribute('hidden', '');
             for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
