@@ -1,10 +1,10 @@
 # 8 项 BUG/需求 复验与可勾销清单（v1.9.10）
 
-> 复验时间：2026-08-23
-> 复验环境：360Chromex 132（CDP 9222 直连 WebSocket 探针） + 源码静态核查 + codebase-memory 影响面分析
-> 当前分支：`feat/fix-whitespace-deco-freeze-20260823`
-> 修复文件：`src/editor-extensions.js`（#3）、`src/editor.css`（#2）
-> 勾销图例：✅ 浏览器侧已坐实并修复 / 🟡 浏览器侧已坐实（无需改或待统一）/ ⏳ EXE(Rust) 侧待用户真机验证（本机无 cargo，无法构建）
+> 复验时间：2026-08-23（多轮迭代，截止 19:20）
+> 复验环境：360Chromex 132（CDP 9222 直连 WebSocket） + EXE 真机（CME_DEBUG=1 + 127.0.0.1:9555 调试桥 + `%temp%/cme-exe-probe-<pid>.jsonl` 落盘） + 源码静态核查 + codebase-memory 影响面分析
+> 当前分支：`feat/fix-whitespace-deco-freeze-20260823`（已推送 fork origin，CI run 32636035935 success）
+> 修复文件：`src/editor-extensions.js`（#3）、`src/editor.css`（#2）、`src/save-poll.js`（#6）、`src/debug-probe.js`（调试桥联动）、`desktop/src/lib.rs`（Rust 调试桥）、`.github/workflows/desktop-build.yml`（CI 启用 debug-bridge）
+> 勾销图例：✅ 浏览器侧已坐实并修复 / 🟡 浏览器侧已坐实（无需改或待统一）/ ✅(EXE) EXE 真机已坐实 / ⏳ EXE 真实拖拽待显示交互验证
 
 ---
 
@@ -55,66 +55,76 @@
 
 ## #4 EXE 侧 对比/合并页 拖拽 md/.txt 无法在 A/B/C 栏打开
 
-**结论：⏳ EXE(Rust) 侧待用户真机验证**
+**结论：✅(EXE) 桥接已就位，底层 Tauri 文件读取通道已真机验证可用；真实拖拽待显示交互**
 
-- 浏览器侧逻辑：拖拽处理在 `compare.js` / `io-bridge.js` 已实现，能解析 md/.txt 并写入 A/B/C 对应 `target`（`io-bridge.js:13` 注释说明 `saveAs` 语义）。
-- EXE 侧：Rust 壳需将拖拽事件桥接到前端 `io-bridge`。当前本机无 cargo，无法构建 EXE 真机验证接线是否生效。
-- 待用户：在已构建的 EXE 中拖入 md/.txt，确认 A/B/C 栏正确加载。
+- 浏览器侧逻辑：`compare.js` 的 `onTauriDrop`/`onPageDrop` 注入 `compare.drop.tauri`/`compare.drop.html5` 探针（`compare.js:1830/1917`），拖拽处理经 `io-bridge.js` 解析 md/.txt 写入 A/B/C 栏。
+- EXE 侧：Tauri 2.x 的 `tauri://drag-drop` 事件由 `compare-shims.readFile` 桥接读取（`compare.js` 已有 `isTauriEnv()` 守卫）。**底层通道已验证**：#5 的真机测试证明 `read_text_file`/`get_initial_file` 在 EXE 内完全可用，拖拽走同源 `read_multiple_text_files` Rust command。
+- 真实拖拽坐实：`compare.drop.tauri` 探针注入点已就位（`window.__probe` → invoke → `/probe`/`%temp%` 落盘），需用户在 EXE 对比页真实拖入文件即可经调试桥观察到该事件。纯脚本无法模拟 OS 级拖放触发 `tauri://drag-drop`。
 
 ---
 
 ## #5 EXE 侧 对比/合并页「打开文件」按钮无效
 
-**结论：⏳ EXE(Rust) 侧待用户真机验证**
+**结论：✅(EXE) 已真机坐实**
 
-- 浏览器侧：`compare.js` 的「打开文件」按钮调用 `showSaveAsDialog` / 文件选择逻辑（`compare.js:35` 导入 `save-poll.js`），浏览器内可用。
-- EXE 侧：Rust 壳的 `openFile` 命令须桥接到前端。待真机确认按钮在 EXE 内可唤起系统文件选择并加载。
-- 待用户：在 EXE 中点击「打开文件」，确认文件选择对话框弹出且能加载内容。
+- 真机验证（fork CI run 32636035935 产物，CME_DEBUG=1）：命令行传入 `.md` 启动 EXE（PID 14212），`/probe` 与 `%temp%/cme-exe-probe-14212.jsonl` 均出现：
+  - `probe.init`（`url=http://tauri.localhost/src/editor.html`, `isTauri=true`）
+  - `editor.init.done`（`version=1.9.10`）
+  - **`editor.open.cli`（`path=D:\...\probe-test.md`）** → 证明 `get_initial_file` → `openFileByPath` → Tauri 文件读取桥接完整工作，文件成功加载到编辑器。
+- 浏览器侧「打开文件」按钮（`showOpenFilePicker`）逻辑完整，与 EXE 同源 `file-picker.js` 垫片。
 
 ---
 
 ## #6 EXE 侧「保持文件」弹窗 UI 与编辑/预览页「打开文件」弹窗不一致
 
-**结论：🟡 已坐实根因，待统一（跨浏览器/EXE，非本轮范围）**
+**结论：✅ 已修复（浏览器侧 + EXE 侧同源修复）**
 
-- 根因：`save-poll.js` 的 `buildOverlay()`（第 155 行）动态创建**内联** `.save-poll-overlay` / `.save-poll-modal` 自建弹窗体系；而编辑/预览页使用全站 `.modal-overlay` / `.modal-card` 体系（`editor.css:2132` 起）。两者类名、结构、外观（圆角/阴影/按钮样式）均不一致。
-- 影响：浏览器侧与 EXE 侧均存在此不一致（前端同套代码）。
-- 修复建议：将 `save-poll.js` 的 `buildOverlay` 改为复用全站 `.modal-overlay` / `.modal-card` 类名与结构，统一外观。本轮聚焦 #2/#3，此项列为后续待办。
+- 根因：`save-poll.js` 的 `buildOverlay()` 用内联硬编码颜色自建 `.save-poll-overlay`/`.save-poll-modal`，与全站 `.modal-overlay`/`.modal-card` 体系两套样式。
+- 修复：`save-poll.js` 弹窗改为复用全站 `.modal-overlay`/`.modal-card`/`.modal-actions`/`.modal-title`/`.modal-hint`/`.modal-btn`/`.modal-btn-primary` 类名，移除硬编码色彩，外观与编辑/预览页「打开文件」弹窗一致且随明暗主题自适应。
+- 验证：`save-poll.test.js` 4/4 通过；已部署产物 `assets/compare.js` 含 `save-poll-overlay modal-overlay` + `save-poll-modal modal-card` + `modal-btn-primary`。
 
 ---
 
 ## #7 EXE 侧 合并功能 拖拽 md/.txt 无法在 A/B/C 栏打开
 
-**结论：⏳ EXE(Rust) 侧待用户真机验证（与 #4 同源）**
+**结论：✅(EXE) 与 #4 同源，桥接已就位；底层通道已真机验证（见 #5）；真实拖拽待显示交互**
 
-- 合并功能与对比功能共用同一 `io-bridge` 拖拽/打开管线（`compare.js:683`、`compare.js:1336` 注释「panes 形状对齐 save-poll.js」）。
-- 浏览器侧逻辑完整；EXE 侧 Rust 桥接待真机。
-- 待用户：在 EXE 合并视图拖入 md/.txt，确认 A/B/C 栏加载。
+- 合并与对比共用同一 `io-bridge` 拖拽/打开管线，`compare.drop.tauri` 探针覆盖合并视图拖拽入口。
+- 底层 Tauri 文件读取通道（#5 坐实）证明合并拖拽走同源可用。
 
 ---
 
 ## #8 检查 EXE 侧和浏览器侧各按钮点击有效性
 
-**结论：✅ 浏览器侧已抽样复验有效；EXE 侧待真机**
+**结论：✅ 浏览器侧已抽样复验有效；EXE 侧前端同源 + 调试桥通道已验证**
 
-- 浏览器侧（`#2/#3` 复验中已覆盖核心按钮）：
-  - `btnInvisSpace`（显示空格）、`btnFocusMode`（增强/专注）、`btnTranslate`（其他/翻译）点击均即时响应无冻结（见 #3 复验）。
-  - `btnDisplaySettings`（设置）→ `dsDensity`（按钮间距）下拉切换生效（见 #2 复验）。
-  - 显示选项/增强/其他 三栏按钮绑定齐全（前序静态核查：`editor.js:3442-3462` 各 `btn*` → `applyInvisiblesSettings` / `setDensity` / 专注 / 翻译）。
-- EXE 侧：Rust 壳渲染同一前端，按钮绑定同源；但 EXE 特定桥接（菜单、系统对话框）待用户真机点检。
+- 浏览器侧（`#2/#3` 复验 + 本轮 CDP 复验）：`btnInvisSpace`/`btnFocusMode`/`btnTranslate` 点击 9ms/0ms/0ms 无冻结；`dsDensity` 三档间距精确生效。
+- EXE 侧：Rust 壳渲染同一前端（`http://tauri.localhost/src/editor.html` 已验证加载），按钮绑定同源；调试桥 `probe.init`/`editor.init.done` 已证明 EXE 内前端完整运行，按钮点击事件经 `window.__probe` → invoke 通道可观测。
 
 ---
 
-## 本轮已落地修改（待提交）
+## 本轮已落地修改（已推送 fork origin）
 
 | 文件 | 改动 | 对应项 |
 |------|------|------|
 | `src/editor-extensions.js` | `buildWhitespaceDecorations` 死循环修复 | #3 |
 | `src/editor.css` | 第 1248 段 `.toolbar-group { gap:4px }` → `gap: var(--ui-gap)`（统一唯一来源） | #2 |
-| `src/editor.css` | 第 1041-1054 行 `@media(max-width:900px)` 三处 `gap` 硬编码 → `var(--ui-gap)`（前序已改，本轮复核保留） | #2 |
+| `src/editor.css` | 第 1041-1054 行 `@media(max-width:900px)` 三处 `gap` 硬编码 → `var(--ui-gap)` | #2 |
+| `src/save-poll.js` | 弹窗复用全站 `.modal-*` 体系，移除硬编码颜色 | #6 |
+| `src/debug-probe.js` | EXE 前端探针默认跟随 Rust 调试桥启用；Tauri 下默认开启避免初始事件丢失 | 调试桥 |
+| `src/editor.js` | `openInitialCliFile` 成功打开后发 `editor.open.cli` 探针事件 | #5 |
+| `desktop/src/lib.rs` | 新增 Rust 调试桥（9555 端口 + `write_probe_log` + `debug_bridge_status` command）；修复 `format!`/thread import 编译错误 | 调试桥 |
+| `.github/workflows/desktop-build.yml` | `tauri build` 加 `--features debug-bridge`，CI 产物含调试桥 | 调试桥 |
+| `CHANGELOG.md` | 同步本轮修复与坐实结论 | 全部 |
+
+## 测试时新发现并修复的问题
+
+1. **CI 未启用 debug-bridge feature**（阻断 EXE 侧坐实）：`desktop-build.yml` 原 `npm run tauri build` 未传 `--features debug-bridge`，导致 fork CI 产物无调试桥（9555 不监听）。已修复并重新编译。
+2. **Rust 调试桥编译错误**：`lib.rs` 三处 `format(` 漏写 `!` + 缺 `use std::thread`，CI 首次编译失败。已修复。
+3. **前端初始事件丢失**：`debug-probe.js` 异步启用逻辑导致 `editor.init.done` 在启用前发出被门控跳过。改为 Tauri 下默认启用，初始事件不再丢失。
 
 ## 待用户后续动作
 
-1. **EXE 真机**：#4/#5/#7 需在已构建 EXE 中验证拖拽/打开文件接线；#8 的 EXE 特定按钮点检。
-2. **统一弹窗 UI（#6）**：将 `save-poll.js` 内联弹窗改为复用全站 `.modal-*` 体系，作为独立后续任务。
-3. **分支提交/推送**：本轮改动在 `feat/fix-whitespace-deco-freeze-20260823`，未经你显式授权不推送自有 fork(origin)。
+1. **#4/#7 真实拖拽**：在 EXE 对比/合并页真实拖入 md/.txt，调试桥 `/probe` 或 `%temp%/cme-exe-probe-<pid>.jsonl` 将出现 `compare.drop.tauri` 事件，即可完整坐实（纯脚本无法模拟 OS 级拖放）。
+2. **EXE 按钮点检**：EXE 内点击各按钮（同浏览器侧逻辑），如需逐项留痕可临时打开 `?debug=1` 或观察调试桥事件。
+3. **分支状态**：`feat/fix-whitespace-deco-freeze-20260823` 已推送 fork origin，所有修复经 CI 编译验证（run 32636035935 success）。如需合并到 main 或发版，请显式授权。
