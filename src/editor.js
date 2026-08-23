@@ -3222,8 +3222,16 @@ function bindEvents() {
       // 标记为「主动跳转」，抑制 beforeunload 的「是否离开网站？」误报；
       // 100ms 后复位，保证编辑器页在独立标签页场景下后续误关仍受保护。
       intentionalLeave = true;
-      // 在新标签页打开 compare.html（Chrome 扩展中为同源页面）
-      window.open('compare.html', '_blank');
+      if ('__TAURI_INTERNALS__' in window) {
+        // EXE(Tauri) 下必须同 webview 导航，不能用 window.open 开新 webview：
+        // Tauri/Wry 在 WebView2 下对新创建 webview 的 file_drop_handler 不生效
+        // （已知缺陷 wry#904），会导致对比页 onDragDropEvent 收不到 OS 拖放事件。
+        // 同 webview 导航后 Rust 级 drop handler 仍保留，compare.js 重载时重新注册即可收到。
+        window.location.href = 'compare.html';
+      } else {
+        // 浏览器侧（Chrome 扩展）保持同源新标签打开
+        window.open('compare.html', '_blank');
+      }
       setTimeout(() => { intentionalLeave = false; }, 100);
     });
   }
