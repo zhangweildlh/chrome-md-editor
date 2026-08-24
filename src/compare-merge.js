@@ -1136,6 +1136,15 @@ export function createCompareMergeView(opts) {
       }
       scheduler.attach(attachPairs);
       scheduler.scheduleRefresh();
+      if (typeof window !== "undefined" && typeof window.__probe === "function") {
+        window.__probe("ui.merge.attachPairs", {
+          isCompareThree,
+          layerCount: attachPairs.length,
+          layers: attachPairs.map((p) => p.layer),
+          hasTheirsView: !!theirsView,
+          theirsDocLen: theirsView && theirsView.state ? theirsView.state.doc.length : -1,
+        });
+      }
     }
 
     // ── 双层连线 + 三栏滚动联动 ──

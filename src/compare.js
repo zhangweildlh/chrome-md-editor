@@ -942,6 +942,16 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
         bindPaneFocus(instance.theirsView, "c");
+        if (typeof window.__probe === "function") {
+          window.__probe("ui.render.three", {
+            hasInstance: !!instance,
+            hasCView: !!(instance && instance.theirsView),
+            cContentLen: instance && instance.theirsView && instance.theirsView.state ? instance.theirsView.state.doc.length : -1,
+            cFileName: cFile && cFile.name,
+            colCount,
+            isCompareThree: true,
+          });
+        }
       } else {
         instance = createCompareMergeView({
           mode: "compare",
