@@ -36,8 +36,8 @@
 //   opts.enableMoveDetect  是否启用块移动检测蓝色标识（默认 true，仅 === false 时关闭）
 
 import { MergeView, getChunks, Chunk } from "@codemirror/merge";
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorState, StateField, StateEffect, RangeSetBuilder } from "@codemirror/state";
+import { EditorView, Decoration } from "@codemirror/view";
 
 import {
   inlineWordDiffExtension,
@@ -182,6 +182,67 @@ function resolveCollapse(collapsed, collapseConf, viewA) {
   return collapsed ? collapseConf : undefined;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// #2 修复（C栏整行差异高亮）：B↔C 层行级高亮基础设施
+//
+// 根因：A-B 两栏的整行红绿底来自 @codemirror/merge 的 MergeView 自带 highlightChanges
+// （compare-merge.js:1069/1598 的 highlightChanges:true）。但 C 栏(theirsView) 是独立
+// EditorView（非 MergeView 一部分），没有库内整行高亮，只有 decoExtC 的行内字词高亮 +
+// 移动块装饰（三份不同文件时移动块为 0）→ 用户感知「C栏无红绿色差异」。
+//
+// compare.css:1424/1427 已预留 .cm-md-bc-line-added / .cm-md-bc-line-removed 行级类（死代码，
+// JS 从未 dispatch）。本段补齐 JS 侧：把 B↔C 的 chunks 整行块以 Decoration.line 写入
+// theirsView，复用已存在的 CSS 配色，使 A/B/C 三栏视觉一致。
+//
+// 最小作用域：仅影响 bc 层（writeB && bSide==='b'）的 viewB（=theirsView）；不动 MergeView
+// 本身、不碰连线、不扩移动块语义（严守六红线）。
+// ─────────────────────────────────────────────────────────────────────────────
+const setBcLineEffect = StateEffect.define();
+
+const bcLineField = StateField.define({
+  create() {
+    return Decoration.none;
+  },
+  update(deco, tr) {
+    deco = deco.map(tr.changes);
+    for (const e of tr.effects) {
+      if (e.is(setBcLineEffect)) return e.value;
+    }
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/**
+ * 把 B↔C 的 chunks 转成 theirsView 侧的整行高亮装饰集。
+ * chunks 的 fromB/toB 属 B 侧（theirsView）坐标；凡 theirsView 有差异的行统一标
+ * cm-md-bc-line-added（淡绿底，与 ab 层 .cm-changedLine 视觉等价）。
+ * @param {import('@codemirror/view').EditorView} viewB theirsView
+ * @param {readonly any[]} chunks B↔C 差异块
+ * @returns {import('@codemirror/view').DecorationSet}
+ */
+function buildBcLineDecorations(viewB, chunks) {
+  const builder = new RangeSetBuilder();
+  const doc = viewB.state.doc;
+  for (const c of chunks || []) {
+    // 整块标 theirsView 侧行（fromB..toB），跳过纯删除块（toB 无内容，无 theirsView 行可标）
+    if (!(c.toB > c.fromB)) continue;
+    const startLine = doc.lineAt(c.fromB).number;
+    const endLine = doc.lineAt(c.toB - 1).number;
+    for (let n = startLine; n <= endLine; n++) {
+      if (n < 1 || n > doc.lines) continue;
+      const line = doc.line(n);
+      builder.add(line.from, line.from, Decoration.line({ class: "cm-md-bc-line-added" }));
+    }
+  }
+  return builder.finish();
+}
+
+function dispatchBcLineDecorations(viewB, chunks) {
+  if (!viewB || !viewB.dom) return;
+  viewB.dispatch({ effects: setBcLineEffect.of(buildBcLineDecorations(viewB, chunks)) });
+}
+
 /**
  * 依据当前 diff chunks 重算并推送「行内字词级差异」与「块移动」装饰。
  *
@@ -296,6 +357,9 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
       // 右栏 Theirs 画 dst），避免同一视图被两层同时写入 moveBlockField 而互相覆盖。
       if (writeA && opt.aSide) setMoveBlocks(viewA, pairs, opt.aSide);
       if (writeB && opt.bSide) setMoveBlocks(viewB, pairs, opt.bSide);
+      // #2 修复：B↔C 层（writeB && bSide==='b'，目标视图=theirsView）补整行差异高亮。
+      // 仅此层需要——A-B 两栏由 MergeView 自带 highlightChanges 负责整行底，无需重复。
+      if (writeB && opt.bSide === "b") dispatchBcLineDecorations(viewB, chunks);
       return {
         pairs,
         chunks,
@@ -915,6 +979,8 @@ export function createCompareMergeView(opts) {
     decoExtB.push(scheduler.listener);
     decoExtC.push(scheduler.listener);
   }
+  // #2 修复：C 栏(theirsView) 整行差异高亮字段（B↔C 层由 refreshDecorations 写入）
+  decoExtC.push(bcLineField);
 
   // ── 第三期基础设施：移动块连线绘制器 + 三栏滚动同步 ──
   // 连线数据来自 scheduler 各层 pairs；由 move-connectors.js 负责 SVG 渲染

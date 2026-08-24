@@ -98,6 +98,20 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   const integrated = !!(typeof window !== "undefined" && window.__compareIntegrated);
   // 标记当前处于对比/合并页，供 editor.js 持久 drop 监听转发判断。
   window.__inCompare = true;
+  // 诊断探针（#3/#6/#7/#8/#9 根因坐实）：记录集成模式关键事实，确认按钮绑定是否因
+  // HOST 作用域（#compareHost 空容器）导致 getElementById 失效。下一轮 EXE 真机读取。
+  if (typeof window.__probe === "function") {
+    window.__probe("ui.init.host", {
+      integrated,
+      hostIsCompareHost: !!(window.__compareHost && HOST === window.__compareHost),
+      hostIsDocument: HOST === document,
+      btnSave: !!HOST.getElementById("btnSave"),
+      btnExportDiff: !!HOST.getElementById("btnExportDiff"),
+      btnToggleCollapse: !!HOST.getElementById("btnToggleCollapse"),
+      btnToggleOutline: !!HOST.getElementById("btnToggleOutline"),
+      btnScroll: !!HOST.getElementById("btnScroll"),
+    });
+  }
   // 挂载点直接取自 compare DOM 中定义的 DOM 节点（集成模式下来自 #compareHost，
   // 独立模式下来自 compare.html 自身）。用 HOST.getElementById 作用域隔离。
   const root = HOST.getElementById("compareRoot");

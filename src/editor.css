@@ -1721,13 +1721,25 @@ body {
 
 /* G8 显示选项：行尾换行符/换行标记（Decoration.line + ::after 伪元素，零 widget DOM，F1）
    弱化显示、不可选中、不拦截事件；两开关同时开启时 pilcrow 声明在后 → 显示 ¶ */
+/* G8 修复（#12/#13）：行尾标记原本用 inline 伪元素（::after + margin-left），
+   会作为行盒内联内容参与行高计算，导致空行（仅有换行符）行高翻倍。
+   改为绝对定位脱离文档流，伪元素不再撑高行高，任何行（含空行）行高保持不变。
+   行容器需 position:relative 作为定位上下文；行尾标记挂在本行末尾、不占高度。 */
+.cm-eol-arrow,
+.cm-eol-pilcrow {
+  position: relative;
+}
 .cm-eol-arrow::after,
 .cm-eol-pilcrow::after {
   content: '\21b5'; /* ↵ */
-  margin-left: 2px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  margin-left: 0;
   color: var(--text-muted);
   opacity: 0.55;
   font-size: 0.85em;
+  line-height: inherit;
   user-select: none;
   pointer-events: none;
 }
@@ -1754,7 +1766,7 @@ body {
    选择器仅命中空格 span，不影响其它 .cm-specialChar。 */
 .cm-space-dot {
   color: var(--danger) !important;
-  font-size: 0.7em;
+  font-size: 0.35em; /* #10：原 0.7em，按要求减小 50% */
   line-height: 1;
   vertical-align: middle;
   text-indent: 0;

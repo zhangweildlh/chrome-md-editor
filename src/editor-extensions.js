@@ -185,11 +185,11 @@ function buildWhitespaceDecorations(view) {
       for (let i = start; i < line.to; i++) {
         const ch = line.text[i - line.from];
         if (ch === ' ' || ch === '\t') {
-          let next = i + 1;
-          for (; next < line.to && /\s/.test(line.text[next - line.from]); next++) {}
+          // #11 修复：每个空白字符独立一个 Decoration.mark（逐字符），
+          // 不再合并连续空白为单段粗横线。制表符与空格各自独立标记，
+          // 视觉上表现为独立的红点/箭头，而非连成一条粗线。
           const cls = ch === '\t' ? 'cm-highlightTab' : 'cm-space-dot cm-highlightSpace';
-          builder.add(i, next, Decoration.mark({ class: `${cls} cm-whitespace` }));
-          i = next; // 跳过整段空白；外层 for 的 i++ 会再 +1，落点正确
+          builder.add(i, i + 1, Decoration.mark({ class: `${cls} cm-whitespace` }));
         }
       }
       pos = line.to + 1; // 跨到下一行起点（跳过换行符）；越界时 while 条件终止
