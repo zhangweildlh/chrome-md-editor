@@ -17,6 +17,7 @@ Project uses Semantic Versioning.
   - 浏览器侧（扩展）：经 `console.log('[PROBE]'+json)` 输出，由外部 CDP 采集器（连 9222）落盘 `%temp%/cme-browser-probe-<ts>.jsonl`。
   - EXE 侧（Tauri）：经 `window.__TAURI__.invoke('write_probe_log')` 由 Rust 落盘 `%temp%/cme-exe-probe-<pid>.jsonl`；并新增 `127.0.0.1:9555` 调试 HTTP 接口（`/health`/`/probe`/`/state`），受编译期 `feature="debug-bridge"` + 运行时 `CME_DEBUG=1` 双重门控，不污染生产构建。
   - 启用开关：`?debug=1` / `localStorage['cme-debug']=1` / `window.__CME_DEBUG__=true`。
+- **WebView2 远程调试端口（CDP，默认关闭）**：复用 `debug-bridge` 编译 feature + `CME_DEBUG=1` 运行时双重门控。在 `debug_bridge::start_if_env()` 内（`.run()` 之前）经 `std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222")` 注入，使 WebView2 暴露 CDP 端点（`http://localhost:9222/json/version`），chrome-devtools MCP 可经此设断点 / 交互调试 / evaluate——补全第一步「仅能看日志、不能下断点」的缺口。生产构建（不带 feature）不含此逻辑，端口默认不暴露；仅依赖标准库 `std::env::set_var` 与 WebView2 官方环境变量机制，不引入新依赖。
 
 ### 修复
 - **「保持文件」弹窗 UI 与编辑/预览页「打开文件」弹窗不一致（#6）→ 已修复**：根因 `save-poll.js` 的 `buildOverlay()` 用内联硬编码颜色自建 `.save-poll-overlay` / `.save-poll-modal`，与全站 `.modal-overlay` / `.modal-card` 体系两套样式。修复：弹窗复用全站 `.modal-overlay` / `.modal-card` / `.modal-actions` / `.modal-title` / `.modal-hint` / `.modal-btn` / `.modal-btn-primary` 类名，移除硬编码色彩，外观与全站一致且随明暗主题自适应。`save-poll.test.js` 4/4 通过。

@@ -82,6 +82,15 @@ mod debug_bridge {
             return;
         }
         ENABLED.store(true, Ordering::Relaxed);
+        // 1.4（U2 调试补全）：为 WebView2 注入远程调试端口，使 chrome-devtools MCP
+        // 可经 CDP（http://localhost:9222/json/version）设断点 / 交互调试 / evaluate。
+        // 必须在 .run() 之前设置——WebView2 创建环境时读取该环境变量。
+        // 受本模块 feature 门控 + CME_DEBUG 运行时门控双重保护，生产默认不开启。
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
+        append_line(&format!(
+            "{{\"t\":\"{}\",\"seq\":1,\"session\":\"boot\",\"env\":\"exe\",\"event\":\"debug.cdp.expose\",\"data\":{{\"port\":9222}}}}",
+            now_iso()
+        ));
         // 写一行启动标记
         append_line(&format!(
             "{{\"t\":\"{}\",\"seq\":0,\"session\":\"boot\",\"env\":\"exe\",\"event\":\"debug.bridge.start\",\"data\":{{\"port\":{}}}}}",
