@@ -10,6 +10,7 @@ Project uses Semantic Versioning.
 ### 修复
 - **显示选项卡死（致命）→ 已修复**：根因 `editor-extensions.js` 的 `buildWhitespaceDecorations` 对行尾位置 `doc.lineAt(line.to)` 返回本行导致无限空转（死循环）。修复后 `pos = line.to + 1` 跨入下一行，越界即终止。`space=1` 场景下点击「显示空格 / 增强 / 其他」不再冻结（360Chromex 真机复验通过）。
 - **「按钮间距」下拉无效 → 已修复**：根因 `editor.css` 存在两段同选择器 `.toolbar-group`（`gap: var(--ui-gap)` 与 `gap: 4px` 同特异性、后者覆盖前者），导致 `--ui-gap` 永远被钉死为 4px。修复：合并为唯一权威来源 `gap: var(--ui-gap)`。三档（compact=2px / standard=4px / comfortable=14px）精确跟随（360Chromex 真机复验通过）。
+- **EXE 对比/合并页拖入 .md 无法打开（#4/#7 · U2）→ 根因修复**：根因是方案A（提交 `0f46fa6`）引入的「跨模块转发」架构——集成模式下 `compare.js` 被 `if (!integrated)` 禁用自身 `onDragDropEvent`，完全依赖 `editor.js` 转发 `window.__compareHandleTauriDrop`；该转发链在 EXE 中**静默失效**（无报错、无回退），表现拖入无反应。修复：`compare.js` 在 EXE 下**始终自注册** `onDragDropEvent`（对称编辑页自包含逻辑），仅在 `window.__inCompare`（对比页可见）时路由到 a/b/c 栏，并保留 `window.__compareHandleTauriDrop` 定义向后兼容；`editor.js` 转发分支改为对比页可见时直接 `return`，交由 `compare.js` 自身监听处理，避免双监听双渲染。编辑模式拖放不受影响（`__inCompare` 守卫防御，修一漏一）。本机无 Rust 工具链无法本地 EXE 复现，待你 EXE 真机复测（进集成对比视图 → 拖入 .md → A/B/C 栏加载，探针应现 `compare.drop.tauri` + `compare.tauri.drop.register{selfContained:true}`）。
 
 ### 新增
 - **调试桥 + 前端探针（开发者能力，默认关闭）**：

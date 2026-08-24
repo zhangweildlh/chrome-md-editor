@@ -1922,12 +1922,12 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     // 通过 isTauriEnv() 守卫注册 Tauri 拖放监听，按路径走 compare-shims.readFile
     // （Rust read_multiple_text_files 命令）读取 → 与 HTML5 drop 同一路由分发到 a/b/c 栏。
     if (typeof isTauriEnv === "function" && isTauriEnv()) {
-      // 方案A：集成模式下（对比 UI 内嵌 editor.html 初始上下文），editor.js 的
-      // 持久 onDragDropEvent 监听已在初始 webview 上下文注册并负责转发到
-      // window.__compareHandleTauriDrop，此处【不再】重复注册，避免同一 drop 被
-      // 两个监听各处理一次（双开文件/双渲染）。独立 compare.html 模式（浏览器侧 /
-      // Chrome 扩展）仍由本文件自行注册。
-      if (!integrated) {
+      // U2 修复（方案A+）：集成模式与独立模式均在 EXE 下【自注册】onDragDropEvent，
+      // 对称 editor.js 编辑页的自包含逻辑，彻底去除对 editor.js 转发
+      // window.__compareHandleTauriDrop 的脆弱跨模块依赖（0f46fa6 引入的转发架构
+      // 在 EXE 中静默失效，表现为对比页拖放无反应）。
+      // 仅在 __inCompare（集成对比页可见）时处理，避免编辑模式拖放被本监听抢走而
+      // 污染对比栏 / 触发隐藏 render（修一漏一防御）。
       // R3 修复 ④ 修正：Tauri 2.x 在 WebView2 下 window 的 tauri://drag-drop /
       // tauri://file-drop 自定义事件不可靠（editor.js 同结论）。桌面端必须用
       // getCurrentWebview().onDragDropEvent 接收 OS 文件拖放，payload.type==='drop'
@@ -1938,6 +1938,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           await getCurrentWebview().onDragDropEvent((event) => {
             const p = event && event.payload;
             if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
+            // 仅对比页可见时处理；编辑模式交由 editor.js 的自身监听打开文件
+            if (!window.__inCompare) return;
             handleTauriDrop(p.paths);
           });
           // 诊断探针：确认 onDragDropEvent 注册成功（区别于事件未触发）
@@ -1951,11 +1953,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           }
         }
       })();
-      } // end if (!integrated)
-
       // 抽成独立函数，避免 onDragDropEvent 闭包内过深嵌套；逻辑与 HTML5 drop 同一路由。
-      // 同时挂到 window，供 editor.js 的持久 onDragDropEvent 监听在对比页转发调用
-      // （规避 Tauri/Wry 新 webview / 导航后 drop 事件失效 wry#904）。
+      // 仍挂到 window.__compareHandleTauriDrop 向后兼容（editor.js 旧转发分支已移除，
+      // 此处保留不影响任何路径）。
       window.__compareHandleTauriDrop = handleTauriDrop;
       async function handleTauriDrop(paths) {
         try {

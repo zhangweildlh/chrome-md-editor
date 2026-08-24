@@ -3231,8 +3231,9 @@ function bindEvents() {
         //   EXE 下对比 UI 内嵌 editor.html 初始 webview 上下文（#compareHost），
         //   绝不导航离开（导航会销毁初始上下文，使 OS 文件拖放事件永久收不到）。
         //   编辑器主页的持久 onDragDropEvent 监听（已在初始上下文、真机坐实可用）
-        //   在 __inCompare 时把路径转发给 compare.js 的 __compareHandleTauriDrop，
-        //   对比页即可收到拖放。浏览器侧仍走 compare.html 独立页（见 else 分支）。
+        //   在 __inCompare 时【不再转发】，改由 compare.js 自身注册的同款监听处理
+        //   （对比页自包含，对称编辑页逻辑，去除跨模块转发依赖）。浏览器侧仍走
+        //   compare.html 独立页（见 else 分支）。
         const host = document.getElementById('compareHost');
         if (!host) {
           // 极端兜底：容器缺失时退回独立页（理论不可达，仅防构建异常）
@@ -3354,9 +3355,11 @@ function bindEvents() {
           const payload = event.payload;
           if (payload.type !== 'drop') return;
           const paths = payload.paths || [];
-          // 方案A：对比 UI 内嵌 editor.html 初始上下文（#compareHost）。
-          // 当集成对比页可见（host 未 hidden）且 __inCompare 时，把路径转发给对比逻辑处理；
-          // 否则（在主编辑器页）按原逻辑打开首个 .md/.markdown/.txt 文件。
+          // 方案A+（U2 修复）：对比 UI 内嵌 editor.html 初始上下文（#compareHost）。
+          // 集成对比页可见（host 未 hidden）且 __inCompare 时，本监听【不再转发】，
+          // 交由 compare.js 自身注册的 onDragDropEvent 处理（对称编辑页自包含逻辑，
+          // 去除跨模块转发依赖，避免双监听双渲染）；否则（在主编辑器页）按原逻辑
+          // 打开首个 .md/.markdown/.txt 文件。
           // 双重判定 host 可见性，防止 __inCompare 残留（如返回主界面后）误把文件塞进对比页。
           const hostVisible = (() => {
             try {
@@ -3364,9 +3367,8 @@ function bindEvents() {
               return h && !h.hasAttribute('hidden');
             } catch (_) { return false; }
           })();
-          if (typeof window !== 'undefined' && window.__inCompare && hostVisible && typeof window.__compareHandleTauriDrop === 'function') {
-            window.__compareHandleTauriDrop(paths);
-            return;
+          if (window.__inCompare && hostVisible) {
+            return; // 交由 compare.js 自身监听处理，避免双开/双渲染
           }
           const md = paths.find((p) => /\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(p));
           if (md) {
