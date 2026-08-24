@@ -465,6 +465,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
     for (const it of items) {
       if (!it) continue;
+      if (typeof window.__probe === "function") window.__probe("ui.outline.item", { level: it.level, text: (typeof it.text === "string" && it.text) ? it.text.slice(0, 30) : "(空标题)" });
       const level = Math.max(1, Math.min(num(it.level, 1), 6));
       const el = document.createElement("div");
       el.className = `outline-item outline-level-${level}`;
@@ -504,6 +505,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (outlinePanelEl) {
       // 复用主界面 .side-panel 的可见性约定：.open 类控制 display:flex。
       outlinePanelEl.classList.toggle("open", outlineVisible);
+      if (typeof window.__probe === "function") window.__probe("ui.outline.setVisible", { visible: outlineVisible, hasOpenClass: outlinePanelEl.classList.contains("open"), display: getComputedStyle(outlinePanelEl).display });
+    } else if (typeof window.__probe === "function") {
+      window.__probe("ui.outline.setVisible", { visible: outlineVisible, hasOpenClass: false, display: "no-panel" });
     }
     if (btnToggleOutline) btnToggleOutline.classList.toggle("active", outlineVisible);
     lastOutlineDoc = null;
@@ -512,6 +516,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   function toggleOutlinePanel() {
+    if (typeof window.__probe === "function") window.__probe("ui.outline.toggle", { before: outlineVisible, hasPanel: !!outlinePanelEl, hasList: !!outlineListEl });
     setOutlineVisible(!outlineVisible);
   }
 
@@ -1334,6 +1339,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 导出 diff 报告（D17）：生成 git 风格统一 diff 文本，经「另存为」弹窗写盘（非逐栏轮询）──
   async function onExportDiff() {
+    if (typeof window.__probe === "function") window.__probe("ui.exportDiff.enter", { hasInstance: !!instance });
     if (!instance) return;
     try {
       const panes = buildPanes();
@@ -1346,6 +1352,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       const b = getContent("b") || getContent("c") || "";
       const diffText = buildDiffText(a, b);
       const target = await showSaveAsDialog({ suggestedName: "diff.txt", types: [{ description: "文本文件", accept: { "text/plain": [".txt"] } }] });
+      if (typeof window.__probe === "function") window.__probe("ui.exportDiff.target", { hasTarget: !!target });
       if (target) await ioBridge.saveAs(target, diffText); // 写入新文件，不覆盖源
     } catch (e) {
       // 用户取消保存：忽略 AbortError
@@ -1376,11 +1383,14 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   async function onSave() {
+    if (typeof window.__probe === "function") window.__probe("ui.save.enter", { hasInstance: !!instance });
     if (!instance) return;
     const panes = buildPanes();
     const order = buildOrder();
     try {
+      if (typeof window.__probe === "function") window.__probe("ui.save.beforePoll", { paneCount: Array.isArray(panes) ? panes.length : 0 });
       const r = await runSavePoll(panes, order); // 逐栏弹窗（§5）
+      if (typeof window.__probe === "function") window.__probe("ui.save.afterPoll", { aborted: !!(r && r.aborted) });
       if (r && !r.aborted) refreshLoadedSnapshots(); // 保存成功 → 复位 D8 脏检查
     } catch (e) {
       // 用户取消保存框：忽略 AbortError
@@ -1393,10 +1403,14 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 反而要多点一次才能读全文。需要精简视图时再手动点「折叠未改」。
   let collapsed = false;
   function onToggleCollapse() {
+    if (typeof window.__probe === "function") window.__probe("ui.collapse.enter", { hasInstance: !!instance, before: collapsed });
     collapsed = !collapsed;
     if (!instance) return;
     if (typeof instance.setCollapse === "function") {
+      if (typeof window.__probe === "function") window.__probe("ui.collapse.setCollapse", { collapsed, hasMethod: true });
       instance.setCollapse(collapsed);
+    } else if (typeof window.__probe === "function") {
+      window.__probe("ui.collapse.setCollapse", { collapsed, hasMethod: false });
     }
     if (btnToggleCollapse) {
       btnToggleCollapse.textContent = collapsed ? "展开未改" : "折叠未改";

@@ -967,6 +967,10 @@ export function createCompareMergeView(opts) {
         });
       }
     }
+    if (typeof window !== "undefined" && typeof window.__probe === "function") {
+      const summary = out.map((l) => ({ layer: l.layer, pairs: (l.pairs || []).length }));
+      window.__probe("ui.connector.layers", { count: out.length, summary });
+    }
     return out;
   }
   // 【已知取舍】无 AbortController 的环境下，本函数与 createScrollSync 注册的 scroll
@@ -986,7 +990,10 @@ export function createCompareMergeView(opts) {
     box.addEventListener(
       "scroll",
       () => {
-        if (connectorPainter) connectorPainter.draw();
+        if (connectorPainter) {
+          if (typeof window !== "undefined" && typeof window.__probe === "function") window.__probe("ui.connector.draw", { trigger: "scroll" });
+          connectorPainter.draw();
+        }
       },
       acOpts
     );
