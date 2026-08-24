@@ -11,6 +11,7 @@ Project uses Semantic Versioning.
 - **显示选项卡死（致命）→ 已修复**：根因 `editor-extensions.js` 的 `buildWhitespaceDecorations` 对行尾位置 `doc.lineAt(line.to)` 返回本行导致无限空转（死循环）。修复后 `pos = line.to + 1` 跨入下一行，越界即终止。`space=1` 场景下点击「显示空格 / 增强 / 其他」不再冻结（360Chromex 真机复验通过）。
 - **「按钮间距」下拉无效 → 已修复**：根因 `editor.css` 存在两段同选择器 `.toolbar-group`（`gap: var(--ui-gap)` 与 `gap: 4px` 同特异性、后者覆盖前者），导致 `--ui-gap` 永远被钉死为 4px。修复：合并为唯一权威来源 `gap: var(--ui-gap)`。三档（compact=2px / standard=4px / comfortable=14px）精确跟随（360Chromex 真机复验通过）。
 - **EXE 对比/合并页拖入 .md 无法打开（#4/#7 · U2）→ 根因修复**：根因是方案A（提交 `0f46fa6`）引入的「跨模块转发」架构——集成模式下 `compare.js` 被 `if (!integrated)` 禁用自身 `onDragDropEvent`，完全依赖 `editor.js` 转发 `window.__compareHandleTauriDrop`；该转发链在 EXE 中**静默失效**（无报错、无回退），表现拖入无反应。修复：`compare.js` 在 EXE 下**始终自注册** `onDragDropEvent`（对称编辑页自包含逻辑），仅在 `window.__inCompare`（对比页可见）时路由到 a/b/c 栏，并保留 `window.__compareHandleTauriDrop` 定义向后兼容；`editor.js` 转发分支改为对比页可见时直接 `return`，交由 `compare.js` 自身监听处理，避免双监听双渲染。编辑模式拖放不受影响（`__inCompare` 守卫防御，修一漏一）。本机无 Rust 工具链无法本地 EXE 复现，待你 EXE 真机复测（进集成对比视图 → 拖入 .md → A/B/C 栏加载，探针应现 `compare.drop.tauri` + `compare.tauri.drop.register{selfContained:true}`）。
+- **U2 拖放「监听已注册但仍读文件失败」→ 二次根因修复（探针坐实）**：PR#19 自注册监听修复后，EXE 真机探针（`feat/diag-u2-drop-delivery` 诊断构建）显示 `compare.drop.event` / `compare.drop.handler` 均正常、`compare.tauri.drop.register{ok:true}`，但 `compare.drop.readfail` 恒定报 `isTauriEnv is not defined`，且无 `compare.drop.tauri` —— 链路断在 `handleTauriDrop` 内 `readFile`。根因：`src/compare-shims.js` 原仅 `export { isTauriEnv } from "./tauri-env.js"`（再导出），**再导出不会在本模块作用域创建本地绑定**，导致同文件 `readFile()` 内部调用 `isTauriEnv()` 时运行时抛未定义。修复：改为 `import { isTauriEnv } from "./tauri-env.js"; export { isTauriEnv };` —— 补内部绑定、保留再导出，外部调用方（compare-files/compare-export）契约零影响（不过度覆盖、不修旧造新漏）。最小作用域一行之差。
 
 ### 新增
 - **调试桥 + 前端探针（开发者能力，默认关闭）**：
@@ -37,6 +38,9 @@ Project uses Semantic Versioning.
 - **调试桥链路**：EXE 启动暴露 `127.0.0.1:9555`（`/health`/`/state`/`/probe` 三接口可用），Rust 环形缓冲 + `%temp%/cme-exe-probe-<pid>.jsonl` 落盘。
 - **前端联动**：`/probe` 实测出现 `probe.init`（`url=http://tauri.localhost/src/editor.html`, `isTauri=true`）+ `editor.init.done`（`version=1.9.10`），证明 EXE 内前端经 `invoke('write_probe_log')` 通道完全打通。
 - #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性：前端探针注入点（`compare.drop.tauri`/`compare.drop.html5`/`editor.open.cli`/`button click`）已就位，EXE 内对应操作会经同一 invoke 通道写入 `/probe`，可直接据接口坐实。
+
+### 修复（诊断分支 `feat/diag-u2-drop-delivery` 复现 + 并入）
+- **集成视图「返回主界面」空白（复现 + 修复）**：诊断 EXE（基于 U2 分支 `7d5548e`，未含返回修复）真机复现——点 `btnBackToEditor` 后探针无 `compare.backToEditor`/还原事件、直接空白。根因：`src/compare.js` 返回处理器仍用模块加载时一次性求值的 stale const `integrated`（诊断分支漏并入 PR#21 修复）。修复：改 `if (integrated)` 为 `if (window.__compareIntegrated)` 运行时动态读取，与 PR#21（commit `f1b2a4f`）同语义，根除 stale const。同时归并至 U2 修复主分支 `feat/fix-u2-compare-drop-selfcontained` 收口。
 
 ## [1.9.10] - 2026-08-21（端到端 R3：10 项 BUG 坐实 + 修复）
 
