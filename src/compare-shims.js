@@ -27,7 +27,13 @@
 
 // 判定是否运行在 Tauri 桌面壳内。统一复用 src/tauri-env.js 的实现，
 // 保证与 desktop-shims.js（编辑器垫片）口径一致，避免双端判定分歧。
-export { isTauriEnv } from "./tauri-env.js";
+// 注意：先 import 建立本模块作用域内的本地绑定（供 readFile/saveFile 内部调用），
+// 再 export 向外再导出（供 compare-files.js / compare-export.js 通过
+// `import { isTauriEnv } from "./compare-shims.js"` 取用）。
+// 仅 re-export 不会在本模块内创建本地绑定，会导致 readFile 内部调用
+// isTauriEnv() 时抛 `isTauriEnv is not defined`（U2 对比视图拖放读文件失败的根因）。
+import { isTauriEnv } from "./tauri-env.js";
+export { isTauriEnv };
 
 // 延迟加载 Tauri API（仅桌面端调用，浏览器端永不触发 import，避免打包报错）。
 let _tauri = null;
