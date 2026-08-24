@@ -1937,6 +1937,15 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           const { getCurrentWebview } = await import("@tauri-apps/api/webview");
           await getCurrentWebview().onDragDropEvent((event) => {
             const p = event && event.payload;
+            // 诊断探针（U2 投递链路排查）：记录每次回调的原始事件，确认事件是否到达本监听
+            if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+              window.__probe('compare.drop.event', {
+                type: p && p.type,
+                hasPaths: !!(p && Array.isArray(p.paths) && p.paths.length),
+                pathCount: p && Array.isArray(p.paths) ? p.paths.length : 0,
+                inCompare: !!window.__inCompare,
+              });
+            }
             if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
             // 仅对比页可见时处理；编辑模式交由 editor.js 的自身监听打开文件
             if (!window.__inCompare) return;
@@ -1959,6 +1968,10 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       window.__compareHandleTauriDrop = handleTauriDrop;
       async function handleTauriDrop(paths) {
         try {
+          // 诊断探针（U2 投递链路排查）：确认已进入 handler
+          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+            window.__probe('compare.drop.handler', { pathCount: Array.isArray(paths) ? paths.length : 0 });
+          }
           // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻）
           const { readFile } = await import("./compare-shims.js");
           const dropped = [];
@@ -1969,6 +1982,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
               dropped.push({ name, content, target: { path } });
             } catch (err) {
               console.warn("[compare] Tauri 拖放读取失败:", path, err);
+              if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+                window.__probe('compare.drop.readfail', { path, error: String(err && err.message || err) });
+              }
             }
           }
           if (!dropped.length) return;
