@@ -1687,7 +1687,11 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         }
       }
       // 全部处理完（或本就无改动）→ 返回主界面
-      if (integrated) {
+      // 修复「返回主界面空白」：integrated 为模块加载时一次性求值的常量，
+      // 集成模式（EXE 内嵌 #compareHost）下被错锁为 false，导致走入非集成分支
+      // 执行整页导航（window.location.href）。改读运行时动态标志
+      // window.__compareIntegrated（点击「对比」时由 editor.js:3245 置真）。
+      if (window.__compareIntegrated) {
         // 方案A：集成模式下对比 UI 内嵌于 editor.html，绝不导航（导航会销毁编辑器状态）。
         // 隐藏 #compareHost 并复位 __inCompare，同时通过自定义事件通知 editor.js 还原主页 UI。
         try {

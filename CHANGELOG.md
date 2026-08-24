@@ -22,6 +22,9 @@ Project uses Semantic Versioning.
 ### 修复
 - **「保持文件」弹窗 UI 与编辑/预览页「打开文件」弹窗不一致（#6）→ 已修复**：根因 `save-poll.js` 的 `buildOverlay()` 用内联硬编码颜色自建 `.save-poll-overlay` / `.save-poll-modal`，与全站 `.modal-overlay` / `.modal-card` 体系两套样式。修复：弹窗复用全站 `.modal-overlay` / `.modal-card` / `.modal-actions` / `.modal-title` / `.modal-hint` / `.modal-btn` / `.modal-btn-primary` 类名，移除硬编码色彩，外观与全站一致且随明暗主题自适应。`save-poll.test.js` 4/4 通过。
 
+### 修复
+- **「对比/合并」集成视图点击「返回主界面」后空白（既有缺陷，继承自 759f9f6）→ 已修复**：根因 compare.js:98 `const integrated = !!(… window.__compareIntegrated)` 在模块加载时一次性求值，`window.__compareIntegrated` 当时未定义 → `integrated=false` 且常量在页面生命周期内不变；而 `window.__compareIntegrated=true` 由 editor.js 点击「对比」按钮时（3245 行）才动态置真。返回处理器（compare.js:1690 `if(integrated)`）因此恒为假，走入非集成分支执行 `window.location.href='editor.html'` 整页导航（**违反方案A「绝不导航」铁律**），主界面 `toolbar/editorMain/statusbar/taskListPanel` 被 `hidden` 后未被 `exitCompareIntegrated` 还原 → 空白。修复：将运行时分支判断改为动态读取 `window.__compareIntegrated`，集成模式正确走「隐藏 #compareHost + 派发 compare:exit → editor.js 还原主页」路径；独立模式（浏览器 compare.html）行为不变（该标志始终未置真）。验证：EXE 以 `CME_DEBUG=1` 启动，点「返回主界面」应恢复主页且探针出现 `compare.backToEditor{integrated:true}`、无整页导航。关联潜在问题（本次未修，单列待处理）：compare.js:97 `const HOST = window.__compareHost || document` 同类 stale const——模块加载时 `window.__compareHost` 未定义 → `HOST=document`，对比模块 DOM 查询实际作用域为整页而非 #compareHost，与 editor.js:3243-3244 注释声明的限定作用域不符；当前因对比页元素 ID 唯一未暴露冲突。
+
 ### 修复（CI）
 - **Desktop Build 未启用调试桥**（`desktop-build.yml`）：原 `npm run tauri build` 未传 `--features debug-bridge`，导致 fork CI 产物不含调试桥（`9555` 端口不监听）。修复：构建命令改为 `npm run tauri build -- --features debug-bridge`，使后续 EXE 在 `CME_DEBUG=1` 下暴露调试端口与探针日志。
 - **Rust 调试桥编译错误**（`desktop/src/lib.rs`）：修复 `format` 宏漏写 `!`（3 处）与缺 `use std::thread`，使 `debug-bridge` feature 可正常编译；新增 `debug_bridge_status` command 供前端查询运行时启用状态。
