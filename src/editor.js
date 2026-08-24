@@ -8,6 +8,14 @@
 // 必须在 src/editor.js 顶部以 ES Module 形式 import，否则 vite 不会把它打包进
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
 import './desktop-shims.js';
+// 运行态探针（调试桥）：默认关闭，需 ?debug=1 或 localStorage['cme-debug']=1 或
+// window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
+// 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销（关闭时仅挂 no-op）。
+import './debug-probe.js';
+// 方案A+：对比/合并 UI 内嵌 editor.html 初始上下文（#compareHost）。compare.js 随编辑器首页
+// 静态加载（同源 chunk），规避 Tauri/WebView2 下动态 import 分包不确定性导致的「对比模块加载失败」。
+// 浏览器侧 compare.html 仍独立加载同一 compare.js（Vite 会去重为同一 chunk）。
+import './compare.js';
 
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
 import { EditorState, Transaction } from '@codemirror/state';
@@ -1762,6 +1770,7 @@ async function openInitialCliFile() {
     const { invoke } = await import('@tauri-apps/api/core');
     const path = await invoke('get_initial_file');
     if (path) {
+      if (typeof window.__probe === 'function') window.__probe('editor.open.cli', { path });
       await openFileByPath(path);
       return;
     }
@@ -3213,15 +3222,71 @@ function bindEvents() {
   // 对比/合并视图入口
   const btnCompare = document.getElementById('btnCompare');
   if (btnCompare) {
-    btnCompare.addEventListener('click', () => {
+    btnCompare.addEventListener('click', async () => {
       // 标记为「主动跳转」，抑制 beforeunload 的「是否离开网站？」误报；
       // 100ms 后复位，保证编辑器页在独立标签页场景下后续误关仍受保护。
       intentionalLeave = true;
-      // 在新标签页打开 compare.html（Chrome 扩展中为同源页面）
-      window.open('compare.html', '_blank');
+      if ('__TAURI_INTERNALS__' in window) {
+        // 方案A（根治 #4/#7 EXE 对比页拖放失效，wry#904）：
+        //   EXE 下对比 UI 内嵌 editor.html 初始 webview 上下文（#compareHost），
+        //   绝不导航离开（导航会销毁初始上下文，使 OS 文件拖放事件永久收不到）。
+        //   编辑器主页的持久 onDragDropEvent 监听（已在初始上下文、真机坐实可用）
+        //   在 __inCompare 时把路径转发给 compare.js 的 __compareHandleTauriDrop，
+        //   对比页即可收到拖放。浏览器侧仍走 compare.html 独立页（见 else 分支）。
+        const host = document.getElementById('compareHost');
+        if (!host) {
+          // 极端兜底：容器缺失时退回独立页（理论不可达，仅防构建异常）
+          window.open('compare.html', '_blank');
+          setTimeout(() => { intentionalLeave = false; }, 100);
+          return;
+        }
+        // 标记集成模式：compare.js 据此跳过自身 onDragDropEvent 注册（避免与 editor.js 重复），
+        // 并把所有 DOM 查询作用域限定在 #compareHost（避免与 editor.html 既有 ID 冲突）。
+        window.__compareIntegrated = true;
+        window.__compareHost = host;
+        host.removeAttribute('hidden');
+        // 隐藏编辑器主页 UI，仅展示对比 UI（两者在 editor.html 中共存，靠 hidden 切换）
+        const mainEls = [document.getElementById('toolbar'), document.getElementById('editorMain'), document.getElementById('statusbar'), document.getElementById('taskListPanel')];
+        for (const el of mainEls) { if (el) el.setAttribute('hidden', ''); }
+        window.__inCompare = true;
+        // 方案A+：对比模块（compare.js）已由 editor.html 静态引入（同源 chunk），
+        // 随编辑器首页一同加载，规避 Tauri/WebView2 下动态 import 分包不确定性导致的
+        //「对比模块加载失败」。若因异常未挂载（如构建产物缺失），给出可读错误并回退。
+        if (!window.__compareMounted) {
+          console.error('[editor] 对比模块未就绪（window.__compareMounted 为假）');
+          if (typeof window.__probe === 'function') {
+            window.__probe('compare.load.error', { message: 'compare.js 未挂载（可能构建产物缺失）', mounted: false });
+          }
+          showToast('对比模块加载失败：请重新编译部署', 'error');
+          host.setAttribute('hidden', '');
+          for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
+          window.__inCompare = false;
+          setTimeout(() => { intentionalLeave = false; }, 100);
+          return;
+        }
+        if (typeof window.__probe === 'function') {
+          window.__probe('compare.enter.integrated', { ok: true });
+        }
+      } else {
+        // 浏览器侧（Chrome 扩展）保持同源新标签打开
+        window.open('compare.html', '_blank');
+      }
       setTimeout(() => { intentionalLeave = false; }, 100);
     });
   }
+
+  // 方案A：从集成对比页返回主界面（对比 UI 内嵌 editor.html 时由 editor.js 接管，
+  // 因为 compare.js 的 btnBackToEditor 在集成模式下只隐藏 host 并复位 __inCompare，
+  // 但编辑器主页 UI 的显隐需由 editor.js 负责还原）。这里监听对比页的返回事件。
+  function exitCompareIntegrated() {
+    const host = document.getElementById('compareHost');
+    if (host) host.setAttribute('hidden', '');
+    const mainEls = [document.getElementById('toolbar'), document.getElementById('editorMain'), document.getElementById('statusbar'), document.getElementById('taskListPanel')];
+    for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
+    window.__inCompare = false;
+  }
+  // compare.js 在集成模式下点击「返回主界面」会派发此自定义事件，editor.js 接管 UI 还原。
+  window.addEventListener('compare:exit', exitCompareIntegrated);
 
   // 拦截浏览器默认 Ctrl+S
   document.addEventListener('keydown', (e) => {
@@ -3289,6 +3354,20 @@ function bindEvents() {
           const payload = event.payload;
           if (payload.type !== 'drop') return;
           const paths = payload.paths || [];
+          // 方案A：对比 UI 内嵌 editor.html 初始上下文（#compareHost）。
+          // 当集成对比页可见（host 未 hidden）且 __inCompare 时，把路径转发给对比逻辑处理；
+          // 否则（在主编辑器页）按原逻辑打开首个 .md/.markdown/.txt 文件。
+          // 双重判定 host 可见性，防止 __inCompare 残留（如返回主界面后）误把文件塞进对比页。
+          const hostVisible = (() => {
+            try {
+              const h = document.getElementById('compareHost');
+              return h && !h.hasAttribute('hidden');
+            } catch (_) { return false; }
+          })();
+          if (typeof window !== 'undefined' && window.__inCompare && hostVisible && typeof window.__compareHandleTauriDrop === 'function') {
+            window.__compareHandleTauriDrop(paths);
+            return;
+          }
           const md = paths.find((p) => /\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(p));
           if (md) {
             openFileByPath(md);
@@ -3296,8 +3375,15 @@ function bindEvents() {
             showToast('请拖入 .md 或 .markdown 文件', 'error');
           }
         });
+        // 诊断探针：确认主编辑器 onDragDropEvent 注册成功
+        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+          window.__probe('editor.tauri.drop.register', { ok: true });
+        }
       } catch (e) {
         // 监听注册失败不影响双击打开；忽略
+        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+          window.__probe('editor.tauri.drop.register', { ok: false, error: String(e && e.message || e) });
+        }
       }
     })();
   }
@@ -4268,6 +4354,11 @@ function init() {
 
   // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
   openInitialCliFile();
+
+  // 探针：编辑器初始化完成标记（供外部观测 init 是否执行到底、有无早崩）
+  if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+    window.__probe('editor.init.done', { version: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : null) });
+  }
 }
 
 // ==========================================

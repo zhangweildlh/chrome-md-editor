@@ -110,55 +110,16 @@ async function resolveSaveAs(target, content) {
 }
 
 // ---------------------------------------------------------------------------
-// 内联样式（占位；最终由 C3 Agent 在 compare.css 统一完善）
+// 弹窗视觉：复用全站 .modal-overlay / .modal-card / .modal-btn 体系（editor.css），
+// 不再使用硬编码内联颜色，确保与编辑/预览页「打开文件」弹窗外观一致，且随主题（明暗）自适应。
 // ---------------------------------------------------------------------------
-const OVERLAY_STYLE = [
-  'position:fixed', 'inset:0', 'z-index:99999',
-  'display:flex', 'align-items:center', 'justify-content:center',
-  'background:rgba(0,0,0,0.45)',
-  'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
-].join(';') + ';';
-
-// R3 修复 ⑥：runSavePoll 弹窗视觉重做为「系统式样」，与原生 showOpenFilePicker / showSaveFilePicker
-// 弹窗（操作系统提供的对话框）观感一致——浅色卡片、圆角、按钮强调色（系统蓝 accent）。
-// 浏览器侧无法 100% 复刻 OS 原生，但通过统一调色板、字体、间距达成「观感对齐」。
-const BOX_STYLE = [
-  'min-width:380px', 'max-width:90vw', 'background:#ffffff', 'color:#1f2328',
-  'border:1px solid #d0d7de', 'border-radius:12px', 'padding:20px 22px',
-  'box-shadow:0 8px 28px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)',
-  'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
-].join(';') + ';';
-
-const PATH_STYLE = [
-  'margin:10px 0', 'padding:8px 10px', 'background:#f6f8fa', 'border:1px solid #eaeef2',
-  'border-radius:6px',
-  'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
-  'font-size:12px', 'word-break:break-all', 'line-height:1.5', 'color:#57606a',
-].join(';') + ';';
-
-const HINT_STYLE = [
-  'font-size:12px', 'color:#57606a', 'margin-bottom:14px', 'line-height:1.55',
-].join(';') + ';';
-
-// 系统式按钮：浅灰底 + 细边，hover 加深。emphasis=true 时用系统蓝（accent）强调（主操作）。
-const BTN_STYLE = [
-  'flex:1', 'margin:0 4px', 'padding:7px 14px',
-  'border:1px solid #d0d7de', 'border-radius:6px',
-  'background:#f6f8fa', 'color:#1f2328', 'cursor:pointer',
-  'font-size:13px', 'font-weight:500', 'transition:background .12s',
-].join(';') + ';';
-const BTN_EMPHASIS_BG = '#0969da'; // 系统蓝（GitHub/Windows accent）
-const BTN_EMPHASIS_BORDER = '#0969da';
-const BTN_EMPHASIS_TEXT = '#ffffff';
 
 // 通用：构造覆盖层 + 居中卡片，返回 { overlay, box, close }。
 function buildOverlay() {
   const overlay = document.createElement('div');
-  overlay.className = 'save-poll-overlay';
-  overlay.style.cssText = OVERLAY_STYLE;
+  overlay.className = 'save-poll-overlay modal-overlay';
   const box = document.createElement('div');
-  box.className = 'save-poll-modal';
-  box.style.cssText = BOX_STYLE;
+  box.className = 'save-poll-modal modal-card';
   overlay.appendChild(box);
   let escHandler = null;
   const close = (onEsc) => {
@@ -188,19 +149,17 @@ function showPaneSaveDialog(pane) {
     const { box, close, setEscResolver } = buildOverlay();
 
     const title = document.createElement('div');
+    title.className = 'modal-title';
     title.textContent = '保存文件';
-    title.style.cssText = 'font-size:15px;font-weight:600;margin-bottom:2px;';
 
     const path = document.createElement('div');
-    path.className = 'save-poll-path';
-    path.style.cssText = PATH_STYLE;
+    path.className = 'save-poll-path modal-hint';
     const full = displayPath(pane);
     path.textContent = '路径：' + full;
     path.title = full; // tooltip 显示完整绝对路径（不省略）
 
     const hint = document.createElement('div');
-    hint.className = 'save-poll-hint';
-    hint.style.cssText = HINT_STYLE;
+    hint.className = 'modal-hint';
     if (pane.target == null) {
       hint.textContent = '该栏无源文件（合并结果）。「保存」将等同于「另存为」，请指定新路径与文件名（默认 merged.md）。';
     } else {
@@ -208,12 +167,12 @@ function showPaneSaveDialog(pane) {
     }
 
     const bar = document.createElement('div');
-    bar.style.cssText = 'display:flex;gap:0;margin-top:4px;';
+    bar.className = 'modal-actions';
 
     const mk = (label, action, emphasis) => {
       const b = document.createElement('button');
+      b.className = 'modal-btn' + (emphasis ? ' modal-btn-primary' : '');
       b.textContent = label;
-      b.style.cssText = BTN_STYLE + (emphasis ? `background:${BTN_EMPHASIS_BG};border-color:${BTN_EMPHASIS_BORDER};color:${BTN_EMPHASIS_TEXT};` : '');
       b.onclick = () => { close(); resolve({ action }); };
       return b;
     };

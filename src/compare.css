@@ -130,7 +130,24 @@
 }
 
 /* ==========================================
-   工具栏布局修正
+   方案A：对比 UI 内嵌 editor.html 时的宿主容器布局。
+   #compareHost 平时 hidden；显示时须撑满视口并作为 flex 纵向容器，
+   使内部 .compare-main{flex:1} / .cm-mergeView{height:100%} 的纵向 flex
+   链路成立（独立 compare.html 下这一角色由 body 承担，此处等价替代）。
+   ========================================== */
+#compareHost {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #fff);
+  color: var(--fg, #1f2328);
+}
+#compareHost[hidden] {
+  display: none !important;
+}
+
    ------------------------------------------
    editor.css 的三段式（.toolbar-left/.toolbar-center/.toolbar-right）本身
    已是 flex + align-items:center，.toolbar-group 也是 flex + align-items:center，
@@ -1416,5 +1433,4 @@ body.mode-merge #btnColToggle {
 }
 [data-theme="dark"] .cm-content .cm-diff-word-removed {
   background-color: rgba(248, 81, 73, 0.4) !important;
-}
 }

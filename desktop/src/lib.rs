@@ -16,6 +16,164 @@
 use tauri::Manager;
 use std::sync::Mutex;
 
+// 调试桥开关：编译期默认关闭（不增加生产二进制体积/攻击面），
+// 需显式 --features debug-bridge 构建；运行时再用环境变量 CME_DEBUG=1 二次门控。
+// 即便带 feature 构建，未设 CME_DEBUG 也不会启动端口/落盘。
+#[cfg(feature = "debug-bridge")]
+mod debug_bridge {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::thread;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
+
+    // 最近日志环形缓冲（供 /probe 接口返回，避免读盘）
+    static RECENT: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    static ENABLED: AtomicBool = AtomicBool::new(false);
+    const PORT: u16 = 9555;
+    const MAX_RECENT: usize = 500;
+
+    fn recent() -> &'static Mutex<Vec<String>> {
+        RECENT.get_or_init(|| Mutex::new(Vec::with_capacity(MAX_RECENT)))
+    }
+
+    // %temp%/cme-exe-probe-<pid>.jsonl
+    fn probe_path() -> PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!("cme-exe-probe-{}.jsonl", std::process::id()));
+        p
+    }
+
+    // 前端经 invoke('write_probe_log', {line}) 调用：追加写 %temp% 并压入环形缓冲
+    pub fn append_line(line: &str) {
+        if !ENABLED.load(Ordering::Relaxed) {
+            return;
+        }
+        // 落盘
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(probe_path())
+        {
+            let _ = f.write_all(line.as_bytes());
+            let _ = f.write_all(b"\n");
+        }
+        // 环形缓冲
+        if let Ok(mut buf) = recent().lock() {
+            if buf.len() >= MAX_RECENT {
+                buf.remove(0);
+            }
+            buf.push(line.to_string());
+        }
+    }
+
+    pub fn is_enabled() -> bool {
+        ENABLED.load(Ordering::Relaxed)
+    }
+
+    // 启动 127.0.0.1:PORT 最小 HTTP 服务（独立线程，非阻塞）
+    pub fn start_if_env() {
+        let enabled = std::env::var("CME_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if !enabled {
+            return;
+        }
+        ENABLED.store(true, Ordering::Relaxed);
+        // 1.4（U2 调试补全）：为 WebView2 注入远程调试端口，使 chrome-devtools MCP
+        // 可经 CDP（http://localhost:9222/json/version）设断点 / 交互调试 / evaluate。
+        // 必须在 .run() 之前设置——WebView2 创建环境时读取该环境变量。
+        // 受本模块 feature 门控 + CME_DEBUG 运行时门控双重保护，生产默认不开启。
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
+        append_line(&format!(
+            "{{\"t\":\"{}\",\"seq\":1,\"session\":\"boot\",\"env\":\"exe\",\"event\":\"debug.cdp.expose\",\"data\":{{\"port\":9222}}}}",
+            now_iso()
+        ));
+        // 写一行启动标记
+        append_line(&format!(
+            "{{\"t\":\"{}\",\"seq\":0,\"session\":\"boot\",\"env\":\"exe\",\"event\":\"debug.bridge.start\",\"data\":{{\"port\":{}}}}}",
+            now_iso(),
+            PORT
+        ));
+
+        std::thread::spawn(move || {
+            let listener = match TcpListener::bind(("127.0.0.1", PORT)) {
+                Ok(l) => l,
+                Err(e) => {
+                    append_line(&format!(
+                        "{{\"t\":\"{}\",\"event\":\"debug.bridge.bind_fail\",\"data\":{{\"err\":\"{}\"}}}}",
+                        now_iso(),
+                        e
+                    ));
+                    return;
+                }
+            };
+            append_line(&format!(
+                "{{\"t\":\"{}\",\"event\":\"debug.bridge.listening\",\"data\":{{\"addr\":\"127.0.0.1:{}\"}}}}",
+                now_iso(),
+                PORT
+            ));
+            for stream in listener.incoming() {
+                if let Ok(mut s) = stream {
+                    let _ = handle(&mut s);
+                }
+            }
+        });
+    }
+
+    fn handle(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
+        let mut buf = [0u8; 4096];
+        let n = stream.read(&mut buf)?;
+        let req = String::from_utf8_lossy(&buf[..n]);
+        let path = req.split_whitespace().nth(1).unwrap_or("/");
+        let (status, body) = match path {
+            "/health" => ("200 OK", "{\"ok\":true}".to_string()),
+            "/probe" => {
+                let lines = recent()
+                    .lock()
+                    .map(|b| b.join("\n"))
+                    .unwrap_or_default();
+                ("200 OK", lines)
+            }
+            "/state" => {
+                // 仅返回非空时给 initial_file 占位（避免泄露路径细节于接口）
+                ("200 OK", "{\"ok\":true}".to_string())
+            }
+            _ => ("404 Not Found", "not found".to_string()),
+        };
+        let resp = format!(
+            "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+            status,
+            body.len(),
+            body
+        );
+        stream.write_all(resp.as_bytes())?;
+        Ok(())
+    }
+
+    fn now_iso() -> String {
+        // 粗略 ISO 时间戳（避免引入 chrono 依赖）
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("{}", secs)
+    }
+
+    // 供 lib.rs 中 tauri::command 调用
+    pub fn write_probe_log(line: String) {
+        append_line(&line);
+    }
+}
+
+// 供前端查询调试桥是否在运行时启用（CME_DEBUG=1）
+#[tauri::command]
+fn debug_bridge_status() -> bool {
+    debug_bridge::is_enabled()
+}
+
 // 记录「启动时通过命令行传入的 .md 文件」
 struct AppState {
     initial_file: Mutex<Option<String>>,
@@ -177,8 +335,19 @@ fn save_compare_result(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
+// 调试桥：前端经 invoke 写入探针行（feature 门控，运行时再经 CME_DEBUG 二次门控）
+#[cfg(feature = "debug-bridge")]
+#[tauri::command]
+fn write_probe_log(line: String) {
+    crate::debug_bridge::write_probe_log(line);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 调试桥：编译期带 feature 时启动（运行时再经 CME_DEBUG 环境变量二次门控）
+    #[cfg(feature = "debug-bridge")]
+    debug_bridge::start_if_env();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -199,6 +368,10 @@ pub fn run() {
             write_binary_file,
             read_multiple_text_files,
             save_compare_result,
+            #[cfg(feature = "debug-bridge")]
+            write_probe_log,
+            #[cfg(feature = "debug-bridge")]
+            debug_bridge_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

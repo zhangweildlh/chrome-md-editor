@@ -175,21 +175,24 @@ const selectionMatchHighlighter = ViewPlugin.fromClass(
 function buildWhitespaceDecorations(view) {
   const builder = new RangeSetBuilder();
   for (const { from, to } of view.visibleRanges) {
-    let line = view.state.doc.lineAt(from);
-    for (let i = from; i <= to; ) {
-      const lineEnd = line.to;
-      for (; i < lineEnd; i++) {
+    let pos = from;
+    // 逐行推进：line.to 是行尾换行符位置，doc.lineAt(line.to) 仍返回【本行】，
+    // 故必须显式 pos = line.to + 1 才能跨入下一行；否则 line/lineEnd/i 全部不前进，
+    // 外层循环无限空转 → 主线程卡死（#3 显示空格开启时编辑器冻结的根因）。
+    while (pos <= to) {
+      const line = view.state.doc.lineAt(pos);
+      const start = Math.max(from, line.from); // 不越界装饰可见区起点之前
+      for (let i = start; i < line.to; i++) {
         const ch = line.text[i - line.from];
         if (ch === ' ' || ch === '\t') {
           let next = i + 1;
-          for (; next < lineEnd && /\s/.test(line.text[next - line.from]); next++) {}
+          for (; next < line.to && /\s/.test(line.text[next - line.from]); next++) {}
           const cls = ch === '\t' ? 'cm-highlightTab' : 'cm-space-dot cm-highlightSpace';
           builder.add(i, next, Decoration.mark({ class: `${cls} cm-whitespace` }));
-          i = next;
+          i = next; // 跳过整段空白；外层 for 的 i++ 会再 +1，落点正确
         }
       }
-      if (i >= to) break;
-      line = view.state.doc.lineAt(i);
+      pos = line.to + 1; // 跨到下一行起点（跳过换行符）；越界时 while 条件终止
     }
   }
   return builder.finish();

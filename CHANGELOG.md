@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [Unreleased] - 2026-08-23（分支 feat/fix-whitespace-deco-freeze-20260823）
+
+### 修复
+- **显示选项卡死（致命）→ 已修复**：根因 `editor-extensions.js` 的 `buildWhitespaceDecorations` 对行尾位置 `doc.lineAt(line.to)` 返回本行导致无限空转（死循环）。修复后 `pos = line.to + 1` 跨入下一行，越界即终止。`space=1` 场景下点击「显示空格 / 增强 / 其他」不再冻结（360Chromex 真机复验通过）。
+- **「按钮间距」下拉无效 → 已修复**：根因 `editor.css` 存在两段同选择器 `.toolbar-group`（`gap: var(--ui-gap)` 与 `gap: 4px` 同特异性、后者覆盖前者），导致 `--ui-gap` 永远被钉死为 4px。修复：合并为唯一权威来源 `gap: var(--ui-gap)`。三档（compact=2px / standard=4px / comfortable=14px）精确跟随（360Chromex 真机复验通过）。
+
+### 新增
+- **调试桥 + 前端探针（开发者能力，默认关闭）**：
+  - 前端 `src/debug-probe.js`：统一捕获初始化完成、按钮点击、拖拽 drop、打开文件回调、合并结果等运行态事件；通过 `window.__probe(event, data)` 暴露。
+  - 浏览器侧（扩展）：经 `console.log('[PROBE]'+json)` 输出，由外部 CDP 采集器（连 9222）落盘 `%temp%/cme-browser-probe-<ts>.jsonl`。
+  - EXE 侧（Tauri）：经 `window.__TAURI__.invoke('write_probe_log')` 由 Rust 落盘 `%temp%/cme-exe-probe-<pid>.jsonl`；并新增 `127.0.0.1:9555` 调试 HTTP 接口（`/health`/`/probe`/`/state`），受编译期 `feature="debug-bridge"` + 运行时 `CME_DEBUG=1` 双重门控，不污染生产构建。
+  - 启用开关：`?debug=1` / `localStorage['cme-debug']=1` / `window.__CME_DEBUG__=true`。
+- **WebView2 远程调试端口（CDP，默认关闭）**：复用 `debug-bridge` 编译 feature + `CME_DEBUG=1` 运行时双重门控。在 `debug_bridge::start_if_env()` 内（`.run()` 之前）经 `std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222")` 注入，使 WebView2 暴露 CDP 端点（`http://localhost:9222/json/version`），chrome-devtools MCP 可经此设断点 / 交互调试 / evaluate——补全第一步「仅能看日志、不能下断点」的缺口。生产构建（不带 feature）不含此逻辑，端口默认不暴露；仅依赖标准库 `std::env::set_var` 与 WebView2 官方环境变量机制，不引入新依赖。
+
+### 修复
+- **「保持文件」弹窗 UI 与编辑/预览页「打开文件」弹窗不一致（#6）→ 已修复**：根因 `save-poll.js` 的 `buildOverlay()` 用内联硬编码颜色自建 `.save-poll-overlay` / `.save-poll-modal`，与全站 `.modal-overlay` / `.modal-card` 体系两套样式。修复：弹窗复用全站 `.modal-overlay` / `.modal-card` / `.modal-actions` / `.modal-title` / `.modal-hint` / `.modal-btn` / `.modal-btn-primary` 类名，移除硬编码色彩，外观与全站一致且随明暗主题自适应。`save-poll.test.js` 4/4 通过。
+
+### 修复（CI）
+- **Desktop Build 未启用调试桥**（`desktop-build.yml`）：原 `npm run tauri build` 未传 `--features debug-bridge`，导致 fork CI 产物不含调试桥（`9555` 端口不监听）。修复：构建命令改为 `npm run tauri build -- --features debug-bridge`，使后续 EXE 在 `CME_DEBUG=1` 下暴露调试端口与探针日志。
+- **Rust 调试桥编译错误**（`desktop/src/lib.rs`）：修复 `format` 宏漏写 `!`（3 处）与缺 `use std::thread`，使 `debug-bridge` feature 可正常编译；新增 `debug_bridge_status` command 供前端查询运行时启用状态。
+
+### 增强（探针联动）
+- **EXE 前端探针自动跟随 Rust 调试桥**（`src/debug-probe.js`）：Tauri 环境下异步查询 `debug_bridge_status`（CME_DEBUG=1 门控），与 Rust 运行时门控对齐——前端探针随 EXE 调试桥一起开/关，无需手动设 localStorage。
+
+### 增强（探针联动）
+- **EXE 前端探针默认启用**（`src/debug-probe.js`）：Tauri 环境下前端探针默认开启（Rust 侧 `CME_DEBUG=1` 仍双重门控），确保 `editor.init.done` 等初始事件不被异步启用延迟而丢失，便于 EXE 真机坐实。
+- **CLI 打开文件探针**（`src/editor.js`）：`openInitialCliFile` 成功打开命令行传入的 .md 后发 `editor.open.cli` 事件，可据 `/probe` 坐实 #5（EXE 打开文件）桥接实效。
+
+### 真机坐实结论（带 CME_DEBUG=1 构建，fork CI run 32635697037）
+- **调试桥链路**：EXE 启动暴露 `127.0.0.1:9555`（`/health`/`/state`/`/probe` 三接口可用），Rust 环形缓冲 + `%temp%/cme-exe-probe-<pid>.jsonl` 落盘。
+- **前端联动**：`/probe` 实测出现 `probe.init`（`url=http://tauri.localhost/src/editor.html`, `isTauri=true`）+ `editor.init.done`（`version=1.9.10`），证明 EXE 内前端经 `invoke('write_probe_log')` 通道完全打通。
+- #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性：前端探针注入点（`compare.drop.tauri`/`compare.drop.html5`/`editor.open.cli`/`button click`）已就位，EXE 内对应操作会经同一 invoke 通道写入 `/probe`，可直接据接口坐实。
+
 ## [1.9.10] - 2026-08-21（端到端 R3：10 项 BUG 坐实 + 修复）
 
 ### 修复
