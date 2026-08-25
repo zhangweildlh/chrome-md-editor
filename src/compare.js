@@ -1646,6 +1646,18 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     });
   if (btnScroll)
     btnScroll.addEventListener("click", () => {
+      // 诊断探针（#3 根因坐实）：记录滚动同步按钮点击时控制器真实状态
+      if (typeof window.__probe === "function") {
+        window.__probe("ui.scroll.click", {
+          hasScrollSync: !!scrollSync,
+          isEffective: !!(
+            scrollSync &&
+            typeof scrollSync.isEffective === "function" &&
+            scrollSync.isEffective()
+          ),
+          scrollSyncEnabled,
+        });
+      }
       // 需求⑤：控制器无有效同步链接（两栏共用滚动盒）时按钮已置灰，点击直接忽略，
       // 不再产生「翻转了高亮但底层无效」的假开关。
       if (
@@ -1682,7 +1694,19 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 需求8：差异导航线（#locationPane 细线本体作为点击热区）→ 跳到下一处差异
   // （复用现有块导航 navNext；navNext 内部对无实例场景做了防御，不会抛错）。
   if (locationPaneEl) locationPaneEl.addEventListener("click", () => navNext());
-  if (btnSave) btnSave.addEventListener("click", onSave);
+  if (btnSave) {
+    btnSave.addEventListener("click", onSave);
+    // 诊断探针（#9 根因坐实）：捕获层确认点击是否真正到达 btnSave 元素。
+    // ui.save.domClick 发而 ui.save.enter 不发 → onSave 未绑定（矛盾，需查引用）；
+    // 两者都不发 → 点击未到达 btnSave 元素（被替换/覆盖/拦截）。
+    if (typeof window.__probe === "function") {
+      btnSave.addEventListener(
+        "click",
+        () => window.__probe("ui.save.domClick", { reachable: true }),
+        true
+      );
+    }
+  }
   // 撤销 / 重做（任务1）：作用于当前活动栏（由 getActivePane 决定）；
   // 快捷键 Ctrl+Z / Ctrl+Y(Ctrl+Shift+Z) 已由 editor-extensions 的 historyKeymap 提供，此处仅补按钮。
   if (btnUndo) btnUndo.addEventListener("click", onUndo);
