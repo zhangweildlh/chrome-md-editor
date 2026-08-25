@@ -15,6 +15,7 @@
 
 use tauri::Manager;
 use std::sync::Mutex;
+use tauri_plugin_dialog::DialogExt;
 
 // 调试桥开关：编译期默认关闭（不增加生产二进制体积/攻击面），
 // 需显式 --features debug-bridge 构建；运行时再用环境变量 CME_DEBUG=1 二次门控。
@@ -333,6 +334,22 @@ fn write_probe_log(line: String) {
     crate::debug_bridge::write_probe_log(line);
 }
 
+// 自定义「保存文件」对话框命令（#7 修复）：直接调用 dialog 插件的原生保存框，
+// 返回用户选定的绝对路径字符串；用户取消时返回 null。前端 io-bridge 通过此命令完成
+// 「另存为」选路径，绕开 plugin:dialog|save 在部分发布下的 IPC 调用怪异（该命令调用即被拒）。
+#[tauri::command]
+async fn save_file_dialog(app: tauri::AppHandle, default_path: Option<String>) -> Result<Option<String>, String> {
+    let mut builder = app.dialog().file();
+    if let Some(name) = default_path.filter(|s| !s.is_empty()) {
+        builder.set_file_name(name.as_str());
+    }
+    builder
+        .save_file()
+        .await
+        .map(|opt| opt.map(|p| p.to_string_lossy().to_string()))
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 调试桥：编译期带 feature 时启动（运行时再经 CME_DEBUG 环境变量二次门控）
@@ -359,6 +376,7 @@ pub fn run() {
             write_binary_file,
             read_multiple_text_files,
             save_compare_result,
+            save_file_dialog,
             #[cfg(feature = "debug-bridge")]
             write_probe_log,
             #[cfg(feature = "debug-bridge")]
