@@ -519,7 +519,27 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (outlinePanelEl) {
       // 复用主界面 .side-panel 的可见性约定：.open 类控制 display:flex。
       outlinePanelEl.classList.toggle("open", outlineVisible);
-      if (typeof window.__probe === "function") window.__probe("ui.outline.setVisible", { visible: outlineVisible, hasOpenClass: outlinePanelEl.classList.contains("open"), display: getComputedStyle(outlinePanelEl).display });
+      if (typeof window.__probe === "function") {
+        const cs = getComputedStyle(outlinePanelEl);
+        const rect = outlinePanelEl.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const atPoint = (typeof document !== "undefined" && document.elementFromPoint) ? document.elementFromPoint(cx, cy) : null;
+        const occluded = !!(atPoint && atPoint !== outlinePanelEl && !outlinePanelEl.contains(atPoint));
+        const parentCs = outlinePanelEl.parentElement ? getComputedStyle(outlinePanelEl.parentElement) : null;
+        window.__probe("ui.outline.setVisible", {
+          visible: outlineVisible,
+          hasOpenClass: outlinePanelEl.classList.contains("open"),
+          display: cs.display,
+          computedWidth: cs.width,
+          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height), right: Math.round(rect.right) },
+          center: { cx: Math.round(cx), cy: Math.round(cy) },
+          atPointTagName: atPoint ? atPoint.tagName : null,
+          occluded,
+          parentDisplay: parentCs ? parentCs.display : null,
+          parentFlexDir: parentCs ? parentCs.flexDirection : null,
+        });
+      }
     } else if (typeof window.__probe === "function") {
       window.__probe("ui.outline.setVisible", { visible: outlineVisible, hasOpenClass: false, display: "no-panel" });
     }
