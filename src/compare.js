@@ -561,6 +561,37 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
             }
             return null;
           })(),
+          // 完整祖先链（从遮挡元素一直到 root）：每一层的 tag#id、position、zIndex。
+          // 用于看清到底是哪一层 stacking context 的 z-index 高于大纲(z=1)。
+          atPointChain: (function () {
+            const chain = [];
+            let el = atPoint;
+            let guard = 0;
+            while (el && guard < 16) {
+              const ecs = getComputedStyle(el);
+              const id = el.id ? "#" + el.id : "";
+              const cls = (el.className && typeof el.className === "string") ? "." + el.className.trim().split(/\s+/).join(".") : "";
+              chain.push(el.tagName + id + cls + " [pos=" + ecs.position + ",z=" + ecs.zIndex + "]");
+              el = el.parentElement;
+              guard++;
+            }
+            return chain;
+          })(),
+          // 大纲面板自身祖先链（确认大纲处于哪一层 stacking context）
+          outlineChain: (function () {
+            const chain = [];
+            let el = outlinePanelEl;
+            let guard = 0;
+            while (el && guard < 16) {
+              const ecs = getComputedStyle(el);
+              const id = el.id ? "#" + el.id : "";
+              const cls = (el.className && typeof el.className === "string") ? "." + el.className.trim().split(/\s+/).join(".") : "";
+              chain.push(el.tagName + id + cls + " [pos=" + ecs.position + ",z=" + ecs.zIndex + "]");
+              el = el.parentElement;
+              guard++;
+            }
+            return chain;
+          })(),
         });
       }
     } else if (typeof window.__probe === "function") {
