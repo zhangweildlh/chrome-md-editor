@@ -231,7 +231,11 @@ export async function showSaveAsDialog({ suggestedName, types } = {}) {
   // Tauri（返回 { path }）/ 非安全上下文（返回 { download, name } 由 write 走 Blob 下载）。
   try {
     const target = await resolvePickSaveTarget(name);
-    return target || null;
+    // 取消 / 无效目标 → null（#7 收口加固：避免 { path: null } 之类伪目标被当真值误写）
+    if (!target || typeof target !== 'object') return null;
+    if (target.handle || target.download) return target;
+    if (typeof target.path === 'string' && target.path) return target;
+    return null;
   } catch (err) {
     if (err && err.name === 'AbortError') return null; // 用户取消
     console.error('[save-poll] pickSaveTarget 失败：', err);

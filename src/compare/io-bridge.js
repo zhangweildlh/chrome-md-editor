@@ -182,14 +182,22 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
         throw new Error('ioBridge.pickSaveTarget: 桌面端缺少可用的 invoke');
       }
       const defaultPath = suggestedName || 'untitled.md';
+      // 修复（#7）：改用 Tauri v2 dialog 插件已注册的保存命令 plugin:dialog|save
+      // （原 save_file_dialog / open_save_dialog 未在 desktop/src/lib.rs 注册 → 调用即抛错，
+      // 被 save-poll 吞成「用户取消」，导致导出无文件）。该命令返回形态可能为
+      // 字符串 / { filePath } / null，统一归一为 { path } 或在取消时返回 null。
       try {
-        const path = await envInvoke('save_file_dialog', { defaultPath });
-        return { path };
+        const res = await envInvoke('plugin:dialog|save', { defaultPath });
+        const path = res == null ? null : res.filePath ?? res.path ?? res;
+        if (typeof path === 'string' && path) return { path };
+        return null; // 用户取消 / 无效路径
       } catch (firstErr) {
         // 退化为 open_save_dialog（命令名在不同桌面端发布下可能不同）
         try {
-          const path = await envInvoke('open_save_dialog', { defaultPath });
-          return { path };
+          const res = await envInvoke('open_save_dialog', { defaultPath });
+          const path = res == null ? null : res.filePath ?? res.path ?? res;
+          if (typeof path === 'string' && path) return { path };
+          return null;
         } catch (secondErr) {
           throw firstErr; // 抛出首个错误，保留最贴近的失败原因
         }

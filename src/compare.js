@@ -1677,85 +1677,127 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   }
 
-  // ── 绑定工具栏按钮 ──
-  // 模式切换（§3）：对照 / 合并；列数切换（仅对照模式）；滚动同步开关
-  if (btnModeCompare)
-    btnModeCompare.addEventListener("click", () => switchMode("compare"));
-  if (btnModeMerge) btnModeMerge.addEventListener("click", () => switchMode("merge"));
-  if (btnColToggle)
-    btnColToggle.addEventListener("click", () => {
-      if (mode !== "compare") return; // 合并模式不出现该按钮
-      colCount = colCount === 2 ? 3 : 2;
-      updateColToggleLabel();
-      render();
-    });
-  if (btnScroll)
-    btnScroll.addEventListener("click", () => {
-      // 诊断探针（#3 根因坐实）：记录滚动同步按钮点击时控制器真实状态
-      if (typeof window.__probe === "function") {
-        window.__probe("ui.scroll.click", {
-          hasScrollSync: !!scrollSync,
-          isEffective: !!(
-            scrollSync &&
-            typeof scrollSync.isEffective === "function" &&
-            scrollSync.isEffective()
-          ),
-          scrollSyncEnabled,
-        });
-      }
-      // 需求⑤：控制器无有效同步链接（两栏共用滚动盒）时按钮已置灰，点击直接忽略，
-      // 不再产生「翻转了高亮但底层无效」的假开关。
-      if (
-        !scrollSync ||
-        (typeof scrollSync.isEffective === "function" && !scrollSync.isEffective())
-      ) {
-        return;
-      }
-      // M5（补充）：compare.js 持有本地开关态 scrollSyncEnabled，按钮翻转它并推给唯一控制器
-      // instance.scrollSync（含三栏 B↔C / A↔C）；不再直接 toggle 控制器内部态，否则按钮高亮
-      // （updateScrollButton 只读 compare.js 的 scrollSyncEnabled）会与真实开关脱钩。
-      scrollSyncEnabled = !scrollSyncEnabled;
-      if (scrollSync) {
-        if (scrollSyncEnabled) scrollSync.enable();
-        else scrollSync.disable();
-      }
-      updateScrollButton();
-    });
-  if (btnPrevChunk) btnPrevChunk.addEventListener("click", navPrev);
-  if (btnNextChunk) btnNextChunk.addEventListener("click", navNext);
+  // ── 工具栏按钮：事件委托（#9 / #3 根因修复）──
+  // 原实现为每个按钮各自 addEventListener("click", handler)。实测在部分运行环境
+  // （桌面 EXE 对比页）下 btnSave / btnScroll 的逐按钮监听器未触发（探针显示点击命中
+  // 按钮但 handler 0 次执行），导致「保存 / 滚动同步」无响应。
+  // 改为在稳定的祖先 #compareToolbar 上挂单一「捕获」监听，按
+  // e.target.closest("[id]") 路由到各 handler：
+  //   1) 监听器挂载在稳定祖先上，免疫按钮子树的重父化 / 重绑 / 子节点 stopPropagation；
+  //   2) 捕获阶段早于按钮自身与子节点处理，确保委托必达；
+  //   3) 全部工具栏按钮统一由一处接管，杜绝逐个绑定遗漏。
+  // 注：<select id="selHighlightWords"> 使用 change 事件，不在此 click 委托内，保留下方
+  // 独立 change 监听；#outlineClose / #locationPane / #btnBackToEditor / paneHeader 等均
+  // 不在 #compareToolbar 内，保留各自原绑定。
+  const toolbarEl = HOST.getElementById("compareToolbar");
+  if (toolbarEl) {
+    toolbarEl.addEventListener(
+      "click",
+      (e) => {
+        const el = e.target.closest("[id]");
+        if (!el) return;
+        const id = el.id;
+        // 诊断探针（#9 / #3 收口验证）：确认委托捕获到工具栏点击
+        if (typeof window.__probe === "function") {
+          window.__probe("ui.delegate.click", { id });
+        }
+        switch (id) {
+          case "btnModeCompare":
+            switchMode("compare");
+            break;
+          case "btnModeMerge":
+            switchMode("merge");
+            break;
+          case "btnColToggle":
+            if (mode !== "compare") return; // 合并模式不出现该按钮
+            colCount = colCount === 2 ? 3 : 2;
+            updateColToggleLabel();
+            render();
+            break;
+          case "btnScroll": {
+            // 诊断探针（#3 收口验证）：记录滚动同步按钮点击时控制器真实状态
+            if (typeof window.__probe === "function") {
+              window.__probe("ui.scroll.click", {
+                hasScrollSync: !!scrollSync,
+                isEffective: !!(
+                  scrollSync &&
+                  typeof scrollSync.isEffective === "function" &&
+                  scrollSync.isEffective()
+                ),
+                scrollSyncEnabled,
+              });
+            }
+            // 需求⑤：控制器无有效同步链接（两栏共用滚动盒）时按钮已置灰，点击直接忽略
+            if (
+              !scrollSync ||
+              (typeof scrollSync.isEffective === "function" &&
+                !scrollSync.isEffective())
+            ) {
+              return;
+            }
+            scrollSyncEnabled = !scrollSyncEnabled;
+            if (scrollSync) {
+              if (scrollSyncEnabled) scrollSync.enable();
+              else scrollSync.disable();
+            }
+            updateScrollButton();
+            break;
+          }
+          case "btnPrevChunk":
+            navPrev();
+            break;
+          case "btnNextChunk":
+            navNext();
+            break;
+          case "btnPickFiles":
+            onPickFiles();
+            break;
+          case "btnExportResult":
+            onExportResult();
+            break;
+          case "btnExportDiff":
+            onExportDiff();
+            break;
+          case "btnToggleCollapse":
+            onToggleCollapse();
+            break;
+          case "btnAcceptTheirs":
+            onAcceptTheirs();
+            break;
+          case "btnToggleLocationPane":
+            toggleLocationPane();
+            break;
+          case "btnToggleOutline":
+            toggleOutlinePanel();
+            break;
+          case "btnSave":
+            // 委托接管：onSave 首行即 emit ui.save.enter，可直接证明其执行
+            onSave();
+            break;
+          case "btnUndo":
+            onUndo();
+            break;
+          case "btnRedo":
+            onRedo();
+            break;
+          case "btnApplyNonConflicting":
+            applyNonConflictingChunks();
+            break;
+          // #selHighlightWords 为 <select>，change 事件，下方独立监听；
+          // #outlineClose / #locationPane / #btnBackToEditor / paneHeader 不在本工具栏内。
+        }
+      },
+      true // 捕获阶段：确保委托早于任何子节点处理，必达
+    );
+  }
 
   // ── 块导航快捷键：复用按钮点击的同一组 navNext / navPrev（B / ] 下一块，Shift+B / [ 上一块） ──
   bindChunkNavigationKeys({ next: navNext, prev: navPrev });
-  if (btnPickFiles) btnPickFiles.addEventListener("click", onPickFiles);
-  if (btnExportResult) btnExportResult.addEventListener("click", onExportResult);
-  if (btnExportDiff) btnExportDiff.addEventListener("click", onExportDiff);
-  if (btnToggleCollapse) btnToggleCollapse.addEventListener("click", onToggleCollapse);
-  if (btnAcceptTheirs) btnAcceptTheirs.addEventListener("click", onAcceptTheirs);
-  if (btnToggleLocationPane)
-    btnToggleLocationPane.addEventListener("click", toggleLocationPane);
-  // 需求7：大纲面板按钮（切换独立 #outlinePanel 可见性）
-  if (btnToggleOutline) btnToggleOutline.addEventListener("click", toggleOutlinePanel);
+
+  // 大纲面板关闭（#outlineClose 不在 #compareToolbar 内，保留原绑定）
   if (outlineCloseBtn) outlineCloseBtn.addEventListener("click", () => setOutlineVisible(false));
-  // 需求8：差异导航线（#locationPane 细线本体作为点击热区）→ 跳到下一处差异
-  // （复用现有块导航 navNext；navNext 内部对无实例场景做了防御，不会抛错）。
+  // 差异导航线点击跳到下一处差异（#locationPane 不在 #compareToolbar 内，保留原绑定）
   if (locationPaneEl) locationPaneEl.addEventListener("click", () => navNext());
-  if (btnSave) {
-    btnSave.addEventListener("click", onSave);
-    // 诊断探针（#9 根因坐实）：捕获层确认点击是否真正到达 btnSave 元素。
-    // ui.save.domClick 发而 ui.save.enter 不发 → onSave 未绑定（矛盾，需查引用）；
-    // 两者都不发 → 点击未到达 btnSave 元素（被替换/覆盖/拦截）。
-    if (typeof window.__probe === "function") {
-      btnSave.addEventListener(
-        "click",
-        () => window.__probe("ui.save.domClick", { reachable: true }),
-        true
-      );
-    }
-  }
-  // 撤销 / 重做（任务1）：作用于当前活动栏（由 getActivePane 决定）；
-  // 快捷键 Ctrl+Z / Ctrl+Y(Ctrl+Shift+Z) 已由 editor-extensions 的 historyKeymap 提供，此处仅补按钮。
-  if (btnUndo) btnUndo.addEventListener("click", onUndo);
-  if (btnRedo) btnRedo.addEventListener("click", onRedo);
 
   // 需求7：应用大纲面板初始可见性（默认开启 → 加 .open 类并点亮按钮；无实例 时内部跳过渲染）。
   setOutlineVisible(outlineVisible);
@@ -1772,8 +1814,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。
-  if (btnApplyNonConflicting)
-    btnApplyNonConflicting.addEventListener("click", applyNonConflictingChunks);
+  // 注：btnApplyNonConflicting 的点击已由上方 #compareToolbar 事件委托统一路由
+  // （switch 内 case "btnApplyNonConflicting" → applyNonConflictingChunks），
+  // 此处不再单独绑定，避免重复触发。
   // B↔C 逐块采纳已迁移至 compare-merge.js（acceptBcChunkAt + mountBcRevertColumn），
   // 本文件不再持有 bulk 采纳逻辑（需求⑩ 已删除顶部「批量采纳方向」按钮，
   // 全量采纳入口仅剩「应用非冲突变更」applyNonConflictingChunks）。
