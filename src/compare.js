@@ -235,6 +235,17 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── DOM 查询（作用域隔离：集成模式下限定在 #compareHost，避免与 editor.html 既有 ID 冲突）──
   const $ = (id) => HOST.getElementById(id);
+  // 对比大纲面板在两种宿主下的 id 兼容（根治 #5「大纲按钮无效果」）：
+  //  - EXE 集成模式（editor.html 内嵌 #compareHost）：主编辑区与对比区各有一个 #outlinePanel。
+  //    若 document.getElementById 命中主编辑区那个，它位于 MAIN#editorMain，绘制在 #compareHost
+  //    (position:fixed; z-index:1000) 之下，永远不可见。故对比大纲改用唯一 id #compareOutlinePanel
+  //    （editor.html 中已改名），优先解析它。
+  //  - 浏览器扩展独立页（compare.html）：仅一个 #outlinePanel，回退到此 id。
+  // 其余对比 DOM（#compareRoot/#viewTwo 等）在两份 HTML 中 id 唯一，无需此兼容。
+  const getOutlineEl = (base) => {
+    const prefixed = "compare" + base.charAt(0).toUpperCase() + base.slice(1);
+    return HOST.getElementById(prefixed) || HOST.getElementById(base);
+  };
   // 模式切换：对照 / 合并（按钮由 C3 在 compare.html 注入，此处做 null 保护）
   const btnModeCompare = $("btnModeCompare");
   const btnModeMerge = $("btnModeMerge");
@@ -255,9 +266,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   const locationPaneResizerEl = $("locationPaneResizer");
   // 需求7：大纲面板独立元素
   const btnToggleOutline = $("btnToggleOutline");
-  const outlinePanelEl = $("outlinePanel");
-  const outlineListEl = $("outlineList");
-  const outlineCloseBtn = $("outlineClose");
+  const outlinePanelEl = getOutlineEl("outlinePanel");
+  const outlineListEl = getOutlineEl("outlineList");
+  const outlineCloseBtn = getOutlineEl("outlineClose");
   // 「保存」按钮由 compare.html 提供；该按钮可能尚未上线，必须做 null 保护
   const btnSave = $("btnSave");
   // 撤销 / 重做（任务1）：作用于当前获得焦点的活动栏
@@ -620,7 +631,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   function applyOutlineWidth(px, { persist = false } = {}) {
-    const panel = HOST.getElementById("outlinePanel");
+    const panel = getOutlineEl("outlinePanel");
     if (!panel) return;
     const n = Number(px);
     const w = Number.isFinite(n)
@@ -641,14 +652,14 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // CSS 选不到「前一个兄弟」，故用 MutationObserver 监听 class 变化统一同步。
   function syncOutlineDockState() {
     const root = HOST.getElementById("compareRoot");
-    const panel = HOST.getElementById("outlinePanel");
+    const panel = getOutlineEl("outlinePanel");
     if (!root || !panel) return;
     const visible = panel.classList.contains("open") && !panel.classList.contains("view-hidden");
     root.classList.toggle("outline-docked-open", visible);
   }
 
   function initCompareOutlineDock() {
-    const panel = HOST.getElementById("outlinePanel");
+    const panel = getOutlineEl("outlinePanel");
     const resizer = HOST.getElementById("resizerCompareOutline");
     if (!panel) return;
 
