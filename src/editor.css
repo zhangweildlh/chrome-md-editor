@@ -1719,39 +1719,29 @@ body {
   font-family: var(--editor-font-family);
 }
 
-/* G8 显示选项：行尾换行符/换行标记（Decoration.line + ::after 伪元素，零 widget DOM，F1）
-   弱化显示、不可选中、不拦截事件；两开关同时开启时 pilcrow 声明在后 → 显示 ¶ */
-/* G8 修复（#12/#13）：行尾标记原本用 inline 伪元素（::after + margin-left），
-   会作为行盒内联内容参与行高计算，导致空行（仅有换行符）行高翻倍。
-   改为绝对定位脱离文档流，伪元素不再撑高行高，任何行（含空行）行高保持不变。
-   行容器需 position:relative 作为定位上下文；行尾标记挂在本行末尾、不占高度。 */
-.cm-eol-arrow,
-.cm-eol-pilcrow {
-  position: relative;
-}
-.cm-eol-arrow::after,
-.cm-eol-pilcrow::after {
-  content: '\21b5'; /* ↵ */
-  position: absolute;
-  right: 0;
-  top: 0;
-  margin-left: 0;
-  color: var(--text-muted);
-  opacity: 0.55;
-  font-size: 0.85em;
-  line-height: inherit;
+/* G8 显示选项：行尾换行符/换行标记（#12/#13）
+   inline widget 显示实际换行符类型（CR/LF/CR LF），紧贴文本末尾，不撑高行高。 */
+.cm-eol-label {
+  display: inline-block;
+  margin-left: 0.35em;
+  padding: 0.05em 0.35em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+  font-size: 0.72em;
+  font-weight: 500;
+  line-height: 1;
+  vertical-align: middle;
   user-select: none;
   pointer-events: none;
-}
-.cm-eol-pilcrow::after {
-  content: '\00b6'; /* ¶ */
+  white-space: pre;
 }
 
 /* ㉑ 显示空格 → 红色居中小圆点（VS Code Render Whitespace dot 风格，染红）。
    highlightWhitespace() 给空格加 .cm-highlightSpace、给制表符加 .cm-highlightTab，
    CM6 默认是灰色径向点/箭头；此处覆盖为红色，圆点居中（circle at 50% 55%）。 */
 .editor-container .cm-editor .cm-content .cm-highlightSpace {
-  background-image: radial-gradient(circle at 50% 55%, var(--danger) 30%, transparent 8%);
+  background-image: radial-gradient(circle at 50% 55%, var(--danger) 0%, var(--danger) 18%, transparent 18%);
   background-position: center;
 }
 .editor-container .cm-editor .cm-content .cm-highlightTab {

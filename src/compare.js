@@ -1632,6 +1632,51 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   }
 
+  // ── 静态可达性探针（#9 死结）：在 init 阶段即检测 5 个目标按钮是否真能被点到。
+  // 诊断逻辑：按钮中心点 elementFromPoint 必须落在按钮自身或子元素上；
+  // pointer-events:none / .disabled 类 / disabled 属性任一命中 → 点击无法到达 onSave 等 handler。
+  function probeToolbarReachability() {
+    if (typeof window.__probe !== "function") return;
+    const buttons = [
+      { id: "btnSave", name: "save" },
+      { id: "btnExportDiff", name: "exportDiff" },
+      { id: "btnToggleCollapse", name: "collapse" },
+      { id: "btnToggleOutline", name: "outline" },
+      { id: "btnScroll", name: "scroll" },
+    ];
+    for (const { id, name } of buttons) {
+      const btn = HOST.getElementById(id);
+      if (!btn) {
+        window.__probe(`ui.init.reachability.${name}`, { found: false });
+        continue;
+      }
+      const rect = btn.getBoundingClientRect();
+      const cx = Math.round(rect.left + rect.width / 2);
+      const cy = Math.round(rect.top + rect.height / 2);
+      const computed = getComputedStyle(btn);
+      let ancestorPointerEventsNone = false;
+      let el = btn.parentElement;
+      while (el && el !== document.body) {
+        if (getComputedStyle(el).pointerEvents === "none") {
+          ancestorPointerEventsNone = true;
+          break;
+        }
+        el = el.parentElement;
+      }
+      const atPoint = document.elementFromPoint(cx, cy);
+      window.__probe(`ui.init.reachability.${name}`, {
+        found: true,
+        rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height), cx, cy },
+        pointerEvents: computed.pointerEvents,
+        ancestorPointerEventsNone,
+        hasDisabledClass: btn.classList.contains("disabled"),
+        disabledProp: btn.disabled,
+        elementFromPointIsSelfOrChild: !!(atPoint && (atPoint === btn || btn.contains(atPoint))),
+        atPointTagName: atPoint ? atPoint.tagName : null,
+      });
+    }
+  }
+
   // ── 绑定工具栏按钮 ──
   // 模式切换（§3）：对照 / 合并；列数切换（仅对照模式）；滚动同步开关
   if (btnModeCompare)
@@ -1717,6 +1762,13 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // 需求 B3：初始化对比页大纲拖拽分隔条（移到最右后补 resizer）
   initCompareOutlineDock();
+
+  // 静态可达性探针：在 layout 完成后采集一次，太早有概率拿到 0 尺寸。
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => probeToolbarReachability());
+  } else {
+    probeToolbarReachability();
+  }
 
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。

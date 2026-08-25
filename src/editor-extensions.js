@@ -10,6 +10,7 @@ import {
   lineNumbers, highlightActiveLineGutter, highlightSpecialChars,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor,
   highlightActiveLine, keymap, EditorView, ViewPlugin, Decoration,
+  WidgetType,
 } from '@codemirror/view';
 import { EditorState, Annotation, Compartment, RangeSetBuilder, StateField } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -218,30 +219,54 @@ export const showEolCompartment = new Compartment();
 export const showEolMarkCompartment = new Compartment();
 export const showSpecialCharsCompartment = new Compartment();
 
-/** 行尾标记：Decoration.line + CSS ::after 伪元素（零 widget DOM，避免大文档全量 widget 重建卡顿，F1）。 */
-function eolLineDecorations(cls) {
-  return StateField.define({
-    create(state) { return buildEolLines(state.doc, cls); },
-    update(deco, tr) {
-      if (!tr.docChanged) return deco;
-      return buildEolLines(tr.newDoc, cls);
-    },
-    provide: (f) => EditorView.decorations.from(f),
-  });
+/** EOL 行尾标签 widget：在文本末尾 inline 显示 "CR"/"LF"/"CR LF"（#12/#13）。 */
+class EolLabelWidget extends WidgetType {
+  constructor(label) {
+    super();
+    this.label = label;
+  }
+  eq(other) { return other.label === this.label; }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-eol-label";
+    span.textContent = this.label;
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+  ignoreEvent() { return true; }
+  get estimatedHeight() { return -1; }
 }
 
-/** 给每行起点挂 line decoration class，由 CSS ::after 渲染行尾标记（↵ / ¶）。 */
-function buildEolLines(doc, cls) {
+function detectLineEnding(doc, line) {
+  if (line.to >= doc.length) return null;
+  const next = doc.sliceString(line.to, Math.min(doc.length, line.to + 2));
+  if (next.startsWith("\r\n")) return "CR LF";
+  if (next.startsWith("\n")) return "LF";
+  if (next.startsWith("\r")) return "CR";
+  return null;
+}
+
+function buildEolLabels(doc) {
   const builder = new RangeSetBuilder();
   for (let i = 1; i <= doc.lines; i++) {
     const line = doc.line(i);
-    builder.add(line.from, line.from, Decoration.line({ class: cls }));
+    const label = detectLineEnding(doc, line);
+    if (label) {
+      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget(label), side: 1 }));
+    }
   }
   return builder.finish();
 }
 
-const eolWidgetExt = eolLineDecorations('cm-eol-arrow'); // ↵
-const eolMarkWidgetExt = eolLineDecorations('cm-eol-pilcrow'); // ¶
+/** 行尾标记：inline widget 显示实际换行符类型（CR/LF/CR LF），紧贴文本末尾，不撑高行高（#12/#13）。 */
+const eolLabelsExtension = StateField.define({
+  create(state) { return buildEolLabels(state.doc); },
+  update(deco, tr) {
+    if (!tr.docChanged) return deco;
+    return buildEolLabels(tr.newDoc);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 // 上次应用的状态，用于 F6：仅对发生变化的项 reconfigure（减少冗余 dispatch）
 let lastInvisibles = null;
@@ -261,8 +286,13 @@ export function applyInvisiblesSettings(view, settings = {}) {
     }
   };
   push(showWhitespaceCompartment, 'space', highlightSpaceDots());
-  push(showEolCompartment, 'eol', eolWidgetExt);
-  push(showEolMarkCompartment, 'eolMark', eolMarkWidgetExt);
+  // #12/#13：eol / eolMark 两个开关合并控制同一套行尾标签（均显示 CR/LF/CR LF），
+  // 避免同时开启时同一位置出现两个 widget。
+  const eolVisible = !!(settings.eol || settings.eolMark);
+  const prevEolVisible = !!(prev.eol || prev.eolMark);
+  if ((settings.eol !== undefined || settings.eolMark !== undefined) && eolVisible !== prevEolVisible) {
+    effects.push(showEolCompartment.reconfigure(eolVisible ? eolLabelsExtension : []));
+  }
   push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());
   if (effects.length) {
     view.dispatch({ effects });
@@ -338,8 +368,9 @@ export function createEditorExtensions(opts = {}) {
     themeCompartment.of(theme),
     // G8 显示选项 compartments（初始按设置注入；动态切换走 applyInvisiblesSettings）
     showWhitespaceCompartment.of(invis.space ? highlightSpaceDots() : []),
-    showEolCompartment.of(invis.eol ? eolWidgetExt : []),
-    showEolMarkCompartment.of(invis.eolMark ? eolMarkWidgetExt : []),
+    // #12/#13：eol / eolMark 任一开启都注入同一套行尾标签。
+    showEolCompartment.of((invis.eol || invis.eolMark) ? eolLabelsExtension : []),
+    // showEolMarkCompartment 保留导出但不再单独注入，避免与 eol 重复渲染。
     // 注意：编辑页专属 updateListener 不放入工厂（见上方函数注释 / 设计文档 §8.3）
   ];
 }
