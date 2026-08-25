@@ -3238,7 +3238,7 @@ body {
    注意：这里必须逐条复位 .side-panel 的浮层属性（position/top/right/max-height/
    box-shadow/z-index），否则 fixed 定位会让它继续脱离文档流盖在预览区上。 */
 .side-panel.side-panel-docked {
-  position: static;
+  position: relative;
   top: auto;
   right: auto;
   width: auto;
@@ -3247,7 +3247,12 @@ body {
   flex: 0 0 var(--outline-width, 260px);
   min-width: 160px;
   box-shadow: none;
-  z-index: auto;
+  /* 抬升层叠：CodeMirror 的 .cm-editor 默认 position:relative（已定位元素），
+     按 CSS 绘制顺序会绘制在 static 的 docked 大纲面板之上，导致对比视图下
+     大纲面板被编辑器内容遮挡（elementFromPoint 命中 .cm-md-token-*，occluded:true）。
+     改为 relative + z-index:1 使其成为已定位元素且层叠高于编辑器(z-index:auto)，
+     从而正确覆盖在编辑器内容之上。不影响 flex 布局（relative 仍在流内）。 */
+  z-index: 1;
 }
 
 /* 大纲分隔条只在大纲展开时出现。
