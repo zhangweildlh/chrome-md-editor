@@ -337,17 +337,24 @@ fn write_probe_log(line: String) {
 // 自定义「保存文件」对话框命令（#7 修复）：直接调用 dialog 插件的原生保存框，
 // 返回用户选定的绝对路径字符串；用户取消时返回 null。前端 io-bridge 通过此命令完成
 // 「另存为」选路径，绕开 plugin:dialog|save 在部分发布下的 IPC 调用怪异（该命令调用即被拒）。
+// 注意 tauri-plugin-dialog 2.7.2 的 save_file 为回调式 API（save_file(f: FnOnce(Option<FilePath>)），
+// 故用 std::sync::mpsc 桥接回调结果；命令以同步 fn 实现，阻塞在 worker 线程等待对话框关闭。
 #[tauri::command]
-async fn save_file_dialog(app: tauri::AppHandle, default_path: Option<String>) -> Result<Option<String>, String> {
+fn save_file_dialog(app: tauri::AppHandle, default_path: Option<String>) -> Result<Option<String>, String> {
+    use std::sync::mpsc;
+    let (tx, rx) = mpsc::channel::<Option<String>>();
     let mut builder = app.dialog().file();
     if let Some(name) = default_path.filter(|s| !s.is_empty()) {
-        builder.set_file_name(name.as_str());
+        builder.set_file_name(std::ffi::OsStr::new(name.as_str()));
     }
-    builder
-        .save_file()
-        .await
-        .map(|opt| opt.map(|p| p.to_string_lossy().to_string()))
-        .map_err(|e| e.to_string())
+    builder.save_file(move |file_path: Option<tauri_plugin_dialog::FilePath>| {
+        let path = file_path.map(|p| match p {
+            tauri_plugin_dialog::FilePath::Path(buf) => buf.to_string_lossy().into_owned(),
+            tauri_plugin_dialog::FilePath::Url(url) => url.to_string(),
+        });
+        let _ = tx.send(path);
+    });
+    Ok(rx.recv().ok().flatten())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
