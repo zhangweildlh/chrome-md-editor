@@ -527,6 +527,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         const atPoint = (typeof document !== "undefined" && document.elementFromPoint) ? document.elementFromPoint(cx, cy) : null;
         const occluded = !!(atPoint && atPoint !== outlinePanelEl && !outlinePanelEl.contains(atPoint));
         const parentCs = outlinePanelEl.parentElement ? getComputedStyle(outlinePanelEl.parentElement) : null;
+        const near = (atPoint && atPoint.closest) ? atPoint.closest("[id]") : null;
         window.__probe("ui.outline.setVisible", {
           visible: outlineVisible,
           hasOpenClass: outlinePanelEl.classList.contains("open"),
@@ -535,6 +536,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height), right: Math.round(rect.right) },
           center: { cx: Math.round(cx), cy: Math.round(cy) },
           atPointTagName: atPoint ? atPoint.tagName : null,
+          atPointId: atPoint ? (atPoint.id || null) : null,
+          atPointClass: atPoint && atPoint.className && typeof atPoint.className === "string" ? atPoint.className.slice(0, 90) : null,
+          atPointNearestId: near ? (near.tagName + "#" + near.id) : null,
           occluded,
           parentDisplay: parentCs ? parentCs.display : null,
           parentFlexDir: parentCs ? parentCs.flexDirection : null,
