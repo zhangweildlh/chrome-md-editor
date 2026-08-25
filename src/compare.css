@@ -237,6 +237,18 @@
   pointer-events: none;
 }
 
+/* #9 UI 一致性：对比视图的文件操作按钮（打开文件 / 保存）改为与编辑器主页
+   顶栏同款的 .toolbar-btn 纯图标风格（去文字、去边框底色），高度对齐对比栏
+   其余 30px 按钮，避免行内错位。覆盖对比页(#compareToolbar)与编辑器主页
+   内嵌对比栏(.compare-view-group)两种容器。 */
+.compare-toolbar .toolbar-btn,
+.compare-view-group .toolbar-btn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+}
+
 /* ── 批量合并组（对齐 JetBrains Merge Revisions 顶部栏） ────────────────
    「应用非冲突变更」是主行动按钮，用 --accent 实心与其余次级按钮拉开层级。 */
 .compare-toolbar-btn-primary {
