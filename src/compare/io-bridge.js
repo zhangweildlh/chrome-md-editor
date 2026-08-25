@@ -185,8 +185,10 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
       // 修复（#7）：优先调用已注册的自定义命令 save_file_dialog（与 read_text_file /
       // write_text_file 同款自定义命令，已验证在桌面端可用），由 Rust 侧调用 dialog 插件
       // 原生保存框并返回路径；plugin:dialog|save 仅作退化兜底（部分发布下 IPC 调用被拒）。
+      // 参数用 snake_case `default_path`，与仓库内其它命令（{ path, content }）保持一致，
+      // 避免依赖 Tauri v2 的 camelCase→snake_case 自动转换（万一被关闭则 default_path 落空）。
       try {
-        const res = await envInvoke('save_file_dialog', { defaultPath });
+        const res = await envInvoke('save_file_dialog', { default_path: defaultPath });
         const path = res == null ? null : res.filePath ?? res.path ?? res;
         if (typeof path === 'string' && path) return { path };
         return null; // 用户取消 / 无效路径
@@ -199,7 +201,7 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
         }
         // 退化：尝试 dialog 插件标准命令名 plugin:dialog|save
         try {
-          const res = await envInvoke('plugin:dialog|save', { defaultPath });
+          const res = await envInvoke('plugin:dialog|save', { default_path: defaultPath });
           const path = res == null ? null : res.filePath ?? res.path ?? res;
           if (typeof path === 'string' && path) return { path };
           return null;

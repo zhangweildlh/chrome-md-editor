@@ -1467,6 +1467,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       // 用户取消保存：忽略 AbortError
       if (!(e && e.name === "AbortError")) {
         console.error("[compare] 导出 diff 失败:", e);
+        // #7 收口：可见提示，避免 EXE 下静默失败被误判为「点击无反应」
+        showCompareErrorToast("导出 diff 失败：" + (e && e.message ? e.message : String(e)));
       }
     }
   }
@@ -1503,7 +1505,11 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       if (r && !r.aborted) refreshLoadedSnapshots(); // 保存成功 → 复位 D8 脏检查
     } catch (e) {
       // 用户取消保存框：忽略 AbortError
-      if (!(e && e.name === "AbortError")) console.error("[compare] 保存失败:", e);
+      if (!(e && e.name === "AbortError")) {
+        console.error("[compare] 保存失败:", e);
+        // #9 收口：可见提示，避免 EXE 下静默失败被误判为「点击无反应」
+        showCompareErrorToast("保存失败：" + (e && e.message ? e.message : String(e)));
+      }
     }
   }
 
