@@ -13,7 +13,6 @@
 // 文件读写放在 Rust 侧（std::fs），彻底绕开 Tauri fs 插件对“未授权绝对路径”
 // 的 scope 限制——否则 fs:allow-read-text-file 权限给了也会被 scope 拒绝。
 
-use tauri::Manager;
 use std::sync::Mutex;
 use tauri_plugin_dialog::DialogExt;
 
@@ -345,7 +344,7 @@ fn save_file_dialog(app: tauri::AppHandle, default_path: Option<String>) -> Resu
     let (tx, rx) = mpsc::channel::<Option<String>>();
     let mut builder = app.dialog().file();
     if let Some(name) = default_path.filter(|s| !s.is_empty()) {
-        builder.set_file_name(std::ffi::OsStr::new(name.as_str()));
+        builder.set_file_name(name.as_str());
     }
     builder.save_file(move |file_path: Option<tauri_plugin_dialog::FilePath>| {
         let path = file_path.map(|p| match p {
