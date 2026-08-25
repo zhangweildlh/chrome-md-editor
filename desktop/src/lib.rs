@@ -344,7 +344,7 @@ fn save_file_dialog(app: tauri::AppHandle, default_path: Option<String>) -> Resu
     let (tx, rx) = mpsc::channel::<Option<String>>();
     let mut builder = app.dialog().file();
     if let Some(name) = default_path.filter(|s| !s.is_empty()) {
-        builder.set_file_name(name.as_str());
+        builder = builder.set_file_name(name.as_str());
     }
     builder.save_file(move |file_path: Option<tauri_plugin_dialog::FilePath>| {
         let path = file_path.map(|p| match p {
