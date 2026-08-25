@@ -542,6 +542,25 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           occluded,
           parentDisplay: parentCs ? parentCs.display : null,
           parentFlexDir: parentCs ? parentCs.flexDirection : null,
+          // 层叠诊断：直接抓大纲与遮挡元素的计算 position/zIndex，
+          // 并向上回溯遮挡元素最近的「已定位祖先」(position!=static) 的 z-index，
+          // 定位到底是哪一层 stacking context 压住了大纲。
+          outlinePosition: cs.position,
+          outlineZIndex: cs.zIndex,
+          atPointPosition: atPoint ? getComputedStyle(atPoint).position : null,
+          atPointZIndex: atPoint ? getComputedStyle(atPoint).zIndex : null,
+          atPointNearestPositionedZ: (function () {
+            let el = atPoint ? atPoint.parentElement : null;
+            while (el) {
+              const ecs = getComputedStyle(el);
+              if (ecs.position !== "static") {
+                const id = el.id ? "#" + el.id : "";
+                return (el.tagName + id + " z=" + ecs.zIndex + " pos=" + ecs.position);
+              }
+              el = el.parentElement;
+            }
+            return null;
+          })(),
         });
       }
     } else if (typeof window.__probe === "function") {
