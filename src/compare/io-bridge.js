@@ -144,7 +144,7 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
   // 写入目标内容。
   //   Tauri：invoke('write_text_file', { path, content })
   //   浏览器：handle.createWritable() -> write(content) -> close()
-  function write(target, content) {
+  async function write(target, content) {
     assertTarget(target);
     if (typeof content !== 'string') {
       throw new Error('ioBridge.write: content 必须为字符串');
@@ -156,8 +156,23 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
       if (typeof envInvoke !== 'function') {
         throw new Error('ioBridge.write: 桌面端缺少可用的 invoke');
       }
-      // 桌面侧真实命令（desktop/src/lib.rs: write_text_file(path: String, content: String)）
-      return envInvoke('write_text_file', { path: target.path, content });
+      // #9：错误探针——写盘失败时显式上报命令、路径与异常，避免 EXE 下静默失败。
+      try {
+        const res = await envInvoke('write_text_file', { path: target.path, content });
+        if (typeof window.__probe === 'function') {
+          window.__probe('ui.io.write.ok', { cmd: 'write_text_file', path: target.path });
+        }
+        return res;
+      } catch (e) {
+        if (typeof window.__probe === 'function') {
+          window.__probe('ui.io.write.error', {
+            cmd: 'write_text_file',
+            path: target.path,
+            err: String((e && e.message) || e),
+          });
+        }
+        throw e; // 原样上抛，由调用方（save-poll / compare）给出可见提示
+      }
     }
     // 浏览器侧：目标形如 { handle }
     // M4 降级描述符：{ download:true, name } —— 非安全上下文走 Blob 下载，不静默跳过。
@@ -190,7 +205,13 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
       try {
         const res = await envInvoke('save_file_dialog', { default_path: defaultPath });
         const path = res == null ? null : res.filePath ?? res.path ?? res;
-        if (typeof path === 'string' && path) return { path };
+        if (typeof path === 'string' && path) {
+          // #9：成功探针，回传所选路径，便于核对「对话框能弹但无写盘」时的真实返回值。
+          if (typeof window.__probe === 'function') {
+            window.__probe('ui.io.pickSaveTarget.ok', { cmd: 'save_file_dialog', path });
+          }
+          return { path };
+        }
         return null; // 用户取消 / 无效路径
       } catch (firstErr) {
         if (typeof window.__probe === 'function') {
@@ -203,7 +224,12 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
         try {
           const res = await envInvoke('plugin:dialog|save', { default_path: defaultPath });
           const path = res == null ? null : res.filePath ?? res.path ?? res;
-          if (typeof path === 'string' && path) return { path };
+          if (typeof path === 'string' && path) {
+            if (typeof window.__probe === 'function') {
+              window.__probe('ui.io.pickSaveTarget.ok', { cmd: 'plugin:dialog|save', path });
+            }
+            return { path };
+          }
           return null;
         } catch (secondErr) {
           if (typeof window.__probe === 'function') {
