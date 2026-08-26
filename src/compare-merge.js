@@ -264,9 +264,14 @@ function dispatchBcLineDecorations(viewB, chunks) {
  *        'off' 时依旧走 dispatch，但推空数组 —— 必须推，否则上一次的高亮会僵在屏幕上。
  * @param {{aSide?:'a'|'b'|null,bSide?:'a'|'b'|null,writeA?:boolean,writeB?:boolean,computeChunks?:boolean}} [sides]
  * @param {ReturnType<typeof createDocCache>} cache 实例级脏检查缓存（O1，由调度器持有）
- * @returns {{pairs:import('./compare/move-detection.js').MovePair[], chunks:readonly any[], truncated:boolean}}
+ * @param {Map<string,import('./compare/inline-word-diff.js').WordDiffData[]>|null} [accumA]
+ *        行内字词差异累积表（视图 A 侧）：本层算出的 WordDiffData[] 按 layer 写入，由 runAll 合并后统一 dispatch。
+ * @param {Map<string,import('./compare/inline-word-diff.js').WordDiffData[]>|null} [accumB]
+ *        行内字词差异累积表（视图 B 侧）。
+ * @param {string} [layerId] 本层标识（'ab'/'bc'/'ac'），用于累积表的 key。
+ * @returns {{pairs:import('./compare/move-detection.js').MovePair[], chunks:readonly any[], truncated:boolean, diffPairs:any[]}}
  */
-function refreshDecorations(viewA, viewB, flags, sides, cache) {
+function refreshDecorations(viewA, viewB, flags, sides, cache, accumA, accumB, layerId) {
   const wordDiff = flags.wordDiff;
   const moveDetect = flags.moveDetect;
   const wordMode =
@@ -339,8 +344,11 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
         aData.push(...buildWordDiffData(aLines, bLines, "before", aStart, wordMode));
         bData.push(...buildWordDiffData(aLines, bLines, "after", bStart, wordMode));
       }
-      if (writeA) viewA.dispatch({ effects: setWordDiffEffect.of(aData) });
-      if (writeB) viewB.dispatch({ effects: setWordDiffEffect.of(bData) });
+      // 不再各自直接 dispatch：setWordDiffEffect 是全量替换，同视图被多层写入会互相覆盖。
+      // 改为写入 accumA/accumB（按 layer 区分），由 runAll 合并后对每个视图一次性 dispatch。
+      // writeA/writeB 仍控制本层是否参与该侧的累积（false 则跳过，不污染对侧）。
+      if (writeA && accumA) accumA.set(layerId || "ab", aData);
+      if (writeB && accumB) accumB.set(layerId || "ab", bData);
     }
 
     if (moveDetect) {
@@ -375,6 +383,59 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
 }
 
 /**
+ * 合并多组 WordDiffData[]（来自不同差异层，如三栏的 ab / bc / ac）为单组，
+ * 供同一视图的 setWordDiffEffect 一次性全量写入。
+ *
+ * 必要性：setWordDiffEffect 是【全量替换】语义（inline-word-diff.js 的 wordDiffDataField），
+ * 三栏下同视图被多层写入（A:ab+ac / B:ab+bc / C:bc+ac）时若每层各自直接 dispatch，
+ * 后写层会整体覆盖先写层。故改由调度器按「视图→层」累积，最后对每视图合并成一份再 dispatch。
+ *
+ * 合并规则：逐行聚合区间，按 from 排序并合并重叠/相邻区间，行号升序。这样产出可被
+ * buildWordDiffDecorations 的 RangeSetBuilder 按升序安全消费（否则两组标记同一行、
+ * 区间交错的区间若乱序添加会直接抛错）。两栏每层独占视图，合并后等同于原值，行为不变。
+ *
+ * @param {import('./compare/inline-word-diff.js').WordDiffData[][]} lists
+ * @returns {import('./compare/inline-word-diff.js').WordDiffData[]}
+ */
+function mergeWordDiffDataList(lists) {
+  /** @type {Map<number, {from:number,to:number,type:'added'|'removed'}[]>} */
+  const byLine = new Map();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const d of list) {
+      if (!d || !Number.isFinite(d.lineNumber) || !Array.isArray(d.ranges) || !d.ranges.length) continue;
+      let arr = byLine.get(d.lineNumber);
+      if (!arr) {
+        arr = [];
+        byLine.set(d.lineNumber, arr);
+      }
+      for (const r of d.ranges) {
+        if (r && Number.isFinite(r.from) && Number.isFinite(r.to)) {
+          arr.push({ from: r.from, to: r.to, type: r.type });
+        }
+      }
+    }
+  }
+  const out = [];
+  for (const [lineNumber, ranges] of byLine) {
+    const sorted = ranges.slice().sort((a, b) => a.from - b.from || a.to - b.to);
+    const merged = [];
+    for (const r of sorted) {
+      const last = merged[merged.length - 1];
+      // 重叠或相邻：并入上一段（取较远的 to），type 以先到者为准。
+      if (last && r.from <= last.to) {
+        if (r.to > last.to) last.to = r.to;
+      } else {
+        merged.push({ from: r.from, to: r.to, type: r.type });
+      }
+    }
+    out.push({ lineNumber, ranges: merged });
+  }
+  out.sort((a, b) => a.lineNumber - b.lineNumber);
+  return out;
+}
+
+/**
  * 创建「差异装饰刷新调度器」（支持多对视图：两栏单对 / 三栏两对）。
  *
  * 为什么要工厂 + attach 两段式：updateListener 必须在 MergeView 构造【之前】就作为扩展注入，
@@ -404,12 +465,41 @@ function createDecorationScheduler(flags) {
   const listeners = new Set();
 
   function runAll() {
+    // 三栏下同一视图会被多层写入（A:ab+ac / B:ab+bc / C:bc+ac），而 setWordDiffEffect
+    // 是全量替换语义。故先把各层 WordDiffData 按「视图→层」累积，最后对每视图合并成一份、
+    // 一次性 dispatch（见 mergeWordDiffDataList）。两栏每层独占视图，合并即原值，行为不变。
+    /** @type {Map<EditorView, Map<string, import('./compare/inline-word-diff.js').WordDiffData[]>>} */
+    const wordAccum = new Map();
+    const accumFor = (view) => {
+      if (!view) return null;
+      let m = wordAccum.get(view);
+      if (!m) {
+        m = new Map();
+        wordAccum.set(view, m);
+      }
+      return m;
+    };
     for (const vp of viewPairs) {
-      const r = refreshDecorations(vp.a, vp.b, flags, vp.sides, docCache);
+      const r = refreshDecorations(
+        vp.a,
+        vp.b,
+        flags,
+        vp.sides,
+        docCache,
+        accumFor(vp.a),
+        accumFor(vp.b),
+        vp.layer || "ab"
+      );
       vp.pairs = r.pairs;
       vp.chunks = r.chunks;
       vp.truncated = r.truncated;
       vp.diffPairs = r.diffPairs;
+    }
+    // 合并各层贡献并统一推送（视图不存在或被销毁则跳过）。
+    for (const [view, layerMap] of wordAccum) {
+      if (!view || !view.dom) continue;
+      const merged = mergeWordDiffDataList([...layerMap.values()]);
+      view.dispatch({ effects: setWordDiffEffect.of(merged) });
     }
     for (const fn of listeners) {
       try {
@@ -1169,21 +1259,28 @@ export function createCompareMergeView(opts) {
       ];
       if (isCompareThree) {
         // 对照三栏：A-B / B-C / A-C 三组（a/b/c 均为真实独立文件，无合并结果栏）
+        // 采纳 WinMerge 三向策略：同视图被多层写入时合并而非覆盖（见 mergeWordDiffDataList
+        // 与 runAll 的 wordAccum）。各栏高亮集合：A = ab∪ac，B = ab∪bc，C = bc∪ac。
         attachPairs.push({
           a: mv.b,
           b: theirsView,
           layer: "bc",
-          sides: { aSide: null, bSide: "b", writeA: false, writeB: true, computeChunks: true },
+          // writeA:true → B 栏(mv.b)收到 B↔C 的 A 侧词差，与 ab 层合并成 ab∪bc。
+          // （中栏移动块装饰仍只归 ab 层：本层 aSide:null，不会向 B 写 moveBlock。）
+          sides: { aSide: null, bSide: "b", writeA: true, writeB: true, computeChunks: true },
         });
         attachPairs.push({
           a: mv.a,
           b: theirsView,
           layer: "ac",
-          // M7：ac 层不得再向 C 栏（theirsView）写 setWordDiffEffect。runAll() 按 [ab,bc,ac]
-          // 顺序执行，ac 在末尾后写会整体覆盖先写的 bc 层，导致 B↔C 行内字词高亮被静默顶替丢失。
-          // 取舍：C 栏只画与其相邻中间栏的 B↔C 差异（bc 层），A↔C 关系仍由连线层/块模型表达，
-          // 不再用内联高亮覆盖 C 栏。故 writeB 置 false（writeA 本就 false，ac 层不再写任何内联装饰）。
-          sides: { aSide: null, bSide: "b", writeA: false, writeB: false, computeChunks: true },
+          // 修复：ac 层此前 writeA/writeB 全 false，C 栏(theirsView)只收 bc 层、
+          // 完全不显示 A↔C 的内联红绿高亮（用户报障）。
+          // 现改为写入 A 与 C：A 栏(mv.a)收到 ab∪ac，C 栏收到 bc∪ac。
+          // aSide/bSide 置 null —— ac 不写移动块/整行 bc-line（避免与 bc 层整行高亮互相覆盖），
+          // 仅贡献行内字词差异；整行 A↔C 差异仍由连线层/块模型表达。
+          // 覆盖问题由 runAll 的 wordAccum 合并解决：两层 WordDiffData 按行聚合、
+          // 区间排序去重叠后一次性 dispatch，不再后写覆盖先写。
+          sides: { aSide: null, bSide: null, writeA: true, writeB: true, computeChunks: true },
         });
       } else {
         // 合并三栏：仅 A-B / B-C（结果作为中间栏）
