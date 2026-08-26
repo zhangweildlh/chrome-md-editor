@@ -1788,6 +1788,7 @@ body {
    CM6 默认是灰色径向点/箭头；此处覆盖为红色，圆点居中（circle at 50% 55%）。 */
 .editor-container .cm-editor .cm-content .cm-highlightSpace {
   position: relative;
+  background-image: none !important; /* 覆盖 CodeMirror 默认 .cm-highlightSpace 灰色径向点（#10 根治） */
 }
 /* ㉑ 空格红点：零宽 ::before 覆盖层（#10 修复）。使用 ::before 而非 ::after，
    直接覆盖 CodeMirror 默认给 .cm-highlightSpace::before 绘制的灰色径向点，
