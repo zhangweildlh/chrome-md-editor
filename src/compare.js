@@ -770,27 +770,29 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // 滚动同步按钮状态
   function updateScrollButton() {
-    if (btnScroll) {
-      // 需求⑤：无有效跨滚动盒链接（两栏等场景各栏共用同一滚动盒 → 同步天然恒开、
-      // 控制器 isEffective()=false 为 no-op）时，按钮置灰并说明，避免「点了没反应」。
-      const effective = !!(
-        scrollSync &&
-        (typeof scrollSync.isEffective !== "function" || scrollSync.isEffective())
-      );
-      btnScroll.classList.toggle("disabled", !effective);
-      if (!effective) {
-        btnScroll.classList.remove("active");
-        btnScroll.title = "滚动同步：各栏共用同一滚动盒（两栏模式），天然同步，无需开关";
-        return;
-      }
-      // R3 修复 ⑨⑩：三栏模式下 A/B 栏在同一个 MergeView .cm-scroller 内共享滚动盒，
-      // 这是 CM6 MergeView 架构行为，开关无法解除（结构性联动）。开关仅控制
-      // A↔C / B↔C 跨盒链接。tooltip 明确告知用户，避免「不激活时 A/B 仍同步」困惑。
-      btnScroll.classList.toggle("active", scrollSyncEnabled);
-      btnScroll.title = scrollSyncEnabled
-        ? "滚动同步：开（点击关闭；A/B 栏因 MergeView 共享滚动盒天然联动，开关仅控制与 C 栏的同步）"
-        : "滚动同步：关（点击开启；A/B 栏因 MergeView 共享滚动盒天然联动，无法关闭）";
+    if (!btnScroll) return;
+    // 根因修复：按钮的「置灰/禁用」只取决于控制器是否就绪（scrollSync 是否存在），
+    // 不再以 isEffective() 作为置灰依据。isEffective() 仅描述「是否存在跨滚动盒链接」，
+    // 曾在某些三栏布局时序下返回 false，导致按钮被永久置灰（disabled + pointer-events:none）
+    // 且点击被早退忽略，表现为「两种状态都灰、不随 scrollSyncEnabled 切换」。
+    // 视觉 active 态始终由本地开关 scrollSyncEnabled 驱动：启用=高亮，禁用=灰色次级按钮。
+    if (!scrollSync) {
+      btnScroll.classList.add("disabled");
+      btnScroll.classList.remove("active");
+      btnScroll.title = "滚动同步：视图加载中，稍后可用";
+      return;
     }
+    const effective =
+      typeof scrollSync.isEffective !== "function" || scrollSync.isEffective();
+    btnScroll.classList.remove("disabled");
+    btnScroll.classList.toggle("active", scrollSyncEnabled);
+    // A/B 栏在 MergeView 共享滚动盒天然联动，开关实际控制与 C 栏的同步（用户已确认的语义）。
+    const base = scrollSyncEnabled
+      ? "滚动同步：开（点击关闭；A/B 栏因 MergeView 共享滚动盒天然联动，开关仅控制与 C 栏的同步）"
+      : "滚动同步：关（点击开启；A/B 栏因 MergeView 共享滚动盒天然联动，无法关闭）";
+    btnScroll.title = effective
+      ? base
+      : base + "（提示：当前无跨栏滚动盒，各栏天然已同步）";
   }
 
   // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
@@ -1810,27 +1812,16 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
             if (typeof window.__probe === "function") {
               window.__probe("ui.scroll.click", {
                 hasScrollSync: !!scrollSync,
-                isEffective: !!(
-                  scrollSync &&
-                  typeof scrollSync.isEffective === "function" &&
-                  scrollSync.isEffective()
-                ),
                 scrollSyncEnabled,
               });
             }
-            // 需求⑤：控制器无有效同步链接（两栏共用滚动盒）时按钮已置灰，点击直接忽略
-            if (
-              !scrollSync ||
-              (typeof scrollSync.isEffective === "function" &&
-                !scrollSync.isEffective())
-            ) {
-              return;
-            }
+            // 仅当控制器尚未就绪（scrollSync 为 null）时忽略点击；
+            // 不再以 isEffective() 拦截——否则三栏时序下 isEffective() 返回 false 会让
+            // 点击被早退，按钮永远无法切换（本次修复的根因）。
+            if (!scrollSync) return;
             scrollSyncEnabled = !scrollSyncEnabled;
-            if (scrollSync) {
-              if (scrollSyncEnabled) scrollSync.enable();
-              else scrollSync.disable();
-            }
+            if (scrollSyncEnabled) scrollSync.enable();
+            else scrollSync.disable();
             updateScrollButton();
             break;
           }
