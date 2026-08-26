@@ -795,6 +795,83 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       : base + "（提示：当前无跨栏滚动盒，各栏天然已同步）";
   }
 
+  // ── 光标锚定局部采纳按钮（#2）：在活动栏光标处浮动显示「采纳」，点击把光标段落/选区写入结果(b) ──
+  let inlineAcceptBtn = null;
+  let __inlineAcceptWired = false;
+  function wireInlineAcceptGlobal() {
+    if (__inlineAcceptWired) return;
+    __inlineAcceptWired = true;
+    let raf = 0;
+    document.addEventListener("selectionchange", () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        try { showInlineAcceptIfInChunk(); } catch (_) { /* 非对比态忽略 */ }
+      });
+    });
+    // 任意栏滚动时仅重定位（不重算命中），避免按钮漂移
+    document.addEventListener("scroll", () => { try { positionInlineAccept(); } catch (_) {} }, true);
+  }
+  function ensureInlineAcceptBtn() {
+    if (inlineAcceptBtn) return inlineAcceptBtn;
+    if (typeof HOST === "undefined" || !HOST) return null;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cm-inline-accept";
+    btn.textContent = "采纳";
+    btn.title = "采纳：把光标所在段落 / 已框选字符串写入结果栏（选区优先；可跨多句）";
+    btn.style.display = "none";
+    btn.addEventListener("mousedown", (e) => e.preventDefault()); // 不抢编辑器焦点
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (instance && typeof instance.acceptAtCursor === "function") {
+        const pane = getActivePane();
+        const view = paneViewMap()[pane];
+        const head = view ? view.state.selection.main.head : 0;
+        let ok = false;
+        try { ok = instance.acceptAtCursor(pane, head); } catch (err) { console.error("[compare] 光标采纳失败:", err); }
+        if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.click", { pane, ok });
+        if (ok && instance.refreshDecorations) instance.refreshDecorations();
+      }
+      hideInlineAccept();
+    });
+    HOST.appendChild(btn);
+    inlineAcceptBtn = btn;
+    wireInlineAcceptGlobal();
+    return btn;
+  }
+  function hideInlineAccept() { if (inlineAcceptBtn) inlineAcceptBtn.style.display = "none"; }
+  function positionInlineAccept() {
+    const btn = inlineAcceptBtn;
+    if (!btn || btn.style.display === "none") return;
+    const view = paneViewMap()[getActivePane()];
+    if (!view) return hideInlineAccept();
+    const head = view.state.selection.main.head;
+    const coords = view.coordsAtPos(head);
+    if (!coords) return hideInlineAccept();
+    btn.style.left = `${coords.left}px`;
+    btn.style.top = `${coords.bottom + 4}px`;
+  }
+  function showInlineAcceptIfInChunk() {
+    const btn = ensureInlineAcceptBtn();
+    if (!btn) return;
+    if (!instance || typeof instance.acceptAtCursor !== "function") return hideInlineAccept();
+    const pane = getActivePane();
+    if (pane === "b") return hideInlineAccept(); // b 为结果栏，无可采纳内容
+    const view = paneViewMap()[pane];
+    if (!view) return hideInlineAccept();
+    const head = view.state.selection.main.head;
+    let hit = -1;
+    try { hit = instance.chunkAtCursor(pane, head); } catch (_) { return hideInlineAccept(); }
+    if (hit < 0) return hideInlineAccept();
+    const coords = view.coordsAtPos(head);
+    if (!coords) return hideInlineAccept();
+    btn.style.display = "block";
+    btn.style.left = `${coords.left}px`;
+    btn.style.top = `${coords.bottom + 4}px`;
+  }
+
   // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
   function instanceViews() {
     if (instance && typeof instance.getPanes === "function") {
@@ -1495,24 +1572,44 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     return out;
   }
 
-  async function onSave() {
+  // 保存「活动栏」：激活哪一栏即写哪一栏的文件（#9 修正——此前轮询全栏但实测只落 A 栏）。
+  // 无源文件（如合并结果 b）走「另存为」；有源则覆盖写盘。
+  function saveSuggestedName(pane) {
+    if (pane && pane.target && typeof pane.target.path === "string" && pane.target.path) {
+      const b = pane.target.path.split(/[\\/]/).pop();
+      if (b) return b;
+    }
+    return pane && pane.key === "b" ? "merged.md" : "untitled.md";
+  }
+  async function saveActivePane() {
     if (typeof window.__probe === "function") window.__probe("ui.save.enter", { hasInstance: !!instance });
-    if (!instance) return;
+    if (!instance) return { aborted: false, saved: 0 };
+    const key = getActivePane(); // 'a' | 'b' | 'c'
     const panes = buildPanes();
-    const order = buildOrder();
+    const pane = panes.find((p) => p.key === key);
+    if (!pane) return { aborted: false, saved: 0 };
     try {
-      if (typeof window.__probe === "function") window.__probe("ui.save.beforePoll", { paneCount: Array.isArray(panes) ? panes.length : 0 });
-      const r = await runSavePoll(panes, order); // 逐栏弹窗（§5）
-      if (typeof window.__probe === "function") window.__probe("ui.save.afterPoll", { aborted: !!(r && r.aborted) });
-      if (r && !r.aborted) refreshLoadedSnapshots(); // 保存成功 → 复位 D8 脏检查
+      if (typeof window.__probe === "function") window.__probe("ui.save.activePane", { key, hasTarget: !!pane.target });
+      if (pane.target == null) {
+        const target = await showSaveAsDialog({ suggestedName: saveSuggestedName(pane) });
+        if (!target) return { aborted: true, saved: 0 };
+        await ioBridge.saveAs(target, pane.content); // 写入新文件，不覆盖源
+      } else {
+        await ioBridge.write(pane.target, pane.content); // 覆盖源文件
+        if (typeof window.__probe === "function") window.__probe("ui.save.write.ok", { key, path: pane.target.path });
+      }
+      refreshLoadedSnapshots(); // 复位 D8 脏检查
+      return { aborted: false, saved: 1 };
     } catch (e) {
-      // 用户取消保存框：忽略 AbortError
       if (!(e && e.name === "AbortError")) {
-        console.error("[compare] 保存失败:", e);
-        // #9 收口：可见提示，避免 EXE 下静默失败被误判为「点击无反应」
+        console.error("[compare] 保存活动栏失败:", e);
         showCompareErrorToast("保存失败：" + (e && e.message ? e.message : String(e)));
       }
+      return { aborted: false, saved: 0, error: e };
     }
+  }
+  async function onSave() {
+    await saveActivePane();
   }
 
   // ── 折叠 / 展开未改（增量 E） ──
@@ -1914,12 +2011,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     btnBackToEditor.addEventListener("click", async () => {
       // 任一栏相对初始内容 dirty → 必须先走保存轮询（§5.1 / D8）
       if (instance && isAnyPaneDirty()) {
-        const panes = buildPanes();
-        const order = buildOrder();
         try {
-          const r = await runSavePoll(panes, order);
-          if (r && r.aborted) return; // 用户「取消」→ 中止返回、留页内（不关窗）
-          if (r && !r.aborted) refreshLoadedSnapshots();
+          const r = await saveActivePane();
+          if (r.aborted) return; // 用户「取消」→ 中止返回、留页内（不关窗）
         } catch (e) {
           if (!(e && e.name === "AbortError")) console.error("[compare] 返回前保存失败:", e);
           return; // 出错也留在页内，避免丢失改动
