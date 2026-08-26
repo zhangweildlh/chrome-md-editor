@@ -852,23 +852,32 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     const mount = (HOST !== document ? HOST : document.body);
     mount.appendChild(btn);
     inlineAcceptBtn = btn;
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.created", { mount: mount === document.body ? "body" : "host", hasHost: !!HOST, hostIsDocument: HOST === document });
     wireInlineAcceptGlobal();
     return btn;
   }
-  function hideInlineAccept() { if (inlineAcceptBtn) inlineAcceptBtn.style.display = "none"; }
+  function hideInlineAccept() {
+    if (inlineAcceptBtn) {
+      if (inlineAcceptBtn.style.display !== "none" && typeof window.__probe === "function") window.__probe("ui.inlineAccept.hide", { display: "none" });
+      inlineAcceptBtn.style.display = "none";
+    }
+  }
   function positionInlineAccept() {
     const btn = inlineAcceptBtn;
     if (!btn || btn.style.display === "none") return;
-    const view = paneViewMap()[getActivePane()];
+    const pane = getActivePane();
+    const view = paneViewMap()[pane];
     if (!view) return hideInlineAccept();
     const head = view.state.selection.main.head;
     const coords = view.coordsAtPos(head);
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.position", { pane, head, coords, display: btn.style.display });
     if (!coords) return hideInlineAccept();
     btn.style.left = `${coords.left}px`;
     btn.style.top = `${coords.bottom + 4}px`;
   }
   function showInlineAcceptIfInChunk() {
     const btn = ensureInlineAcceptBtn();
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.check", { hasBtn: !!btn, hasInstance: !!instance, hasAcceptAtCursor: !!(instance && typeof instance.acceptAtCursor === "function") });
     if (!btn) return;
     if (!instance || typeof instance.acceptAtCursor !== "function") return hideInlineAccept();
     const pane = getActivePane();
@@ -877,13 +886,16 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (!view) return hideInlineAccept();
     const head = view.state.selection.main.head;
     let hit = -1;
-    try { hit = instance.chunkAtCursor(pane, head); } catch (_) { return hideInlineAccept(); }
+    try { hit = instance.chunkAtCursor(pane, head); } catch (e) { if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.chunkError", { pane, head, error: String(e && e.message || e) }); return hideInlineAccept(); }
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.chunk", { pane, head, hit });
     if (hit < 0) return hideInlineAccept();
     const coords = view.coordsAtPos(head);
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.coords", { pane, head, coords });
     if (!coords) return hideInlineAccept();
     btn.style.display = "block";
     btn.style.left = `${coords.left}px`;
     btn.style.top = `${coords.bottom + 4}px`;
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.show", { pane, head, left: coords.left, top: coords.bottom + 4 });
   }
 
   // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
@@ -1612,8 +1624,11 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         await ioBridge.write(pane.target, pane.content); // 覆盖源文件
         if (typeof window.__probe === "function") window.__probe("ui.save.write.ok", { key, path: pane.target.path });
       }
-      // R3 修复：保存成功给明确 UI 反馈（toast），避免用户误以为按钮无响应。
-      if (typeof showToast === "function") showToast("文件已保存", "success");
+      // R4 修复：compare.js 是 ES 模块，模块内 typeof showToast 检测不到 editor.js
+      // 在全局 window 上定义的 showToast。改为显式取 window.showToast。
+      if (typeof window === "object" && typeof window.showToast === "function") {
+        window.showToast("文件已保存", "success");
+      }
       refreshLoadedSnapshots(); // 复位 D8 脏检查
       return { aborted: false, saved: 1 };
     } catch (e) {
