@@ -219,17 +219,25 @@ export const showEolCompartment = new Compartment();
 export const showEolMarkCompartment = new Compartment();
 export const showSpecialCharsCompartment = new Compartment();
 
-/** EOL 行尾标签 widget：在文本末尾 inline 显示 "CR"/"LF"/"CR LF"（#12/#13）。 */
+/** EOL 行尾标签 widget：按 kind 区分换行符(eol)与换行标记(eolMark)（#12/#13 纠正）。
+ *  - eol：真实换行符 → 绿色小方块 + 文字 "LF"/"CR"/"CRLF"（.cm-eol-label）。
+ *  - eolMark：空行占位提示 → 仅回车箭头 ⏎，无红框（.cm-eolmark-label）。 */
 class EolLabelWidget extends WidgetType {
-  constructor(label) {
+  constructor(label, kind) {
     super();
     this.label = label;
+    this.kind = kind || 'eol';
   }
-  eq(other) { return other.label === this.label; }
+  eq(other) { return other.label === this.label && other.kind === this.kind; }
   toDOM() {
     const span = document.createElement("span");
-    span.className = "cm-eol-label";
-    span.textContent = this.label;
+    if (this.kind === 'eolMark') {
+      span.className = "cm-eolmark-label";
+      span.textContent = "⏎";
+    } else {
+      span.className = "cm-eol-label";
+      span.textContent = this.label;
+    }
     span.setAttribute("aria-hidden", "true");
     return span;
   }
@@ -252,7 +260,20 @@ function buildEolLabels(doc) {
     const line = doc.line(i);
     const label = detectLineEnding(doc, line);
     if (label) {
-      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget(label), side: 1 }));
+      // eol：真实换行符 → 绿色小方块 + LF/CR/CRLF（.cm-eol-label）。
+      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget(label, 'eol'), side: 1 }));
+    }
+  }
+  return builder.finish();
+}
+
+/** 换行标记：仅空行（text 为空）在文本末尾显示回车箭头 ⏎，无红框（#12/#13 纠正）。 */
+function buildEolMarkLabels(doc) {
+  const builder = new RangeSetBuilder();
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i);
+    if (line.text.length === 0) {
+      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget("⏎", 'eolMark'), side: 1 }));
     }
   }
   return builder.finish();
@@ -264,6 +285,16 @@ const eolLabelsExtension = StateField.define({
   update(deco, tr) {
     if (!tr.docChanged) return deco;
     return buildEolLabels(tr.newDoc);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/** 换行标记：inline widget 显示⏎（仅空行），不撑高行高（#12/#13 纠正）。 */
+const eolMarkExtension = StateField.define({
+  create(state) { return buildEolMarkLabels(state.doc); },
+  update(deco, tr) {
+    if (!tr.docChanged) return deco;
+    return buildEolMarkLabels(tr.newDoc);
   },
   provide: (f) => EditorView.decorations.from(f),
 });
@@ -286,13 +317,11 @@ export function applyInvisiblesSettings(view, settings = {}) {
     }
   };
   push(showWhitespaceCompartment, 'space', highlightSpaceDots());
-  // #12/#13：eol / eolMark 两个开关合并控制同一套行尾标签（均显示 CR/LF/CR LF），
-  // 避免同时开启时同一位置出现两个 widget。
-  const eolVisible = !!(settings.eol || settings.eolMark);
-  const prevEolVisible = !!(prev.eol || prev.eolMark);
-  if ((settings.eol !== undefined || settings.eolMark !== undefined) && eolVisible !== prevEolVisible) {
-    effects.push(showEolCompartment.reconfigure(eolVisible ? eolLabelsExtension : []));
-  }
+  // #12/#13 纠正：eol 与 eolMark 分属独立 compartment，各自渲染不同内容。
+  //  - eol：真实换行符 → 绿色小方块 + LF/CR/CRLF（eolLabelsExtension）。
+  //  - eolMark：空行占位 → ⏎（eolMarkExtension）。
+  push(showEolCompartment, 'eol', eolLabelsExtension);
+  push(showEolMarkCompartment, 'eolMark', eolMarkExtension);
   push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());
   if (effects.length) {
     view.dispatch({ effects });
@@ -368,9 +397,9 @@ export function createEditorExtensions(opts = {}) {
     themeCompartment.of(theme),
     // G8 显示选项 compartments（初始按设置注入；动态切换走 applyInvisiblesSettings）
     showWhitespaceCompartment.of(invis.space ? highlightSpaceDots() : []),
-    // #12/#13：eol / eolMark 任一开启都注入同一套行尾标签。
-    showEolCompartment.of((invis.eol || invis.eolMark) ? eolLabelsExtension : []),
-    // showEolMarkCompartment 保留导出但不再单独注入，避免与 eol 重复渲染。
+    // #12/#13 纠正：eol / eolMark 独立 compartment 各自注入对应扩展。
+    showEolCompartment.of(invis.eol ? eolLabelsExtension : []),
+    showEolMarkCompartment.of(invis.eolMark ? eolMarkExtension : []),
     // 注意：编辑页专属 updateListener 不放入工厂（见上方函数注释 / 设计文档 §8.3）
   ];
 }
