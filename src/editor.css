@@ -1767,7 +1767,9 @@ body {
   top: 50%;
   width: 0.18em;
   height: 0.18em;
-  transform: translate(-50%, -50%);
+  /* 严禁 transform：.cm-highlightSpace 处于 .cm-mergeView 后代，违反 MergeView 层叠上下文硬约束（会复现 B2 块级采纳按钮划花）。改用负 margin 居中，不创建层叠上下文。 */
+  margin-left: -0.09em;
+  margin-top: -0.09em;
   border-radius: 50%;
   background: var(--danger);
   pointer-events: none;
