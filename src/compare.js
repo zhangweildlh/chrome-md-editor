@@ -234,7 +234,18 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   // ── DOM 查询（作用域隔离：集成模式下限定在 #compareHost，避免与 editor.html 既有 ID 冲突）──
-  const $ = (id) => HOST.getElementById(id);
+  const $ = (id) => {
+    // R3 修复：EXE 集成模式下 compare.js 加载时 window.__compareHost 尚未注入，
+    // HOST 回退为 document；document.getElementById 会命中主编辑区 toolbar 中的
+    // btnSave / btnScroll / btnUndo / btnRedo 等同名 id，导致对比视图按钮的视觉
+    // 状态更新（如 #btnScroll.active）落到隐藏的主编辑区按钮上。
+    // 兜底：在 document 宿主下优先在 #compareToolbar 内查找，确保拿到对比视图按钮。
+    if (HOST === document) {
+      const scoped = document.querySelector(`#compareToolbar #${id}`);
+      if (scoped) return scoped;
+    }
+    return HOST.getElementById(id);
+  };
   // 对比大纲面板在两种宿主下的 id 兼容（根治 #5「大纲按钮无效果」）：
   //  - EXE 集成模式（editor.html 内嵌 #compareHost）：主编辑区与对比区各有一个 #outlinePanel。
   //    若 document.getElementById 命中主编辑区那个，它位于 MAIN#editorMain，绘制在 #compareHost
@@ -836,7 +847,10 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       }
       hideInlineAccept();
     });
-    HOST.appendChild(btn);
+    // R3 修复：EXE 集成模式下 HOST 可能为 document，document.appendChild 非法会抛错，
+    // 导致按钮从未创建。统一挂载到 body（fixed 定位，不依赖 compareHost）。
+    const mount = (HOST !== document ? HOST : document.body);
+    mount.appendChild(btn);
     inlineAcceptBtn = btn;
     wireInlineAcceptGlobal();
     return btn;
@@ -1598,6 +1612,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         await ioBridge.write(pane.target, pane.content); // 覆盖源文件
         if (typeof window.__probe === "function") window.__probe("ui.save.write.ok", { key, path: pane.target.path });
       }
+      // R3 修复：保存成功给明确 UI 反馈（toast），避免用户误以为按钮无响应。
+      if (typeof showToast === "function") showToast("文件已保存", "success");
       refreshLoadedSnapshots(); // 复位 D8 脏检查
       return { aborted: false, saved: 1 };
     } catch (e) {

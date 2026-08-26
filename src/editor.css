@@ -1789,10 +1789,12 @@ body {
 .editor-container .cm-editor .cm-content .cm-highlightSpace {
   position: relative;
 }
-/* ㉑ 空格红点：零宽 ::after 覆盖层（#10 修复）。红点绝对定位居中、不参与布局，
+/* ㉑ 空格红点：零宽 ::before 覆盖层（#10 修复）。使用 ::before 而非 ::after，
+   直接覆盖 CodeMirror 默认给 .cm-highlightSpace::before 绘制的灰色径向点，
+   杜绝红点下方残留灰点。红点绝对定位居中、不参与布局，
    故「显示红点 / 不显示红点」两种状态下空格占位宽度完全一致、不变化。
    原空格保持正常字号与占位宽度（见下方 .cm-space-dot，已移除 font-size 缩放）。 */
-.editor-container .cm-editor .cm-content .cm-highlightSpace::after {
+.editor-container .cm-editor .cm-content .cm-highlightSpace::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -1805,6 +1807,9 @@ body {
   border-radius: 50%;
   background: var(--danger);
   pointer-events: none;
+}
+.editor-container .cm-editor .cm-content .cm-highlightSpace::after {
+  content: none;
 }
 .editor-container .cm-editor .cm-content .cm-highlightTab {
   background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23e5484d" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>');
