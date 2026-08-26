@@ -52,6 +52,22 @@ function basename(p) {
   return i >= 0 ? p.slice(i + 1) : p;
 }
 
+// #7：给「无扩展名」路径补默认扩展名。
+// 原生保存框返回的路径若用户未带扩展名（如输入「1」），Rust 端 validate_path
+// 会拒绝该文件导致静默不写盘。此处依 suggestedName 推导默认扩展名并补上
+//（导出 diff 时 suggestedName 形如「diff.txt」→ 补 .txt；另存为源文件时取源扩展名）。
+// 严禁改动 Rust validate_path（其它调用方依赖其扩展名白名单）。
+function ensureExtension(path, fallbackName) {
+  if (typeof path !== 'string' || !path) return path;
+  const base = basename(path);
+  const dot = base.lastIndexOf('.');
+  const hasExt = dot > 0; // 有点且不在首字符（排除「.gitignore」被误判）
+  if (hasExt) return path;
+  const m = /\.([^./\\]+)$/.exec(fallbackName || '');
+  const ext = m ? '.' + m[1] : '.txt';
+  return path + ext;
+}
+
 // 计算弹窗要展示的「绝对路径 + 文件名」（完整，不省略）。
 //   - pane.path 优先（调用方显式给的完整绝对路径，最可靠）
 //   - Tauri 模式 target.path 即绝对路径
@@ -234,7 +250,14 @@ export async function showSaveAsDialog({ suggestedName, types } = {}) {
     // 取消 / 无效目标 → null（#7 收口加固：避免 { path: null } 之类伪目标被当真值误写）
     if (!target || typeof target !== 'object') return null;
     if (target.handle || target.download) return target;
-    if (typeof target.path === 'string' && target.path) return target;
+    if (typeof target.path === 'string' && target.path) {
+      // #7：用户若在原生保存框中未带扩展名，补上默认扩展名，避免 Rust validate_path 拒绝。
+      const fixed = ensureExtension(target.path, name);
+      if (fixed !== target.path && typeof window.__probe === 'function') {
+        window.__probe('ui.saveAsDialog.path', { original: target.path, fixed });
+      }
+      return { path: fixed };
+    }
     return null;
   } catch (err) {
     if (err && err.name === 'AbortError') return null; // 用户取消
@@ -248,24 +271,56 @@ export async function showSaveAsDialog({ suggestedName, types } = {}) {
 // 用轻量 toast（不拦截其它交互、数秒后自动消失），仅在浏览器 DOM 环境生效；
 // node 环境下 document 不存在，直接跳过，避免破坏 node 测试。
 // ---------------------------------------------------------------------------
-function showSaveErrors(count) {
+// #9：失败提示带上首个错误原因，避免「只报数量、不报原因」导致用户无法定位。
+function showSaveErrors(errors) {
   if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') {
     return;
   }
+  const n = Array.isArray(errors) ? errors.length : 1;
+  let msg = n + ' 个文件保存失败';
+  if (Array.isArray(errors) && errors[0] && errors[0].error) {
+    const reason = errors[0].error.message || String(errors[0].error);
+    msg += '：' + reason;
+    if (errors.length > 1) msg += '（等 ' + errors.length + ' 处）';
+  } else {
+    msg += '，请重试';
+  }
   const toast = document.createElement('div');
   toast.className = 'save-poll-toast';
-  toast.textContent = count + ' 个文件保存失败，请重试';
+  toast.textContent = msg;
   toast.style.cssText = [
     'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)',
     'z-index:100000', 'padding:10px 16px', 'background:#5a1d1d', 'color:#ffd7d7',
     'border:1px solid #8a2d2d', 'border-radius:8px',
     'font-family:system-ui,-apple-system,sans-serif', 'font-size:13px',
     'box-shadow:0 8px 24px rgba(0,0,0,0.5)', 'pointer-events:none',
+    'max-width:80vw', 'white-space:pre-wrap', 'word-break:break-all',
   ].join(';') + ';';
   document.body.appendChild(toast);
   setTimeout(() => {
     if (toast.parentNode) toast.parentNode.removeChild(toast);
-  }, 5000);
+  }, 6000);
+}
+
+// #9：保存成功也给予可见确认（之前只有失败提示，成功静默不易确认）。
+function showSaveSuccess(count) {
+  if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') {
+    return;
+  }
+  const toast = document.createElement('div');
+  toast.className = 'save-poll-toast';
+  toast.textContent = count + ' 个文件已保存';
+  toast.style.cssText = [
+    'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)',
+    'z-index:100000', 'padding:10px 16px', 'background:#1d3a1d', 'color:#d7ffd7',
+    'border:1px solid #2d8a2d', 'border-radius:8px',
+    'font-family:system-ui,-apple-system,sans-serif', 'font-size:13px',
+    'box-shadow:0 8px 24px rgba(0,0,0,0.5)', 'pointer-events:none',
+  ].join(';') + ';';
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  }, 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,14 +391,33 @@ export async function runSavePoll(panes, order) {
         }
       } catch (err) {
         console.error('[save-poll] 栏 ' + key + ' 保存失败：', err);
+        // #9：错误探针，上报命令/路径/异常，便于 EXE 下定位（如 D:\System\Desktop 受限）。
+        if (typeof window.__probe === 'function') {
+          window.__probe('ui.savePoll.write.error', {
+            key,
+            path: target && target.path,
+            err: String((err && err.message) || err),
+          });
+        }
         errors.push({ key, error: err });
         result.actions.push({ key, action: 'error' });
       }
     }
 
-    // M3：一轮结束，若有失败栏，给出非阻塞 UI 提示（不吞掉错误）。
+    // M3/#9：一轮结束，失败带原因提示；全部成功则给可见确认。
     if (errors.length) {
-      showSaveErrors(errors.length);
+      if (typeof window.__probe === 'function') {
+        window.__probe('ui.savePoll.errors', {
+          count: errors.length,
+          first: errors[0] && errors[0].error && errors[0].error.message,
+        });
+      }
+      showSaveErrors(errors);
+    } else {
+      const saved = (result.actions || []).filter(
+        (a) => a.action === 'save' || a.action === 'saveAs'
+      ).length;
+      if (saved > 0) showSaveSuccess(saved);
     }
   } finally {
     inFlight = false; // M2：无论成功/异常/中止，复位重入标志
