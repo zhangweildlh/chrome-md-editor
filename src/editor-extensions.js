@@ -221,7 +221,7 @@ export const showSpecialCharsCompartment = new Compartment();
 
 /** EOL 行尾标签 widget：按 kind 区分换行符(eol)与换行标记(eolMark)（#12/#13 纠正）。
  *  - eol：真实换行符 → 绿色小方块 + 文字 "LF"/"CR"/"CRLF"（.cm-eol-label）。
- *  - eolMark：空行占位提示 → 仅回车箭头 ⏎，无红框（.cm-eolmark-label）。 */
+ *  - eolMark：空行占位提示 → 仅回车箭头 ↵，无红框（.cm-eolmark-label）。 */
 class EolLabelWidget extends WidgetType {
   constructor(label, kind) {
     super();
@@ -233,7 +233,7 @@ class EolLabelWidget extends WidgetType {
     const span = document.createElement("span");
     if (this.kind === 'eolMark') {
       span.className = "cm-eolmark-label";
-      span.textContent = "⏎";
+      span.textContent = "↵";
     } else {
       span.className = "cm-eol-label";
       span.textContent = this.label;
@@ -267,13 +267,13 @@ function buildEolLabels(doc) {
   return builder.finish();
 }
 
-/** 换行标记：仅空行（text 为空）在文本末尾显示回车箭头 ⏎，无红框（#12/#13 纠正）。 */
+/** 换行标记：仅空行（text 为空）在文本末尾显示回车箭头 ↵，无红框（#12/#13 纠正）。 */
 function buildEolMarkLabels(doc) {
   const builder = new RangeSetBuilder();
   for (let i = 1; i <= doc.lines; i++) {
     const line = doc.line(i);
     if (line.text.length === 0) {
-      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget("⏎", 'eolMark'), side: 1 }));
+      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget("↵", 'eolMark'), side: 1 }));
     }
   }
   return builder.finish();
@@ -289,7 +289,7 @@ const eolLabelsExtension = StateField.define({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-/** 换行标记：inline widget 显示⏎（仅空行），不撑高行高（#12/#13 纠正）。 */
+/** 换行标记：inline widget 显示↵（仅空行），不撑高行高（#12/#13 纠正）。 */
 const eolMarkExtension = StateField.define({
   create(state) { return buildEolMarkLabels(state.doc); },
   update(deco, tr) {
@@ -319,7 +319,7 @@ export function applyInvisiblesSettings(view, settings = {}) {
   push(showWhitespaceCompartment, 'space', highlightSpaceDots());
   // #12/#13 纠正：eol 与 eolMark 分属独立 compartment，各自渲染不同内容。
   //  - eol：真实换行符 → 绿色小方块 + LF/CR/CRLF（eolLabelsExtension）。
-  //  - eolMark：空行占位 → ⏎（eolMarkExtension）。
+  //  - eolMark：空行占位 → ↵（eolMarkExtension）。
   push(showEolCompartment, 'eol', eolLabelsExtension);
   push(showEolMarkCompartment, 'eolMark', eolMarkExtension);
   push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());

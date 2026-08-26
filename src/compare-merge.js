@@ -1689,6 +1689,37 @@ export function createCompareMergeView(opts) {
       },
       /** 共享滚动同步控制器（供「滚动」按钮 toggle，见 §9 / D16） */
       scrollSync,
+      /**
+       * 光标锚定局部采纳（#2）：返回活动栏(pane)光标 head 命中的差异块下标。
+       *  - pane 'a'：在 ab 层按 a 侧坐标 [srcFrom,srcTo] 命中
+       *  - pane 'c'：在 bc 层按 c 侧坐标 [srcFrom,srcTo] 命中
+       *  - pane 'b'：结果栏本身，无可采纳内容，返回 -1
+       * @param {string} pane 'a'|'b'|'c'
+       * @param {number} head 活动栏视图光标 head（字符坐标）
+       * @returns {number} 命中块下标；未命中返回 -1
+       */
+      chunkAtCursor(pane, head) {
+        const model = buildChunkModel();
+        if (pane === "a") return model.ab.findIndex((c) => head >= c.srcFrom && head <= c.srcTo);
+        if (pane === "c") return model.bc.findIndex((c) => head >= c.srcFrom && head <= c.srcTo);
+        return -1;
+      },
+      /**
+       * 光标锚定局部采纳（#2）：把活动栏光标所在段落 / 鼠标已框选字符串写入结果(b)。
+       *  - pane 'a' → a→b（采纳左）：仅写源视图光标/选区所在行（acceptChunkAtCursor 已处理「段落 vs 选区」）
+       *  - pane 'c' → c→b（采纳右）：同上，源为 c
+       *  - 选区优先于光标段落；选区可跨多句、不必等于整段（由 acceptChunkAtCursor 判定相交行）
+       * @param {string} pane 'a'|'b'|'c'
+       * @param {number} head 活动栏视图光标 head（字符坐标）
+       * @returns {boolean} 是否实际产生写入
+       */
+      acceptAtCursor(pane, head) {
+        const i = this.chunkAtCursor(pane, head);
+        if (i < 0) return false;
+        if (pane === "a") return acceptPartialThree(i, "left");
+        if (pane === "c") return acceptBcChunkAt(i, "right");
+        return false;
+      },
       destroy() {
         if (scrollSync) scrollSync.destroy();
         if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图

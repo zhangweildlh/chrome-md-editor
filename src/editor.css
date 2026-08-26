@@ -1374,6 +1374,38 @@ body {
   color: var(--text-accent);
 }
 
+/* #3 滚动同步按钮：btnScroll 仅挂 compare-toolbar-btn 类，其 .active 高亮依赖的
+   CSS 变量在部分主题下未定义 → 不可见（表现为「始终灰色」）。此处用 id+class 提权
+   并给出显式颜色，保证「开/关」两态清晰可辨（开=高亮、关=灰色次级）。 */
+#btnScroll.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: var(--accent, #3b82f6);
+}
+
+/* #2 光标锚定局部采纳浮层按钮：固定在视口、随活动栏光标定位，点击把光标段落/选区写入结果。
+   注意：本按钮是 compareHost 的直接子节点（merge 视图的兄弟），非 .cm-mergeView 后代，
+   不违反 MergeView 层叠上下文铁律；仅用绝对定位 + 背景色，不加 transform/filter/backdrop-filter。 */
+.cm-inline-accept {
+  position: fixed;
+  z-index: 2000;
+  display: none;
+  padding: 2px 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 4px;
+  border: 1px solid var(--accent, #3b82f6);
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.cm-inline-accept:hover {
+  background: var(--accent-strong, #2563eb);
+  border-color: var(--accent-strong, #2563eb);
+}
+
 .toolbar-btn strong {
   font-weight: 700;
   font-size: 14px;
@@ -1765,11 +1797,11 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 0.18em;
-  height: 0.18em;
+  width: 0.108em;
+  height: 0.108em;
   /* 严禁 transform：.cm-highlightSpace 处于 .cm-mergeView 后代，违反 MergeView 层叠上下文硬约束（会复现 B2 块级采纳按钮划花）。改用负 margin 居中，不创建层叠上下文。 */
-  margin-left: -0.09em;
-  margin-top: -0.09em;
+  margin-left: -0.054em;
+  margin-top: -0.054em;
   border-radius: 50%;
   background: var(--danger);
   pointer-events: none;
