@@ -1745,6 +1745,15 @@ body {
 .editor-container .cm-editor .cm-content {
   background: transparent !important;
 }
+/* R10 修复：编辑栏 .cm-content/.cm-line 直接消费 --editor-line-height。
+   原仅绑在 .cm-editor（外层 wrapper），.cm-content 落到 CodeMirror 主题自带
+   line-height:1.5（恒定 21px）而忽略根变量，导致「设置/滚轮行间距」编辑栏不响应。
+   对齐 compare.css:498 做法，绑定到内容元素本身，使编辑栏与对比/预览三栏一致联动。
+   仅作用于 .editor-container 子树，不影响 .compare-view 内的对比栏（其由 compare.css 管理）。 */
+.editor-container .cm-editor .cm-content,
+.editor-container .cm-editor .cm-line {
+  line-height: var(--editor-line-height);
+}
 
 .editor-container .cm-editor .cm-scroller {
   overflow: auto;

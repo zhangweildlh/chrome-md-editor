@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.13] - 2026-08-27（R10 编辑栏行高修复）
+
+### 修复
+- **编辑栏行间距不响应设置/滚轮（R10 根因修复）**：探针实证 `editor.css` 仅将 `--editor-line-height` 绑在 `.cm-editor` 外层 wrapper，`.cm-content`/`.cm-line` 落到 CodeMirror 主题自带 `line-height:1.5`（恒定 21px）而忽略根变量，导致「设置→行间距」编辑栏不变（对比/预览栏因直接绑在内容元素本身而正常）。修复：在 `editor.css` 给 `.editor-container .cm-editor .cm-content`/`.cm-line` 直接绑定 `line-height: var(--editor-line-height)`，与 `compare.css:498` 对齐，实现三栏一致联动。
+
 ## [1.9.12] - 2026-08-26（R9 行间距诊断探针）
 
 ### 修复（诊断中）
