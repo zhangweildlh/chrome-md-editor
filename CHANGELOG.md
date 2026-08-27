@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.12] - 2026-08-26（R9 行间距诊断探针）
+
+### 修复（诊断中）
+- **行间距设置仅作用于预览栏（R9 新缺陷）**：用户报告「设置→行间距」仅预览栏生效，编辑栏与对比 A/B/C 三栏不变；而 Ctrl+Alt+滚轮缩放行距正常。静态核查三处 CSS 均绑同一 `--editor-line-height` 变量、无 `.cm-content`/`.cm-line` 覆盖，无法复现。本轮在 `editor.js`(设置路径) 与 `focus-mode.js`(滚轮路径) 双植入 `display.lineHeight.applied` 诊断探针（仅 CME_DEBUG 下触发），捕获三栏实时 computed line-height 与根变量值，待实机复测取证定位根因。
+
 ## [1.9.11] - 2026-08-27（R8 显示一致性 + 对比页滚轮缩放）
 
 ### 修复

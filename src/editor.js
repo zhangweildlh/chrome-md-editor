@@ -141,9 +141,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.11"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.12"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.11";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.12";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -3455,9 +3455,29 @@ function bindEvents() {
             // 改为显式空串判断，保留 "0" 等边界值。
             setEditorLetterSpacing(eLetterSpacing.value === '' ? '' : eLetterSpacing.value);
     });
-    if (eLineHeight) eLineHeight.addEventListener('change', () => {
-            setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
-    });
+    if (eLineHeight) {
+      // R9 诊断探针：捕获「设置改行间距」时三栏实时 computed line-height + 变量值，
+      // 用于定位「仅预览生效、编辑/对比不生效」根因（与 Ctrl+Alt+滚轮路径对照）。
+      const probeLH = () => {
+        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+          const cs = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).lineHeight : '(none)'; };
+          window.__probe('display.lineHeight.applied', {
+            trigger: 'settings-input',
+            value: eLineHeight.value,
+            varOnRoot: (getComputedStyle(document.documentElement).getPropertyValue('--editor-line-height') || '').trim(),
+            editorCmContent: cs('.editor-container .cm-editor .cm-content'),
+            editorCmLine: cs('.editor-container .cm-editor .cm-line'),
+            preview: cs('.markdown-body'),
+            compareCmContent: cs('.compare-view .cm-editor .cm-content'),
+          });
+        }
+      };
+      eLineHeight.addEventListener('input', probeLH);
+      eLineHeight.addEventListener('change', () => {
+        setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
+        probeLH();
+      });
+    }
     // ⑱ Win11 记事本默认值「默认」按钮：点击写入 Win11 默认并触发对应 setter
     displayPopover.querySelectorAll('.field-default-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {

@@ -147,6 +147,19 @@ export function applyZoomFromWheel(e) {
     const cur = parseFloat(getEditorLineHeight() || '1.6') || 1.6;
     const next = Math.min(2.5, Math.max(1, Math.round((cur + dir * 0.1) * 10) / 10));
     setEditorLineHeight(next);
+    // R9 诊断探针：Ctrl+Alt+滚轮（已知生效路径）对照「设置改行间距」路径。
+    if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+      const cs = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).lineHeight : '(none)'; };
+      window.__probe('display.lineHeight.applied', {
+        trigger: 'wheel',
+        value: next,
+        varOnRoot: (getComputedStyle(document.documentElement).getPropertyValue('--editor-line-height') || '').trim(),
+        editorCmContent: cs('.editor-container .cm-editor .cm-content'),
+        editorCmLine: cs('.editor-container .cm-editor .cm-line'),
+        preview: cs('.markdown-body'),
+        compareCmContent: cs('.compare-view .cm-editor .cm-content'),
+      });
+    }
   } else {
     const cur = getEditorFontSize() || 14;
     const next = Math.min(32, Math.max(10, cur + dir));
