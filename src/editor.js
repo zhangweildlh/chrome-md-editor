@@ -141,9 +141,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.13"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.14"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.13";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.14";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -3542,6 +3542,8 @@ function bindEvents() {
         const efInput = document.getElementById('dsEditorFont'); if (efInput) efInput.value = getEditorFontSize() || 14;
         const lsInput = document.getElementById('dsEditorLetterSpacing'); if (lsInput) lsInput.value = getEditorLetterSpacing() || 0;
         const lhInput = document.getElementById('dsEditorLineHeight'); if (lhInput) lhInput.value = getEditorLineHeight() || 1.6;
+        // R10：字号缩放同步刷新预览字号输入框显示（缩放手势同时改了 --preview-font-size）。
+        const pfInput = document.getElementById('dsPreviewFont'); if (pfInput) pfInput.value = getPreviewFontSize() || 15;
       }
     }, { passive: false });
   }

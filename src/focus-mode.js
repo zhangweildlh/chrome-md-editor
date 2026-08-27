@@ -130,40 +130,56 @@ export function setDensity(level) {
   document.documentElement.style.setProperty('--ui-gap', DENSITY_GAP[level] || DENSITY_GAP.standard);
   }
 
-// ---- G4/R8：Ctrl+滚轮缩放编辑器排版（字号 / 字间距 / 行间距）----
+// ---- G4/R8/R10：Ctrl+滚轮缩放编辑器排版（字号 / 字间距 / 行间距）----
 // 复用同一组 :root CSS 变量（--editor-font-size / --editor-letter-spacing / --editor-line-height），
 // 因此编辑栏与对比/合并页共享同一缩放状态，天然保持「一致 + 联动」。
 // 修饰键：Ctrl+滚轮=字号(10-32px,步长1)；Ctrl+Shift+滚轮=字间距(0-4px,步长0.5)；
 //        Ctrl+Alt+滚轮=行间距(1-2.5,步长0.1)。返回 true 表示已拦截并处理缩放（调用方据此同步 UI）。
+// R10 修复：字号缩放原本只写 --editor-font-size（编辑栏+对比栏变，预览因独立 --preview-font-size 不变）。
+//   为落实「三栏一致+联动」，字号缩放同时同步写入 --preview-font-size，使预览栏随缩放联动。
+//   注：这会覆盖预览独立字号设置（缩放手势语义即「整体视觉缩放」，符合一致性预期）；
+//       在设置面板显式调整预览字号仍独立生效。
 export function applyZoomFromWheel(e) {
   if (!e.ctrlKey) return false;
   e.preventDefault();
   const dir = e.deltaY < 0 ? 1 : -1;
+  let kind = 'fontSize';
+  let next = 0;
   if (e.shiftKey) {
+    kind = 'letterSpacing';
     const cur = parseFloat(getEditorLetterSpacing() || '0') || 0;
-    const next = Math.min(4, Math.max(0, Math.round((cur + dir * 0.5) * 10) / 10));
+    next = Math.min(4, Math.max(0, Math.round((cur + dir * 0.5) * 10) / 10));
     setEditorLetterSpacing(next);
   } else if (e.altKey) {
+    kind = 'lineHeight';
     const cur = parseFloat(getEditorLineHeight() || '1.6') || 1.6;
-    const next = Math.min(2.5, Math.max(1, Math.round((cur + dir * 0.1) * 10) / 10));
+    next = Math.min(2.5, Math.max(1, Math.round((cur + dir * 0.1) * 10) / 10));
     setEditorLineHeight(next);
-    // R9 诊断探针：Ctrl+Alt+滚轮（已知生效路径）对照「设置改行间距」路径。
-    if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-      const cs = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).lineHeight : '(none)'; };
-      window.__probe('display.lineHeight.applied', {
-        trigger: 'wheel',
-        value: next,
-        varOnRoot: (getComputedStyle(document.documentElement).getPropertyValue('--editor-line-height') || '').trim(),
-        editorCmContent: cs('.editor-container .cm-editor .cm-content'),
-        editorCmLine: cs('.editor-container .cm-editor .cm-line'),
-        preview: cs('.markdown-body'),
-        compareCmContent: cs('.compare-view .cm-editor .cm-content'),
-      });
-    }
   } else {
+    kind = 'fontSize';
     const cur = getEditorFontSize() || 14;
-    const next = Math.min(32, Math.max(10, cur + dir));
+    next = Math.min(32, Math.max(10, cur + dir));
     setEditorFontSize(next);
+    // R10：字号缩放同步预览字号，落实三栏联动。
+    setPreviewFontSize(next);
+  }
+  // R10 诊断探针：覆盖全部缩放子路径（字号/字间距/行高），
+  // 捕获三栏 computed line-height + 预览 font-size 及根变量值，用于核对预览是否随缩放联动。
+  if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
+    const cs = (sel, prop) => { const el = document.querySelector(sel); return el ? getComputedStyle(el)[prop] : '(none)'; };
+    window.__probe('display.lineHeight.applied', {
+      trigger: 'wheel',
+      kind,
+      value: next,
+      varEditorLineHeight: (getComputedStyle(document.documentElement).getPropertyValue('--editor-line-height') || '').trim(),
+      varEditorFontSize: (getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size') || '').trim(),
+      varPreviewFontSize: (getComputedStyle(document.documentElement).getPropertyValue('--preview-font-size') || '').trim(),
+      editorCmContentLH: cs('.editor-container .cm-editor .cm-content', 'lineHeight'),
+      editorCmLineLH: cs('.editor-container .cm-editor .cm-line', 'lineHeight'),
+      previewLH: cs('.markdown-body', 'lineHeight'),
+      previewFS: cs('.markdown-body', 'fontSize'),
+      compareCmContentLH: cs('.compare-view .cm-editor .cm-content', 'lineHeight'),
+    });
   }
   return true;
 }

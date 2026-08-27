@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.14] - 2026-08-27（R11 缩放手势预览联动 + 滚轮探针全覆盖）
+
+### 修复
+- **Ctrl+滚轮字号缩放预览不联动（R11）**：字号缩放原本只写 `--editor-font-size`（编辑栏+对比栏变、预览不变，因预览字号走独立 `--preview-font-size`）。为落实「三栏一致+联动」，字号缩放同步写入 `--preview-font-size`，预览栏随缩放联动。设置面板显式调整预览字号仍独立生效。
+
+### 增强
+- **滚轮诊断探针全覆盖**：`focus-mode.js` `applyZoomFromWheel` 探针从仅行高分支扩展到全部缩放子路径（字号/字间距/行高），捕获三栏 computed line-height + 预览 font-size 及根变量值（`--editor-line-height`/`--editor-font-size`/`--preview-font-size`），便于实机核对预览是否随缩放联动。`editor.js` 滚轮监听同步刷新预览字号输入框 `dsPreviewFont` 显示。
+
 ## [1.9.13] - 2026-08-27（R10 编辑栏行高修复）
 
 ### 修复
