@@ -40,7 +40,13 @@ import {
 import { exportResult } from "./compare-export.js";
 import { buildDiffText } from "./compare-diff-export.js";
 // 共享编辑器扩展工厂（编辑页 / 对比·合并页共用同一套 CM6 内核，见设计文档 §8.1/§8.2）
-import { createEditorExtensions } from "./editor-extensions.js";
+import { createEditorExtensions, applyInvisiblesSettings } from "./editor-extensions.js";
+import {
+  getEditorFontSize, setEditorFontSize,
+  getEditorLetterSpacing, setEditorLetterSpacing,
+  getEditorLineHeight, setEditorLineHeight,
+  applyZoomFromWheel,
+} from "./focus-mode.js";
 // 保存轮询 + 另存为弹窗（§5）
 import { runSavePoll, showSaveAsDialog } from "./save-poll.js";
 // 可复用多栏滚动同步（§9）；控制器由 createCompareMergeView 内部创建并挂到 instance.scrollSync，
@@ -202,6 +208,32 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   });
 
+  // R8：编辑栏「显示选项」切换时，实时联动对比/合并页 A/B/C 三栏的空格符/换行符/换行标记
+  window.addEventListener('cme-invisibles-change', (e) => {
+    if (!instance || !e.detail) return;
+    const s = e.detail;
+    for (const v of [instance.a, instance.b, instance.theirsView]) {
+      if (v) applyInvisiblesSettings(v, s);
+    }
+  });
+
+  // R8：对比/合并页 A/B/C 三栏 Ctrl+滚轮缩放（字号/字间距/行间距，与编辑栏共用 :root 变量 → 一致+联动）
+  let compareWheelBound = false;
+  function bindCompareWheelZoom() {
+    if (compareWheelBound) return;
+    const root = HOST.getElementById("compareRoot");
+    if (!root) return;
+    root.addEventListener("wheel", (e) => {
+      if (applyZoomFromWheel(e)) syncCompareDisplayInputs();
+    }, { passive: false });
+    compareWheelBound = true;
+  }
+  function syncCompareDisplayInputs() {
+    const f = document.getElementById("dsEditorFont"); if (f) f.value = getEditorFontSize() || 14;
+    const ls = document.getElementById("dsEditorLetterSpacing"); if (ls) ls.value = getEditorLetterSpacing() || 0;
+    const lh = document.getElementById("dsEditorLineHeight"); if (lh) lh.value = getEditorLineHeight() || 1.6;
+  }
+
   // 公共扩展：复用编辑页同款内核（语法高亮彩色 / 查找替换 / / 面板 / 块拖拽 + 选区拖拽）
   // + 对照/合并专属 diff 行标记 + 活动栏跟踪。Callout 不做盒子渲染（仅源码语法高亮，见 §D12）。
   // F3：localStorage 不可用（隐私模式/被禁用）时返回默认值，避免初始化崩溃
@@ -306,8 +338,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   };
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.9.10（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.10";
+  // 运行时兜底 1.9.11（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.11";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -1209,6 +1241,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
       }
+      // R8：对比/合并页 A/B/C 三栏支持 Ctrl+滚轮缩放字号/字间距/行间距（与编辑栏一致）
+      bindCompareWheelZoom();
       // R5 修复：#2 光标锚定浮动采纳按钮需要一次主动初始化，才能在 selectionchange 时
       // 被触发。否则 ensureInlineAcceptBtn/wireInlineAcceptGlobal 与 selectionchange 形成
       // 死锁，按钮逻辑永远不会启动。

@@ -299,20 +299,19 @@ const eolMarkExtension = StateField.define({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-// 上次应用的状态，用于 F6：仅对发生变化的项 reconfigure（减少冗余 dispatch）
-let lastInvisibles = null;
-
 /**
- * 动态应用显示选项（4 个 compartment，仅对发生变化的项 reconfigure，F6）。
+ * 动态应用显示选项（4 个 compartment）。
+ * 注意：本函数被多个编辑器视图（主编辑区、对比 A/B/C 三栏）共用，故【必须每次都对本视图
+ * 期望状态做 reconfigure】，不能依赖模块级 lastInvisibles 缓存——否则先应用到主编辑区后，
+ * 再应用到对比栏时因状态「看似未变」而跳过 reconfigure，导致对比栏不跟随（R8 修复）。
  * @param {EditorView} view
  * @param {{space?:boolean, eol?:boolean, eolMark?:boolean, specialChars?:boolean}} settings
  */
 export function applyInvisiblesSettings(view, settings = {}) {
   if (!view) return;
-  const prev = lastInvisibles || {};
   const effects = [];
   const push = (comp, key, ext) => {
-    if (settings[key] !== undefined && settings[key] !== prev[key]) {
+    if (settings[key] !== undefined) {
       effects.push(comp.reconfigure(settings[key] ? ext : []));
     }
   };
@@ -325,7 +324,6 @@ export function applyInvisiblesSettings(view, settings = {}) {
   push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());
   if (effects.length) {
     view.dispatch({ effects });
-    lastInvisibles = { ...prev, ...settings };
   }
 }
 

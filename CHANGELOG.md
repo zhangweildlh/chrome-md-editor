@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.11] - 2026-08-27（R8 显示一致性 + 对比页滚轮缩放）
+
+### 修复
+- **对比/合并页 A/B/C 三栏「显示选项」与编辑栏实时联动（R8）**：编辑栏切换空格符/换行符/换行标记时经 `window` 事件 `cme-invisibles-change` 广播，对比页 A/B/C 三栏（含独立 C 栏 `theirsView`）即时 `reconfigure` 对应 compartment，跟随编辑栏开关。
+- **`applyInvisiblesSettings` 多视图正确性**：移除模块级 `lastInvisibles` 缓存（编辑栏与对比三栏共用本函数时会因状态「看似未变」跳过 reconfigure 导致对比栏不跟随），改为每次按本视图期望状态 reconfigure。
+- **版本戳同步**：修正 `desktop/tauri.conf.json` 长期漂移的 `1.4.15` → 与 `package.json` 对齐为 `1.9.11`（六处同步点 + Tauri 配置全量对齐）。
+
+### 新增
+- **对比/合并页 A/B/C 三栏 Ctrl+滚轮缩放（与编辑栏一致）**：`Ctrl+滚轮`=字号(10-32px,步1)、`Ctrl+Shift+滚轮`=字间距(0-4px,步0.5)、`Ctrl+Alt+滚轮`=行间距(1-2.5,步0.1)，写入同一组 `:root` 变量，编辑栏与对比页共享缩放状态（一致+联动）；编辑栏同步升级支持上述三修饰键。
+
 ## [Unreleased] - 2026-08-23（分支 feat/fix-whitespace-deco-freeze-20260823）
 
 ### 修复

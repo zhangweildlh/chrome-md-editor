@@ -141,9 +141,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.10"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.11"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.10";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.11";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -174,6 +174,7 @@ import {
   getEditorLetterSpacing,
   setEditorLineHeight,
   getEditorLineHeight,
+  applyZoomFromWheel,
   WIN11_DEFAULTS,
 } from './focus-mode.js';
 // A-9 超长 Base64 行折叠
@@ -3511,18 +3512,17 @@ function bindEvents() {
     });
   }
 
-  // G3 + F8：Ctrl + 鼠标滚轮缩放编辑器字号（10-32px，持久化），并同步显示设置控件；
-  // 监听限定在编辑器容器（编辑区），预览区/大纲区滚动不再误触发字号缩放
+  // G3 + F8 + R8：Ctrl+鼠标滚轮缩放编辑器排版（字号/字间距/行间距，持久化并联动对比页）。
+  //   修饰键：Ctrl=字号、Ctrl+Shift=字间距、Ctrl+Alt=行间距（见 focus-mode.applyZoomFromWheel）。
+  //   监听限定在编辑器容器（编辑区），预览区/大纲区滚动不再误触发缩放。
   const editorContainer = document.getElementById('editorContainer');
   if (editorContainer) {
     editorContainer.addEventListener('wheel', (e) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      const cur = getEditorFontSize() || 14;
-      const next = Math.min(32, Math.max(10, cur + (e.deltaY < 0 ? 1 : -1)));
-      setEditorFontSize(next);
-      const efInput = document.getElementById('dsEditorFont');
-      if (efInput) efInput.value = next;
+      if (applyZoomFromWheel(e)) {
+        const efInput = document.getElementById('dsEditorFont'); if (efInput) efInput.value = getEditorFontSize() || 14;
+        const lsInput = document.getElementById('dsEditorLetterSpacing'); if (lsInput) lsInput.value = getEditorLetterSpacing() || 0;
+        const lhInput = document.getElementById('dsEditorLineHeight'); if (lhInput) lhInput.value = getEditorLineHeight() || 1.6;
+      }
     }, { passive: false });
   }
 
@@ -3546,6 +3546,8 @@ function bindEvents() {
       btn.classList.toggle('active', s[key]);
       btn.setAttribute('aria-pressed', String(s[key]));
       applyInvisiblesSettings(editor, s);
+      // R8：广播给对比/合并页，使其 A/B/C 三栏实时跟随空格符/换行符/换行标记显示状态
+      try { window.dispatchEvent(new CustomEvent('cme-invisibles-change', { detail: s })); } catch (_) {}
     });
   }
 
