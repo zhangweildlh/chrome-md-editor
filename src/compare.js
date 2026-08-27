@@ -340,7 +340,10 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       unsubscribeStatus = null;
     }
 
-  // R3/R5 修复：通用 toast（不阻塞交互、3s 自动消失），让 EXE 侧操作反馈可见。
+  // R3/R5 修复：通用 toast（不阻塞交互、自动消失），让 EXE 侧操作反馈可见。
+  // R6 修复 #9：去掉 transform 居中（EXE WebView2 下不稳健），改 left:0;right:0;margin:auto 居中；
+  //   改顶部居中(top:24px)避免被底部 .compare-footer 遮挡（根因：底部 toast 被 footer 盖住 → 用户"没看到"）；
+  //   提 z-index 至最高层、字号 14px、停留 3500ms、加 ui.toast.show 探针以便核验。
   // type: 'error' | 'success' | 'warn'；默认 'error'。
   function showCompareToast(message, type = "error") {
     if (typeof document === "undefined" || !document.body) return;
@@ -352,18 +355,19 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     const c = palette[type] || palette.error;
     const toast = document.createElement("div");
     toast.style.cssText = [
-      "position:fixed", "left:50%", "bottom:24px", "transform:translateX(-50%)",
-      "z-index:100001", "padding:10px 18px", `background:${c.bg}`, `color:${c.fg}`,
+      "position:fixed", "top:24px", "left:0", "right:0", "margin:0 auto", "width:fit-content",
+      "max-width:90vw", "z-index:2147483640", "padding:12px 22px", `background:${c.bg}`, `color:${c.fg}`,
       `border:1px solid ${c.border}`, "border-radius:8px",
-      "font-family:system-ui,-apple-system,sans-serif", "font-size:13px",
-      "box-shadow:0 8px 24px rgba(0,0,0,0.5)", "pointer-events:none",
-      "max-width:80vw", "white-space:pre-wrap", "word-break:break-all",
+      "font-family:system-ui,-apple-system,sans-serif", "font-size:14px", "font-weight:600",
+      "box-shadow:0 8px 24px rgba(0,0,0,0.5)", "pointer-events:none", "text-align:center",
+      "white-space:pre-wrap", "word-break:break-all",
     ].join(";");
     toast.textContent = message;
     document.body.appendChild(toast);
+    if (typeof window.__probe === "function") window.__probe("ui.toast.show", { type, message, mounted: true });
     setTimeout(() => {
       if (toast.parentNode) toast.parentNode.removeChild(toast);
-    }, 3000);
+    }, 3500);
   }
     if (locationPane) {
       try {
@@ -829,6 +833,29 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     // 任意栏滚动时仅重定位（不重算命中），避免按钮漂移
     document.addEventListener("scroll", () => { try { positionInlineAccept(); } catch (_) {} }, true);
   }
+  // R6 修复 #2：统一采纳动作。改用 mousedown 触发（避免鼠标轻微位移导致 click 不触发；
+  //   R5 探针整份无 ui.inlineAccept.click 证明 click 从未触发）。最前加 try 探针（含 chunkAtCursor 命中），
+  //   成功后弹「已采纳到结果栏(B)」明确反馈，失败弹 warn，让用户捋顺采纳逻辑。
+  function doInlineAccept() {
+    const pane = getActivePane();
+    const view = paneViewMap()[pane];
+    const head = view ? view.state.selection.main.head : 0;
+    let hit = -1;
+    try { hit = instance ? instance.chunkAtCursor(pane, head) : -1; } catch (_) { /* ignore */ }
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.click.try", { pane, head, hit, hasInstance: !!instance, hasAcceptAtCursor: !!(instance && typeof instance.acceptAtCursor === "function") });
+    if (instance && typeof instance.acceptAtCursor === "function") {
+      let ok = false;
+      try { ok = instance.acceptAtCursor(pane, head); } catch (err) { console.error("[compare] 光标采纳失败:", err); }
+      if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.click", { pane, head, hit, ok });
+      if (ok) {
+        showCompareToast("已采纳到结果栏(B)", "success");
+        if (instance.refreshDecorations) instance.refreshDecorations();
+      } else {
+        showCompareToast("采纳失败：光标 / 选区不在差异块内", "warn");
+      }
+    }
+    hideInlineAccept();
+  }
   function ensureInlineAcceptBtn() {
     if (inlineAcceptBtn) return inlineAcceptBtn;
     if (typeof HOST === "undefined" || !HOST) return null;
@@ -836,22 +863,13 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     btn.type = "button";
     btn.className = "cm-inline-accept";
     btn.textContent = "采纳";
-    btn.title = "采纳：把光标所在段落 / 已框选字符串写入结果栏（选区优先；可跨多句）";
+    // R6 #2：title 明确「采纳到结果栏(B)」，让用户捋顺采纳逻辑
+    btn.title = "采纳到结果栏(B)：把光标所在段落 / 已框选内容写入结果栏（选区优先；可跨多句）";
     btn.style.display = "none";
-    btn.addEventListener("mousedown", (e) => e.preventDefault()); // 不抢编辑器焦点
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (instance && typeof instance.acceptAtCursor === "function") {
-        const pane = getActivePane();
-        const view = paneViewMap()[pane];
-        const head = view ? view.state.selection.main.head : 0;
-        let ok = false;
-        try { ok = instance.acceptAtCursor(pane, head); } catch (err) { console.error("[compare] 光标采纳失败:", err); }
-        if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.click", { pane, ok });
-        if (ok && instance.refreshDecorations) instance.refreshDecorations();
-      }
-      hideInlineAccept();
+    // R6 修复 #2：改用 mousedown 触发采纳（见 doInlineAccept），避免 click 因轻微位移而丢失
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault(); // 不抢编辑器焦点
+      doInlineAccept();
     });
     // R3 修复：EXE 集成模式下 HOST 可能为 document，document.appendChild 非法会抛错，
     // 导致按钮从未创建。统一挂载到 body（fixed 定位，不依赖 compareHost）。
@@ -872,14 +890,22 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     const btn = inlineAcceptBtn;
     if (!btn || btn.style.display === "none") return;
     const pane = getActivePane();
+    if (pane === "b") return hideInlineAccept(); // b 为结果栏，无可采纳内容（R6 #2）
     const view = paneViewMap()[pane];
     if (!view) return hideInlineAccept();
     const head = view.state.selection.main.head;
     const coords = view.coordsAtPos(head);
     if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.position", { pane, head, coords, display: btn.style.display });
     if (!coords) return hideInlineAccept();
-    btn.style.left = `${coords.left}px`;
-    btn.style.top = `${coords.bottom + 4}px`;
+    // R6 #2：改到光标右侧同行（coords.right+8, coords.top），避免压在下一行文本上导致点击落到编辑器；
+    //   右溢出则翻到光标左侧（coords.left - 宽 - 8）。
+    const btnW = btn.offsetWidth || 80;
+    let left = coords.right + 8;
+    if (left + btnW > (window.innerWidth || document.documentElement.clientWidth) - 8) {
+      left = Math.max(8, coords.left - btnW - 8);
+    }
+    btn.style.left = `${left}px`;
+    btn.style.top = `${coords.top}px`;
   }
   function showInlineAcceptIfInChunk() {
     const btn = ensureInlineAcceptBtn();
@@ -899,9 +925,15 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.coords", { pane, head, coords });
     if (!coords) return hideInlineAccept();
     btn.style.display = "block";
-    btn.style.left = `${coords.left}px`;
-    btn.style.top = `${coords.bottom + 4}px`;
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.show", { pane, head, left: coords.left, top: coords.bottom + 4 });
+    // R6 #2：同 positionInlineAccept，右侧同行 + 右溢出翻左
+    const btnW = btn.offsetWidth || 80;
+    let left = coords.right + 8;
+    if (left + btnW > (window.innerWidth || document.documentElement.clientWidth) - 8) {
+      left = Math.max(8, coords.left - btnW - 8);
+    }
+    btn.style.left = `${left}px`;
+    btn.style.top = `${coords.top}px`;
+    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.show", { pane, head, left, top: coords.top });
   }
 
   // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
