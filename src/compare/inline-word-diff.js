@@ -56,7 +56,7 @@ import { diffChars, diffWords } from "diff";
  * @typedef {Object} WordDiffRange
  * @property {number} from 相对行首的起始偏移
  * @property {number} to   相对行首的结束偏移（不含）
- * @property {'added'|'removed'} type 该区间是新增还是删除
+ * @property {'added'|'removed'|'nonemph'} type 该区间是新增/删除/配对行非改动间隙
  */
 
 /**
@@ -74,6 +74,7 @@ import { diffChars, diffWords } from "diff";
 
 const ADDED_CLASS = "cm-diff-word-added";
 const REMOVED_CLASS = "cm-diff-word-removed";
+const NONEMPH_CLASS = "cm-diff-word-nonemph";
 
 // ---------------------------------------------------------------------------
 // 计算：字符串级字词 diff
@@ -129,6 +130,56 @@ export function computeWordDiff(before, after, mode = "word") {
 }
 
 /**
+ * B2: 计算配对行的「非改动间隙段」（用于 emph 分层样式）。
+ * 给定一行两个版本及各自的改动区间，返回未改动的间隙段列表。
+ * @param {string} before 变更前文本
+ * @param {string} after  变更后文本
+ * @param {WordDiffRange[]} beforeRanges 左侧改动区间
+ * @param {WordDiffRange[]} afterRanges  右侧改动区间
+ * @returns {{beforeNonEmph: WordDiffRange[], afterNonEmph: WordDiffRange[]}}
+ */
+export function computeNonEmphRanges(before, after, beforeRanges, afterRanges) {
+  const beforeLen = (typeof before === 'string') ? before.length : 0;
+  const afterLen = (typeof after === 'string') ? after.length : 0;
+
+  // 计算未改动间隙：全行区间减去改动区间
+  const beforeNonEmph = computeComplementRanges(beforeLen, beforeRanges);
+  const afterNonEmph = computeComplementRanges(afterLen, afterRanges);
+
+  return { beforeNonEmph, afterNonEmph };
+}
+
+/**
+ * 计算给定区间列表的补集（未覆盖部分）。
+ * @param {number} length 文本总长度
+ * @param {WordDiffRange[]} ranges 改动区间列表
+ * @returns {WordDiffRange[]}
+ */
+function computeComplementRanges(length, ranges) {
+  if (!ranges || ranges.length === 0 || length === 0) return [];
+
+  // 按 from 排序
+  const sorted = [...ranges].sort((a, b) => a.from - b.from || a.to - b.to);
+  const complements = [];
+  let pos = 0;
+
+  for (const r of sorted) {
+    // [pos, r.from) 是间隙
+    if (r.from > pos) {
+      complements.push({ from: pos, to: r.from, type: "nonemph" });
+    }
+    pos = Math.max(pos, r.to);
+  }
+
+  // 最后一个区间到行尾的间隙
+  if (pos < length) {
+    complements.push({ from: pos, to: length, type: "nonemph" });
+  }
+
+  return complements;
+}
+
+/**
  * 便捷 helper：把成对的行数组批量算成 WordDiffData[]。
  *
  * 按【下标】配对 beforeLines[i] 与 afterLines[i]，适合喂一个已对齐的修改块
@@ -175,6 +226,32 @@ export const setWordDiffEffect = StateEffect.define();
 export const setWordDiffConfigEffect = StateEffect.define();
 
 /**
+ * B4/A4: 设置独属行填充标记的 Effect。
+ * dispatch 时传入 { lineNumber: number, type: 'added'|'removed' }[]，
+ * 在对应行的起始位置插入 Decoration.widget（视觉锚点）。
+ * @type {StateEffectType<Array<{lineNumber:number, type:'added'|'removed'}>>}
+ */
+export const setFillerEffect = StateEffect.define();
+
+/**
+ * B4/A4: 存放独属行填充标记数据的 StateField。
+ * @type {StateField<Array<{lineNumber:number, type:'added'|'removed'}>>}
+ */
+export const fillerDataField = StateField.define({
+  create() {
+    return [];
+  },
+  update(data, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setFillerEffect)) {
+        return Array.isArray(effect.value) ? effect.value : [];
+      }
+    }
+    return data;
+  },
+});
+
+/**
  * 存放当前面板全部字词级差异数据的 StateField。
  * @type {StateField<WordDiffData[]>}
  */
@@ -216,6 +293,56 @@ export const wordDiffConfigField = StateField.define({
 const addedMark = Decoration.mark({ class: ADDED_CLASS });
 const removedMark = Decoration.mark({ class: REMOVED_CLASS });
 
+/** B4/A4: filler widget —— 独属行对侧占位小标 */
+const FILLER_ADDED_CLASS = "cm-compare-filler-added";
+const FILLER_REMOVED_CLASS = "cm-compare-filler-removed";
+
+/** 创建 filler widget 装饰集合 */
+export function buildFillerDecorations(view) {
+  const data = view.state.field(fillerDataField, false);
+  if (!data || !data.length) return Decoration.none;
+
+  const doc = view.state.doc;
+  const builder = new RangeSetBuilder();
+
+  for (const item of data) {
+    if (!item || !Number.isFinite(item.lineNumber)) continue;
+    const line = doc.line(item.lineNumber);
+    if (!line) continue;
+    const cls = item.type === "added" ? FILLER_ADDED_CLASS : FILLER_REMOVED_CLASS;
+    builder.add(line.from, line.from, Decoration.widget({
+      widget: () => {
+        const span = document.createElement("span");
+        span.className = cls;
+        span.textContent = "·";
+        return span;
+      },
+    }));
+  }
+
+  return builder.finish();
+}
+
+/** B4/A4: filler widget ViewPlugin */
+export const fillerViewPlugin = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = buildFillerDecorations(view);
+    }
+    update(update) {
+      if (update.docChanged || update.viewportChanged) {
+        const effectFired = update.transactions.some((tr) =>
+          tr.effects.some((e) => e.is(setFillerEffect))
+        );
+        if (effectFired || update.docChanged) {
+          this.decorations = buildFillerDecorations(update.view);
+        }
+      }
+    }
+  },
+  { decorations: (v) => v.decorations }
+);
+
 /**
  * 把 WordDiffData[] 规范化成「按行号升序、行内按 from 升序」的形式。
  * RangeSetBuilder 强制要求升序添加，外部传入的数据不保证有序，故必须先排。
@@ -254,7 +381,16 @@ export function buildWordDiffDecorations(view) {
       const from = Math.max(line.from + range.from, line.from);
       const to = Math.min(line.from + range.to, line.to);
       if (from >= to) continue;
-      builder.add(from, to, range.type === "removed" ? removedMark : addedMark);
+      // A5: removed 区间额外加 "−" widget 标记
+      if (range.type === "removed") {
+        builder.add(from, from, minusWidgetMark);
+      }
+      // B2: emph 分层样式（nonemph 弱色）
+      if (range.type === "nonemph") {
+        builder.add(from, to, Decoration.mark({ class: NONEMPH_CLASS }));
+      } else {
+        builder.add(from, to, range.type === "removed" ? removedMark : addedMark);
+      }
     }
   }
 

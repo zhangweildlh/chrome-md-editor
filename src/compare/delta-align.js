@@ -436,6 +436,22 @@ export function annotatePair(minusLine, plusLine) {
     }
   }
 
+  // B3: 尾随空白独立分段 —— 在循环结束后，检查是否有剩余未消费的空白
+  // 注意：algo 可能在两侧消耗不同数量的空白 token（如 "hello  " vs "hello   "），
+  // 剩余部分可能只在一侧，需分别检查。
+  if (minusOffset < before.length) {
+    const trailing = before.slice(minusOffset);
+    if (trailing.trim() === "" && trailing.length > 0) {
+      push(minusRanges, { from: minusOffset, to: before.length }, "removed");
+    }
+  }
+  if (plusOffset < after.length) {
+    const trailing = after.slice(plusOffset);
+    if (trailing.trim() === "" && trailing.length > 0) {
+      push(plusRanges, { from: plusOffset, to: after.length }, "added");
+    }
+  }
+
   return {
     minusRanges,
     plusRanges,

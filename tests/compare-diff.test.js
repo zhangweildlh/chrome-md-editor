@@ -145,6 +145,23 @@ test('buildDiffText: 缺省 config 也能工作（presentableDiff 默认参数�
   assert.ok(out.includes('+ z'));
 });
 
+// A2: hunk 头注入 Markdown 章节标题
+test('buildDiffText: 含 ATX 标题的文档，@@ 行应包含最近章节标题后缀', () => {
+  const a = '# 主标题\n\n## 第一章\n\nline1\nline2\nline3';
+  const b = ' # 主标题\n\n## 第一章\n\nline1\nCHANGED\nline3';
+  const out = buildDiffText(a, b);
+  assert.match(out, /@@ .* @@.*第一章/, '@@ 行应包含最近章节标题');
+});
+
+test('buildDiffText: 无标题时 @@ 行不含多余后缀', () => {
+  const a = 'line1\nline2';
+  const b = 'line1\nCHANGED';
+  const out = buildDiffText(a, b);
+  const match = out.match(/@@ -2,1 \+2,1 @@(.*)/);
+  assert.ok(match, '@@ 行应存在');
+  assert.equal(match[1].trim(), '', '@@ 行后不应有标题后缀（无标题时）');
+});
+
 test('exportDiffReport: 作为函数被导出（调用需 DOM，不在此实例化）', () => {
   assert.equal(typeof exportDiffReport, 'function');
 });
