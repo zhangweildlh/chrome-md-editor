@@ -1819,6 +1819,38 @@ body {
   background-repeat: no-repeat;
 }
 
+/* ㉑#10 R6 修复：对比/合并页三栏（MergeView）不在 .editor-container 内，
+   原 .editor-container 前缀选择器不命中 → 走 CodeMirror 默认灰点。
+   故新增 .cm-mergeView 前缀变体，使三栏同样覆盖为红色小圆点。
+   严守 MergeView 层叠上下文铁律：::before 仅用 position:absolute + 负 margin 居中，
+   绝不写 transform/filter/backdrop-filter（否则复现 B2 块级采纳按钮划花）。 */
+.cm-mergeView .cm-editor .cm-content .cm-highlightSpace {
+  position: relative;
+  background-image: none !important; /* 覆盖 CodeMirror 默认灰色径向点（#10） */
+}
+.cm-mergeView .cm-editor .cm-content .cm-highlightSpace::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.108em;
+  height: 0.108em;
+  margin-left: -0.054em;
+  margin-top: -0.054em;
+  border-radius: 50%;
+  background: var(--danger);
+  pointer-events: none;
+}
+.cm-mergeView .cm-editor .cm-content .cm-highlightSpace::after {
+  content: none;
+}
+.cm-mergeView .cm-editor .cm-content .cm-highlightTab {
+  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23e5484d" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>');
+  background-size: auto 100%;
+  background-position: right 90%;
+  background-repeat: no-repeat;
+}
+
 /* ㉑ 空格 → 红色居中小圆点（JS Agent 渲染 .cm-space-dot span 包裹原空格字符）。
    红点由 .cm-highlightSpace::after 零宽覆盖层绘制（#10 修复）；此处仅做布局中性约束：
    不缩放字号（保持原空格正常占位宽度）、垂直居中、不改变行高。
