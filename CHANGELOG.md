@@ -5,6 +5,86 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.15] - 2026-08-27（移除调试探针 / 测试接口 / 调试桥 + 死代码清理）
+
+> 本次清理移除开发期可观测与诊断设施，代码恢复为「无调试接口」的纯净生产态。历史条目（1.9.10–1.9.14）中有关调试桥 / 探针的记录为当时版本的真实状态，仅供追溯，不代表当前代码。
+
+### 移除
+- **前端运行态探针（window.__probe）全量移除**：删除 `src/debug-probe.js` 整文件，并移除 compare.js / editor.js / compare-merge.js / compare/io-bridge.js / compare/move-connectors.js / save-poll.js / focus-mode.js 共 7 个模块中全部 `window.__probe` 守卫调用及 2 处 `import './debug-probe.js'`。探针以 `if (typeof window.__probe === "function") { ... }` 守卫包裹，删除后为无副作用的 no-op 移除。
+- **对比页测试接口（window.__cmp）移除**：删除 compare.js 中仅在 `localStorage.cmp-debug=1` 时暴露的 `window.__cmp`（applyFiles / setColCount / resolvePickTarget / resolveDropTargets / currentPanes / render / switchMode），该接口为 CDP 自动化入口，非产品功能。
+- **EXE 侧调试桥（Rust）全量移除**：删除 `desktop/src/lib.rs` 的 `debug_bridge` 模块（含 `127.0.0.1:9555` TCP 接口、环形缓冲、`%temp%/cme-exe-probe-<pid>.jsonl` 落盘、运行时 `CME_DEBUG=1` + 编译期 `feature="debug-bridge"` 双重门控）、`debug_bridge_status` / `write_probe_log` 命令及其 `invoke_handler!` 注册项；同步删除 `desktop/Cargo.toml` 的 `[features]` 段（debug-bridge 为唯一 feature）与 `.github/workflows/desktop-build.yml` 的 `--features debug-bridge` 构建参数。
+- **死代码清理（均经二次确认）**：删除 compare.js 的 `probeToolbarReachability()` 函数及其 2 处调用（grep 确认仅 def + 2 caller 无其它读者）；删除 editor.js 中无读者的 `window.__editor` / `window.__setEditorContent` 全局赋值；保留真实功能全局 `window.__inCompare` 与真实命令 `debug_args`（CLI 参数回退）。
+- **注释与文案对齐**：清除约 17 处残留的「探针 / 诊断 / 调试桥」字样注释（含被删调用遗留的仅空白行），并改写 README 功能表——移除「调试桥（开发者）」行，使文档与「无调试接口」的代码态一致。
+- **版本戳同步**：随本次发布升版 `1.9.14 → 1.9.15`，八处版本戳全量对齐（`package.json` / `public/manifest.json` / `desktop/tauri.conf.json` / `src/editor.js` 兜底 / `src/editor.html` 徽标×2 / `src/compare.js` 兜底 / `src/compare.html` 徽标 + 本 CHANGELOG 条目），经 grep 全仓 `1.9.14` 逐点核对无残留漂移。
+
+### 清理
+- **手动清理的已跟踪文件移除**：经用户手动删除并巡查确认，移除 11 个已跟踪文件——`.test-run/` 下 8 个 E2E 测试白名单库（`bnd-compare` / `bnd-fixtures` / `bnd-lib` / `diag-cm` / `diag-cmpx` / `diag-token` / `e2e-editor-lib` / `fix-verify` `.mjs`，对应 `.gitignore` L43-50 白名单）与根目录 3 份历史规划文档（`BUG复验勾销清单_v1.9.10`、`功能清单_v1.9.1`、`需求实施方案_讨论结论`）。受保护清单（src/public/desktop/scripts/tests/.github/.git/.workbuddy + 配置/README/CHANGELOG）全部完好；删除全部可 `git restore` 恢复，无代码损失。注意：`.test-run` 白名单库移除后，若需跑 Playwright E2E 须先 `git restore` 恢复这 8 个文件。
+
+## [1.9.14] - 2026-08-27（R11 缩放手势预览联动 + 滚轮探针全覆盖）
+
+### 修复
+- **Ctrl+滚轮字号缩放预览不联动（R11）**：字号缩放原本只写 `--editor-font-size`（编辑栏+对比栏变、预览不变，因预览字号走独立 `--preview-font-size`）。为落实「三栏一致+联动」，字号缩放同步写入 `--preview-font-size`，预览栏随缩放联动。设置面板显式调整预览字号仍独立生效。
+
+### 增强
+- **滚轮诊断探针全覆盖**：`focus-mode.js` `applyZoomFromWheel` 探针从仅行高分支扩展到全部缩放子路径（字号/字间距/行高），捕获三栏 computed line-height + 预览 font-size 及根变量值（`--editor-line-height`/`--editor-font-size`/`--preview-font-size`），便于实机核对预览是否随缩放联动。`editor.js` 滚轮监听同步刷新预览字号输入框 `dsPreviewFont` 显示。
+
+## [1.9.13] - 2026-08-27（R10 编辑栏行高修复）
+
+### 修复
+- **编辑栏行间距不响应设置/滚轮（R10 根因修复）**：探针实证 `editor.css` 仅将 `--editor-line-height` 绑在 `.cm-editor` 外层 wrapper，`.cm-content`/`.cm-line` 落到 CodeMirror 主题自带 `line-height:1.5`（恒定 21px）而忽略根变量，导致「设置→行间距」编辑栏不变（对比/预览栏因直接绑在内容元素本身而正常）。修复：在 `editor.css` 给 `.editor-container .cm-editor .cm-content`/`.cm-line` 直接绑定 `line-height: var(--editor-line-height)`，与 `compare.css:498` 对齐，实现三栏一致联动。
+
+## [1.9.12] - 2026-08-26（R9 行间距诊断探针）
+
+### 修复（诊断中）
+- **行间距设置仅作用于预览栏（R9 新缺陷）**：用户报告「设置→行间距」仅预览栏生效，编辑栏与对比 A/B/C 三栏不变；而 Ctrl+Alt+滚轮缩放行距正常。静态核查三处 CSS 均绑同一 `--editor-line-height` 变量、无 `.cm-content`/`.cm-line` 覆盖，无法复现。本轮在 `editor.js`(设置路径) 与 `focus-mode.js`(滚轮路径) 双植入 `display.lineHeight.applied` 诊断探针（仅 CME_DEBUG 下触发），捕获三栏实时 computed line-height 与根变量值，待实机复测取证定位根因。
+
+## [1.9.11] - 2026-08-27（R8 显示一致性 + 对比页滚轮缩放）
+
+### 修复
+- **对比/合并页 A/B/C 三栏「显示选项」与编辑栏实时联动（R8）**：编辑栏切换空格符/换行符/换行标记时经 `window` 事件 `cme-invisibles-change` 广播，对比页 A/B/C 三栏（含独立 C 栏 `theirsView`）即时 `reconfigure` 对应 compartment，跟随编辑栏开关。
+- **`applyInvisiblesSettings` 多视图正确性**：移除模块级 `lastInvisibles` 缓存（编辑栏与对比三栏共用本函数时会因状态「看似未变」跳过 reconfigure 导致对比栏不跟随），改为每次按本视图期望状态 reconfigure。
+- **版本戳同步**：修正 `desktop/tauri.conf.json` 长期漂移的 `1.4.15` → 与 `package.json` 对齐为 `1.9.11`（六处同步点 + Tauri 配置全量对齐）。
+
+### 新增
+- **对比/合并页 A/B/C 三栏 Ctrl+滚轮缩放（与编辑栏一致）**：`Ctrl+滚轮`=字号(10-32px,步1)、`Ctrl+Shift+滚轮`=字间距(0-4px,步0.5)、`Ctrl+Alt+滚轮`=行间距(1-2.5,步0.1)，写入同一组 `:root` 变量，编辑栏与对比页共享缩放状态（一致+联动）；编辑栏同步升级支持上述三修饰键。
+
+## [Unreleased] - 2026-08-23（分支 feat/fix-whitespace-deco-freeze-20260823）
+
+### 修复
+- **显示选项卡死（致命）→ 已修复**：根因 `editor-extensions.js` 的 `buildWhitespaceDecorations` 对行尾位置 `doc.lineAt(line.to)` 返回本行导致无限空转（死循环）。修复后 `pos = line.to + 1` 跨入下一行，越界即终止。`space=1` 场景下点击「显示空格 / 增强 / 其他」不再冻结（360Chromex 真机复验通过）。
+- **「按钮间距」下拉无效 → 已修复**：根因 `editor.css` 存在两段同选择器 `.toolbar-group`（`gap: var(--ui-gap)` 与 `gap: 4px` 同特异性、后者覆盖前者），导致 `--ui-gap` 永远被钉死为 4px。修复：合并为唯一权威来源 `gap: var(--ui-gap)`。三档（compact=2px / standard=4px / comfortable=14px）精确跟随（360Chromex 真机复验通过）。
+- **EXE 对比/合并页拖入 .md 无法打开（#4/#7 · U2）→ 根因修复**：根因是方案A（提交 `0f46fa6`）引入的「跨模块转发」架构——集成模式下 `compare.js` 被 `if (!integrated)` 禁用自身 `onDragDropEvent`，完全依赖 `editor.js` 转发 `window.__compareHandleTauriDrop`；该转发链在 EXE 中**静默失效**（无报错、无回退），表现拖入无反应。修复：`compare.js` 在 EXE 下**始终自注册** `onDragDropEvent`（对称编辑页自包含逻辑），仅在 `window.__inCompare`（对比页可见）时路由到 a/b/c 栏，并保留 `window.__compareHandleTauriDrop` 定义向后兼容；`editor.js` 转发分支改为对比页可见时直接 `return`，交由 `compare.js` 自身监听处理，避免双监听双渲染。编辑模式拖放不受影响（`__inCompare` 守卫防御，修一漏一）。本机无 Rust 工具链无法本地 EXE 复现，待你 EXE 真机复测（进集成对比视图 → 拖入 .md → A/B/C 栏加载，探针应现 `compare.drop.tauri` + `compare.tauri.drop.register{selfContained:true}`）。
+- **U2 拖放「监听已注册但仍读文件失败」→ 二次根因修复（探针坐实）**：PR#19 自注册监听修复后，EXE 真机探针（`feat/diag-u2-drop-delivery` 诊断构建）显示 `compare.drop.event` / `compare.drop.handler` 均正常、`compare.tauri.drop.register{ok:true}`，但 `compare.drop.readfail` 恒定报 `isTauriEnv is not defined`，且无 `compare.drop.tauri` —— 链路断在 `handleTauriDrop` 内 `readFile`。根因：`src/compare-shims.js` 原仅 `export { isTauriEnv } from "./tauri-env.js"`（再导出），**再导出不会在本模块作用域创建本地绑定**，导致同文件 `readFile()` 内部调用 `isTauriEnv()` 时运行时抛未定义。修复：改为 `import { isTauriEnv } from "./tauri-env.js"; export { isTauriEnv };` —— 补内部绑定、保留再导出，外部调用方（compare-files/compare-export）契约零影响（不过度覆盖、不修旧造新漏）。最小作用域一行之差。
+
+### 新增
+- **调试桥 + 前端探针（开发者能力，默认关闭）**：
+  - 前端 `src/debug-probe.js`：统一捕获初始化完成、按钮点击、拖拽 drop、打开文件回调、合并结果等运行态事件；通过 `window.__probe(event, data)` 暴露。
+  - 浏览器侧（扩展）：经 `console.log('[PROBE]'+json)` 输出，由外部 CDP 采集器（连 9222）落盘 `%temp%/cme-browser-probe-<ts>.jsonl`。
+  - EXE 侧（Tauri）：经 `window.__TAURI__.invoke('write_probe_log')` 由 Rust 落盘 `%temp%/cme-exe-probe-<pid>.jsonl`；并新增 `127.0.0.1:9555` 调试 HTTP 接口（`/health`/`/probe`/`/state`），受编译期 `feature="debug-bridge"` + 运行时 `CME_DEBUG=1` 双重门控，不污染生产构建。
+  - 启用开关：`?debug=1` / `localStorage['cme-debug']=1` / `window.__CME_DEBUG__=true`。
+
+### 修复
+- **「保持文件」弹窗 UI 与编辑/预览页「打开文件」弹窗不一致（#6）→ 已修复**：根因 `save-poll.js` 的 `buildOverlay()` 用内联硬编码颜色自建 `.save-poll-overlay` / `.save-poll-modal`，与全站 `.modal-overlay` / `.modal-card` 体系两套样式。修复：弹窗复用全站 `.modal-overlay` / `.modal-card` / `.modal-actions` / `.modal-title` / `.modal-hint` / `.modal-btn` / `.modal-btn-primary` 类名，移除硬编码色彩，外观与全站一致且随明暗主题自适应。`save-poll.test.js` 4/4 通过。
+
+### 修复（CI）
+- **Desktop Build 未启用调试桥**（`desktop-build.yml`）：原 `npm run tauri build` 未传 `--features debug-bridge`，导致 fork CI 产物不含调试桥（`9555` 端口不监听）。修复：构建命令改为 `npm run tauri build -- --features debug-bridge`，使后续 EXE 在 `CME_DEBUG=1` 下暴露调试端口与探针日志。
+- **Rust 调试桥编译错误**（`desktop/src/lib.rs`）：修复 `format` 宏漏写 `!`（3 处）与缺 `use std::thread`，使 `debug-bridge` feature 可正常编译；新增 `debug_bridge_status` command 供前端查询运行时启用状态。
+
+### 增强（探针联动）
+- **EXE 前端探针自动跟随 Rust 调试桥**（`src/debug-probe.js`）：Tauri 环境下异步查询 `debug_bridge_status`（CME_DEBUG=1 门控），与 Rust 运行时门控对齐——前端探针随 EXE 调试桥一起开/关，无需手动设 localStorage。
+
+### 增强（探针联动）
+- **EXE 前端探针默认启用**（`src/debug-probe.js`）：Tauri 环境下前端探针默认开启（Rust 侧 `CME_DEBUG=1` 仍双重门控），确保 `editor.init.done` 等初始事件不被异步启用延迟而丢失，便于 EXE 真机坐实。
+- **CLI 打开文件探针**（`src/editor.js`）：`openInitialCliFile` 成功打开命令行传入的 .md 后发 `editor.open.cli` 事件，可据 `/probe` 坐实 #5（EXE 打开文件）桥接实效。
+
+### 真机坐实结论（带 CME_DEBUG=1 构建，fork CI run 32635697037）
+- **调试桥链路**：EXE 启动暴露 `127.0.0.1:9555`（`/health`/`/state`/`/probe` 三接口可用），Rust 环形缓冲 + `%temp%/cme-exe-probe-<pid>.jsonl` 落盘。
+- **前端联动**：`/probe` 实测出现 `probe.init`（`url=http://tauri.localhost/src/editor.html`, `isTauri=true`）+ `editor.init.done`（`version=1.9.10`），证明 EXE 内前端经 `invoke('write_probe_log')` 通道完全打通。
+- #4/#5/#7 EXE 拖拽 / 打开文件 / 合并拖拽的桥接、#8 EXE 按钮点击实效性：前端探针注入点（`compare.drop.tauri`/`compare.drop.html5`/`editor.open.cli`/`button click`）已就位，EXE 内对应操作会经同一 invoke 通道写入 `/probe`，可直接据接口坐实。
+
+### 修复（诊断分支 `feat/diag-u2-drop-delivery` 复现 + 并入）
+- **集成视图「返回主界面」空白（复现 + 修复）**：诊断 EXE（基于 U2 分支 `7d5548e`，未含返回修复）真机复现——点 `btnBackToEditor` 后探针无 `compare.backToEditor`/还原事件、直接空白。根因：`src/compare.js` 返回处理器仍用模块加载时一次性求值的 stale const `integrated`（诊断分支漏并入 PR#21 修复）。修复：改 `if (integrated)` 为 `if (window.__compareIntegrated)` 运行时动态读取，与 PR#21（commit `f1b2a4f`）同语义，根除 stale const。同时归并至 U2 修复主分支 `feat/fix-u2-compare-drop-selfcontained` 收口。
+
 ## [1.9.10] - 2026-08-21（端到端 R3：10 项 BUG 坐实 + 修复）
 
 ### 修复

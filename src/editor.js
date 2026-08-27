@@ -8,6 +8,10 @@
 // 必须在 src/editor.js 顶部以 ES Module 形式 import，否则 vite 不会把它打包进
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
 import './desktop-shims.js';
+// 方案A+：对比/合并 UI 内嵌 editor.html 初始上下文（#compareHost）。compare.js 随编辑器首页
+// 静态加载（同源 chunk），规避 Tauri/WebView2 下动态 import 分包不确定性导致的「对比模块加载失败」。
+// 浏览器侧 compare.html 仍独立加载同一 compare.js（Vite 会去重为同一 chunk）。
+import './compare.js';
 
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
 import { EditorState, Transaction } from '@codemirror/state';
@@ -133,9 +137,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.10"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.15"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.10";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.15";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -166,6 +170,7 @@ import {
   getEditorLetterSpacing,
   setEditorLineHeight,
   getEditorLineHeight,
+  applyZoomFromWheel,
   WIN11_DEFAULTS,
 } from './focus-mode.js';
 // A-9 超长 Base64 行折叠
@@ -1762,6 +1767,7 @@ async function openInitialCliFile() {
     const { invoke } = await import('@tauri-apps/api/core');
     const path = await invoke('get_initial_file');
     if (path) {
+      
       await openFileByPath(path);
       return;
     }
@@ -3213,15 +3219,68 @@ function bindEvents() {
   // 对比/合并视图入口
   const btnCompare = document.getElementById('btnCompare');
   if (btnCompare) {
-    btnCompare.addEventListener('click', () => {
+    btnCompare.addEventListener('click', async () => {
       // 标记为「主动跳转」，抑制 beforeunload 的「是否离开网站？」误报；
       // 100ms 后复位，保证编辑器页在独立标签页场景下后续误关仍受保护。
       intentionalLeave = true;
-      // 在新标签页打开 compare.html（Chrome 扩展中为同源页面）
-      window.open('compare.html', '_blank');
+      if ('__TAURI_INTERNALS__' in window) {
+        // 方案A（根治 #4/#7 EXE 对比页拖放失效，wry#904）：
+        //   EXE 下对比 UI 内嵌 editor.html 初始 webview 上下文（#compareHost），
+        //   绝不导航离开（导航会销毁初始上下文，使 OS 文件拖放事件永久收不到）。
+        //   编辑器主页的持久 onDragDropEvent 监听（已在初始上下文、真机坐实可用）
+        //   在 __inCompare 时【不再转发】，改由 compare.js 自身注册的同款监听处理
+        //   （对比页自包含，对称编辑页逻辑，去除跨模块转发依赖）。浏览器侧仍走
+        //   compare.html 独立页（见 else 分支）。
+        const host = document.getElementById('compareHost');
+        if (!host) {
+          // 极端兜底：容器缺失时退回独立页（理论不可达，仅防构建异常）
+          window.open('compare.html', '_blank');
+          setTimeout(() => { intentionalLeave = false; }, 100);
+          return;
+        }
+        // 标记集成模式：compare.js 据此跳过自身 onDragDropEvent 注册（避免与 editor.js 重复），
+        // 并把所有 DOM 查询作用域限定在 #compareHost（避免与 editor.html 既有 ID 冲突）。
+        window.__compareIntegrated = true;
+        window.__compareHost = host;
+        host.removeAttribute('hidden');
+        // 隐藏编辑器主页 UI，仅展示对比 UI（两者在 editor.html 中共存，靠 hidden 切换）
+        const mainEls = [document.getElementById('toolbar'), document.getElementById('editorMain'), document.getElementById('statusbar'), document.getElementById('taskListPanel')];
+        for (const el of mainEls) { if (el) el.setAttribute('hidden', ''); }
+        window.__inCompare = true;
+        // 方案A+：对比模块（compare.js）已由 editor.html 静态引入（同源 chunk），
+        // 随编辑器首页一同加载，规避 Tauri/WebView2 下动态 import 分包不确定性导致的
+        //「对比模块加载失败」。若因异常未挂载（如构建产物缺失），给出可读错误并回退。
+        if (!window.__compareMounted) {
+          console.error('[editor] 对比模块未就绪（window.__compareMounted 为假）');
+          
+          showToast('对比模块加载失败：请重新编译部署', 'error');
+          host.setAttribute('hidden', '');
+          for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
+          window.__inCompare = false;
+          setTimeout(() => { intentionalLeave = false; }, 100);
+          return;
+        }
+        
+      } else {
+        // 浏览器侧（Chrome 扩展）保持同源新标签打开
+        window.open('compare.html', '_blank');
+      }
       setTimeout(() => { intentionalLeave = false; }, 100);
     });
   }
+
+  // 方案A：从集成对比页返回主界面（对比 UI 内嵌 editor.html 时由 editor.js 接管，
+  // 因为 compare.js 的 btnBackToEditor 在集成模式下只隐藏 host 并复位 __inCompare，
+  // 但编辑器主页 UI 的显隐需由 editor.js 负责还原）。这里监听对比页的返回事件。
+  function exitCompareIntegrated() {
+    const host = document.getElementById('compareHost');
+    if (host) host.setAttribute('hidden', '');
+    const mainEls = [document.getElementById('toolbar'), document.getElementById('editorMain'), document.getElementById('statusbar'), document.getElementById('taskListPanel')];
+    for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
+    window.__inCompare = false;
+  }
+  // compare.js 在集成模式下点击「返回主界面」会派发此自定义事件，editor.js 接管 UI 还原。
+  window.addEventListener('compare:exit', exitCompareIntegrated);
 
   // 拦截浏览器默认 Ctrl+S
   document.addEventListener('keydown', (e) => {
@@ -3289,6 +3348,21 @@ function bindEvents() {
           const payload = event.payload;
           if (payload.type !== 'drop') return;
           const paths = payload.paths || [];
+          // 方案A+（U2 修复）：对比 UI 内嵌 editor.html 初始上下文（#compareHost）。
+          // 集成对比页可见（host 未 hidden）且 __inCompare 时，本监听【不再转发】，
+          // 交由 compare.js 自身注册的 onDragDropEvent 处理（对称编辑页自包含逻辑，
+          // 去除跨模块转发依赖，避免双监听双渲染）；否则（在主编辑器页）按原逻辑
+          // 打开首个 .md/.markdown/.txt 文件。
+          // 双重判定 host 可见性，防止 __inCompare 残留（如返回主界面后）误把文件塞进对比页。
+          const hostVisible = (() => {
+            try {
+              const h = document.getElementById('compareHost');
+              return h && !h.hasAttribute('hidden');
+            } catch (_) { return false; }
+          })();
+          if (window.__inCompare && hostVisible) {
+            return; // 交由 compare.js 自身监听处理，避免双开/双渲染
+          }
           const md = paths.find((p) => /\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(p));
           if (md) {
             openFileByPath(md);
@@ -3298,6 +3372,7 @@ function bindEvents() {
         });
       } catch (e) {
         // 监听注册失败不影响双击打开；忽略
+        
       }
     })();
   }
@@ -3366,9 +3441,11 @@ function bindEvents() {
             // 改为显式空串判断，保留 "0" 等边界值。
             setEditorLetterSpacing(eLetterSpacing.value === '' ? '' : eLetterSpacing.value);
     });
-    if (eLineHeight) eLineHeight.addEventListener('change', () => {
-            setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
-    });
+    if (eLineHeight) {
+      eLineHeight.addEventListener('change', () => {
+        setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
+      });
+    }
     // ⑱ Win11 记事本默认值「默认」按钮：点击写入 Win11 默认并触发对应 setter
     displayPopover.querySelectorAll('.field-default-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -3423,18 +3500,19 @@ function bindEvents() {
     });
   }
 
-  // G3 + F8：Ctrl + 鼠标滚轮缩放编辑器字号（10-32px，持久化），并同步显示设置控件；
-  // 监听限定在编辑器容器（编辑区），预览区/大纲区滚动不再误触发字号缩放
+  // G3 + F8 + R8：Ctrl+鼠标滚轮缩放编辑器排版（字号/字间距/行间距，持久化并联动对比页）。
+  //   修饰键：Ctrl=字号、Ctrl+Shift=字间距、Ctrl+Alt=行间距（见 focus-mode.applyZoomFromWheel）。
+  //   监听限定在编辑器容器（编辑区），预览区/大纲区滚动不再误触发缩放。
   const editorContainer = document.getElementById('editorContainer');
   if (editorContainer) {
     editorContainer.addEventListener('wheel', (e) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      const cur = getEditorFontSize() || 14;
-      const next = Math.min(32, Math.max(10, cur + (e.deltaY < 0 ? 1 : -1)));
-      setEditorFontSize(next);
-      const efInput = document.getElementById('dsEditorFont');
-      if (efInput) efInput.value = next;
+      if (applyZoomFromWheel(e)) {
+        const efInput = document.getElementById('dsEditorFont'); if (efInput) efInput.value = getEditorFontSize() || 14;
+        const lsInput = document.getElementById('dsEditorLetterSpacing'); if (lsInput) lsInput.value = getEditorLetterSpacing() || 0;
+        const lhInput = document.getElementById('dsEditorLineHeight'); if (lhInput) lhInput.value = getEditorLineHeight() || 1.6;
+        // R10：字号缩放同步刷新预览字号输入框显示（缩放手势同时改了 --preview-font-size）。
+        const pfInput = document.getElementById('dsPreviewFont'); if (pfInput) pfInput.value = getPreviewFontSize() || 15;
+      }
     }, { passive: false });
   }
 
@@ -3458,6 +3536,8 @@ function bindEvents() {
       btn.classList.toggle('active', s[key]);
       btn.setAttribute('aria-pressed', String(s[key]));
       applyInvisiblesSettings(editor, s);
+      // R8：广播给对比/合并页，使其 A/B/C 三栏实时跟随空格符/换行符/换行标记显示状态
+      try { window.dispatchEvent(new CustomEvent('cme-invisibles-change', { detail: s })); } catch (_) {}
     });
   }
 
@@ -3500,8 +3580,6 @@ function bindEvents() {
     document.getElementById('btnTasks')?.classList.remove('active');
   });
 
-  window.__setEditorContent = setEditorContent;
-  window.__editor = editor;
 }
 
 // 同步专注模式 / 打字机按钮的 active 状态（init 恢复持久化设置后调用）
@@ -4268,6 +4346,7 @@ function init() {
 
   // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
   openInitialCliFile();
+
 }
 
 // ==========================================

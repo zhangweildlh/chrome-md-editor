@@ -10,6 +10,7 @@ import {
   lineNumbers, highlightActiveLineGutter, highlightSpecialChars,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor,
   highlightActiveLine, keymap, EditorView, ViewPlugin, Decoration,
+  WidgetType,
 } from '@codemirror/view';
 import { EditorState, Annotation, Compartment, RangeSetBuilder, StateField } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -175,21 +176,24 @@ const selectionMatchHighlighter = ViewPlugin.fromClass(
 function buildWhitespaceDecorations(view) {
   const builder = new RangeSetBuilder();
   for (const { from, to } of view.visibleRanges) {
-    let line = view.state.doc.lineAt(from);
-    for (let i = from; i <= to; ) {
-      const lineEnd = line.to;
-      for (; i < lineEnd; i++) {
+    let pos = from;
+    // 逐行推进：line.to 是行尾换行符位置，doc.lineAt(line.to) 仍返回【本行】，
+    // 故必须显式 pos = line.to + 1 才能跨入下一行；否则 line/lineEnd/i 全部不前进，
+    // 外层循环无限空转 → 主线程卡死（#3 显示空格开启时编辑器冻结的根因）。
+    while (pos <= to) {
+      const line = view.state.doc.lineAt(pos);
+      const start = Math.max(from, line.from); // 不越界装饰可见区起点之前
+      for (let i = start; i < line.to; i++) {
         const ch = line.text[i - line.from];
         if (ch === ' ' || ch === '\t') {
-          let next = i + 1;
-          for (; next < lineEnd && /\s/.test(line.text[next - line.from]); next++) {}
+          // #11 修复：每个空白字符独立一个 Decoration.mark（逐字符），
+          // 不再合并连续空白为单段粗横线。制表符与空格各自独立标记，
+          // 视觉上表现为独立的红点/箭头，而非连成一条粗线。
           const cls = ch === '\t' ? 'cm-highlightTab' : 'cm-space-dot cm-highlightSpace';
-          builder.add(i, next, Decoration.mark({ class: `${cls} cm-whitespace` }));
-          i = next;
+          builder.add(i, i + 1, Decoration.mark({ class: `${cls} cm-whitespace` }));
         }
       }
-      if (i >= to) break;
-      line = view.state.doc.lineAt(i);
+      pos = line.to + 1; // 跨到下一行起点（跳过换行符）；越界时 while 条件终止
     }
   }
   return builder.finish();
@@ -215,55 +219,111 @@ export const showEolCompartment = new Compartment();
 export const showEolMarkCompartment = new Compartment();
 export const showSpecialCharsCompartment = new Compartment();
 
-/** 行尾标记：Decoration.line + CSS ::after 伪元素（零 widget DOM，避免大文档全量 widget 重建卡顿，F1）。 */
-function eolLineDecorations(cls) {
-  return StateField.define({
-    create(state) { return buildEolLines(state.doc, cls); },
-    update(deco, tr) {
-      if (!tr.docChanged) return deco;
-      return buildEolLines(tr.newDoc, cls);
-    },
-    provide: (f) => EditorView.decorations.from(f),
-  });
+/** EOL 行尾标签 widget：按 kind 区分换行符(eol)与换行标记(eolMark)（#12/#13 纠正）。
+ *  - eol：真实换行符 → 绿色小方块 + 文字 "LF"/"CR"/"CRLF"（.cm-eol-label）。
+ *  - eolMark：空行占位提示 → 仅回车箭头 ↵，无红框（.cm-eolmark-label）。 */
+class EolLabelWidget extends WidgetType {
+  constructor(label, kind) {
+    super();
+    this.label = label;
+    this.kind = kind || 'eol';
+  }
+  eq(other) { return other.label === this.label && other.kind === this.kind; }
+  toDOM() {
+    const span = document.createElement("span");
+    if (this.kind === 'eolMark') {
+      span.className = "cm-eolmark-label";
+      span.textContent = "↵";
+    } else {
+      span.className = "cm-eol-label";
+      span.textContent = this.label;
+    }
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+  ignoreEvent() { return true; }
+  get estimatedHeight() { return -1; }
 }
 
-/** 给每行起点挂 line decoration class，由 CSS ::after 渲染行尾标记（↵ / ¶）。 */
-function buildEolLines(doc, cls) {
+function detectLineEnding(doc, line) {
+  if (line.to >= doc.length) return null;
+  const next = doc.sliceString(line.to, Math.min(doc.length, line.to + 2));
+  if (next.startsWith("\r\n")) return "CR LF";
+  if (next.startsWith("\n")) return "LF";
+  if (next.startsWith("\r")) return "CR";
+  return null;
+}
+
+function buildEolLabels(doc) {
   const builder = new RangeSetBuilder();
   for (let i = 1; i <= doc.lines; i++) {
     const line = doc.line(i);
-    builder.add(line.from, line.from, Decoration.line({ class: cls }));
+    const label = detectLineEnding(doc, line);
+    if (label) {
+      // eol：真实换行符 → 绿色小方块 + LF/CR/CRLF（.cm-eol-label）。
+      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget(label, 'eol'), side: 1 }));
+    }
   }
   return builder.finish();
 }
 
-const eolWidgetExt = eolLineDecorations('cm-eol-arrow'); // ↵
-const eolMarkWidgetExt = eolLineDecorations('cm-eol-pilcrow'); // ¶
+/** 换行标记：仅空行（text 为空）在文本末尾显示回车箭头 ↵，无红框（#12/#13 纠正）。 */
+function buildEolMarkLabels(doc) {
+  const builder = new RangeSetBuilder();
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i);
+    if (line.text.length === 0) {
+      builder.add(line.to, line.to, Decoration.widget({ widget: new EolLabelWidget("↵", 'eolMark'), side: 1 }));
+    }
+  }
+  return builder.finish();
+}
 
-// 上次应用的状态，用于 F6：仅对发生变化的项 reconfigure（减少冗余 dispatch）
-let lastInvisibles = null;
+/** 行尾标记：inline widget 显示实际换行符类型（CR/LF/CR LF），紧贴文本末尾，不撑高行高（#12/#13）。 */
+const eolLabelsExtension = StateField.define({
+  create(state) { return buildEolLabels(state.doc); },
+  update(deco, tr) {
+    if (!tr.docChanged) return deco;
+    return buildEolLabels(tr.newDoc);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/** 换行标记：inline widget 显示↵（仅空行），不撑高行高（#12/#13 纠正）。 */
+const eolMarkExtension = StateField.define({
+  create(state) { return buildEolMarkLabels(state.doc); },
+  update(deco, tr) {
+    if (!tr.docChanged) return deco;
+    return buildEolMarkLabels(tr.newDoc);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 /**
- * 动态应用显示选项（4 个 compartment，仅对发生变化的项 reconfigure，F6）。
+ * 动态应用显示选项（4 个 compartment）。
+ * 注意：本函数被多个编辑器视图（主编辑区、对比 A/B/C 三栏）共用，故【必须每次都对本视图
+ * 期望状态做 reconfigure】，不能依赖模块级 lastInvisibles 缓存——否则先应用到主编辑区后，
+ * 再应用到对比栏时因状态「看似未变」而跳过 reconfigure，导致对比栏不跟随（R8 修复）。
  * @param {EditorView} view
  * @param {{space?:boolean, eol?:boolean, eolMark?:boolean, specialChars?:boolean}} settings
  */
 export function applyInvisiblesSettings(view, settings = {}) {
   if (!view) return;
-  const prev = lastInvisibles || {};
   const effects = [];
   const push = (comp, key, ext) => {
-    if (settings[key] !== undefined && settings[key] !== prev[key]) {
+    if (settings[key] !== undefined) {
       effects.push(comp.reconfigure(settings[key] ? ext : []));
     }
   };
   push(showWhitespaceCompartment, 'space', highlightSpaceDots());
-  push(showEolCompartment, 'eol', eolWidgetExt);
-  push(showEolMarkCompartment, 'eolMark', eolMarkWidgetExt);
+  // #12/#13 纠正：eol 与 eolMark 分属独立 compartment，各自渲染不同内容。
+  //  - eol：真实换行符 → 绿色小方块 + LF/CR/CRLF（eolLabelsExtension）。
+  //  - eolMark：空行占位 → ↵（eolMarkExtension）。
+  push(showEolCompartment, 'eol', eolLabelsExtension);
+  push(showEolMarkCompartment, 'eolMark', eolMarkExtension);
   push(showSpecialCharsCompartment, 'specialChars', highlightSpecialChars());
   if (effects.length) {
     view.dispatch({ effects });
-    lastInvisibles = { ...prev, ...settings };
   }
 }
 
@@ -335,8 +395,9 @@ export function createEditorExtensions(opts = {}) {
     themeCompartment.of(theme),
     // G8 显示选项 compartments（初始按设置注入；动态切换走 applyInvisiblesSettings）
     showWhitespaceCompartment.of(invis.space ? highlightSpaceDots() : []),
-    showEolCompartment.of(invis.eol ? eolWidgetExt : []),
-    showEolMarkCompartment.of(invis.eolMark ? eolMarkWidgetExt : []),
+    // #12/#13 纠正：eol / eolMark 独立 compartment 各自注入对应扩展。
+    showEolCompartment.of(invis.eol ? eolLabelsExtension : []),
+    showEolMarkCompartment.of(invis.eolMark ? eolMarkExtension : []),
     // 注意：编辑页专属 updateListener 不放入工厂（见上方函数注释 / 设计文档 §8.3）
   ];
 }

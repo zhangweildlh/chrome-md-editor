@@ -130,6 +130,42 @@ export function setDensity(level) {
   document.documentElement.style.setProperty('--ui-gap', DENSITY_GAP[level] || DENSITY_GAP.standard);
   }
 
+// ---- G4/R8/R10：Ctrl+滚轮缩放编辑器排版（字号 / 字间距 / 行间距）----
+// 复用同一组 :root CSS 变量（--editor-font-size / --editor-letter-spacing / --editor-line-height），
+// 因此编辑栏与对比/合并页共享同一缩放状态，天然保持「一致 + 联动」。
+// 修饰键：Ctrl+滚轮=字号(10-32px,步长1)；Ctrl+Shift+滚轮=字间距(0-4px,步长0.5)；
+//        Ctrl+Alt+滚轮=行间距(1-2.5,步长0.1)。返回 true 表示已拦截并处理缩放（调用方据此同步 UI）。
+// R10 修复：字号缩放原本只写 --editor-font-size（编辑栏+对比栏变，预览因独立 --preview-font-size 不变）。
+//   为落实「三栏一致+联动」，字号缩放同时同步写入 --preview-font-size，使预览栏随缩放联动。
+//   注：这会覆盖预览独立字号设置（缩放手势语义即「整体视觉缩放」，符合一致性预期）；
+//       在设置面板显式调整预览字号仍独立生效。
+export function applyZoomFromWheel(e) {
+  if (!e.ctrlKey) return false;
+  e.preventDefault();
+  const dir = e.deltaY < 0 ? 1 : -1;
+  let kind = 'fontSize';
+  let next = 0;
+  if (e.shiftKey) {
+    kind = 'letterSpacing';
+    const cur = parseFloat(getEditorLetterSpacing() || '0') || 0;
+    next = Math.min(4, Math.max(0, Math.round((cur + dir * 0.5) * 10) / 10));
+    setEditorLetterSpacing(next);
+  } else if (e.altKey) {
+    kind = 'lineHeight';
+    const cur = parseFloat(getEditorLineHeight() || '1.6') || 1.6;
+    next = Math.min(2.5, Math.max(1, Math.round((cur + dir * 0.1) * 10) / 10));
+    setEditorLineHeight(next);
+  } else {
+    kind = 'fontSize';
+    const cur = getEditorFontSize() || 14;
+    next = Math.min(32, Math.max(10, cur + dir));
+    setEditorFontSize(next);
+    // R10：字号缩放同步预览字号，落实三栏联动。
+    setPreviewFontSize(next);
+  }
+  return true;
+}
+
 // 初始化：恢复持久化设置
 export function initDisplaySettings() {
   document.documentElement.classList.toggle('focus-mode', focusMode);

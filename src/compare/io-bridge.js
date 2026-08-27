@@ -144,7 +144,7 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
   // 写入目标内容。
   //   Tauri：invoke('write_text_file', { path, content })
   //   浏览器：handle.createWritable() -> write(content) -> close()
-  function write(target, content) {
+  async function write(target, content) {
     assertTarget(target);
     if (typeof content !== 'string') {
       throw new Error('ioBridge.write: content 必须为字符串');
@@ -156,8 +156,15 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
       if (typeof envInvoke !== 'function') {
         throw new Error('ioBridge.write: 桌面端缺少可用的 invoke');
       }
-      // 桌面侧真实命令（desktop/src/lib.rs: write_text_file(path: String, content: String)）
-      return envInvoke('write_text_file', { path: target.path, content });
+      // #9：写盘失败时原样上抛异常，由调用方（save-poll / compare）给出可见提示，避免 EXE 下静默失败。
+      try {
+        const res = await envInvoke('write_text_file', { path: target.path, content });
+        
+        return res;
+      } catch (e) {
+        
+        throw e; // 原样上抛，由调用方（save-poll / compare）给出可见提示
+      }
     }
     // 浏览器侧：目标形如 { handle }
     // M4 降级描述符：{ download:true, name } —— 非安全上下文走 Blob 下载，不静默跳过。
@@ -182,15 +189,32 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
         throw new Error('ioBridge.pickSaveTarget: 桌面端缺少可用的 invoke');
       }
       const defaultPath = suggestedName || 'untitled.md';
+      // 修复（#7）：优先调用已注册的自定义命令 save_file_dialog（与 read_text_file /
+      // write_text_file 同款自定义命令，已验证在桌面端可用），由 Rust 侧调用 dialog 插件
+      // 原生保存框并返回路径；plugin:dialog|save 仅作退化兜底（部分发布下 IPC 调用被拒）。
+      // 参数用 snake_case `default_path`，与仓库内其它命令（{ path, content }）保持一致，
+      // 避免依赖 Tauri v2 的 camelCase→snake_case 自动转换（万一被关闭则 default_path 落空）。
       try {
-        const path = await envInvoke('save_file_dialog', { defaultPath });
-        return { path };
-      } catch (firstErr) {
-        // 退化为 open_save_dialog（命令名在不同桌面端发布下可能不同）
-        try {
-          const path = await envInvoke('open_save_dialog', { defaultPath });
+        const res = await envInvoke('save_file_dialog', { default_path: defaultPath });
+        const path = res == null ? null : res.filePath ?? res.path ?? res;
+        if (typeof path === 'string' && path) {
+          // #9：返回所选路径（{ path } 描述符），与 read/write 约定一致。
           return { path };
+        }
+        return null; // 用户取消 / 无效路径
+      } catch (firstErr) {
+        
+        // 退化：尝试 dialog 插件标准命令名 plugin:dialog|save
+        try {
+          const res = await envInvoke('plugin:dialog|save', { default_path: defaultPath });
+          const path = res == null ? null : res.filePath ?? res.path ?? res;
+          if (typeof path === 'string' && path) {
+            
+            return { path };
+          }
+          return null;
         } catch (secondErr) {
+          
           throw firstErr; // 抛出首个错误，保留最贴近的失败原因
         }
       }

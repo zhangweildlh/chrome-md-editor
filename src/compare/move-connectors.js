@@ -215,6 +215,16 @@ const VARIANT_PAINT = {
   },
 };
 
+/**
+ * 兜底配色：当某条连线既无 pair 自带色、又无 variant 配色、也无层默认色时，
+ * 用中性灰蓝保证「至少可见」，杜绝因取色全空导致整条连线静默不可见（#5 根因之一）。
+ * 这一档只在极端缺色场景下生效，正常路径仍走 variant / 层默认。
+ */
+const FALLBACK_PAINT = {
+  stroke: "rgba(120, 130, 150, 0.7)",
+  fill: "rgba(120, 130, 150, 0.12)",
+};
+
 /** 允许的层名白名单；未知层名一律归到 'ab'（保持旧行为，不静默丢弃）。 */
 const KNOWN_LAYERS = new Set(["ab", "bc", "diff"]);
 
@@ -651,8 +661,8 @@ export function createConnectorPainter(opts) {
             d: ribbonPath(x1, x2, sTop, sBottom, dTop, dBottom),
             layerName,
             variant,
-            fill: p.fill || (vPaint && vPaint.fill) || layerFill,
-            stroke: p.stroke || (vPaint && vPaint.stroke) || layerStroke,
+            fill: p.fill || (vPaint && vPaint.fill) || layerFill || FALLBACK_PAINT.fill,
+            stroke: p.stroke || (vPaint && vPaint.stroke) || layerStroke || FALLBACK_PAINT.stroke,
             index: i,
           },
         });

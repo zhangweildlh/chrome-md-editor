@@ -52,6 +52,22 @@ function basename(p) {
   return i >= 0 ? p.slice(i + 1) : p;
 }
 
+// #7：给「无扩展名」路径补默认扩展名。
+// 原生保存框返回的路径若用户未带扩展名（如输入「1」），Rust 端 validate_path
+// 会拒绝该文件导致静默不写盘。此处依 suggestedName 推导默认扩展名并补上
+//（导出 diff 时 suggestedName 形如「diff.txt」→ 补 .txt；另存为源文件时取源扩展名）。
+// 严禁改动 Rust validate_path（其它调用方依赖其扩展名白名单）。
+function ensureExtension(path, fallbackName) {
+  if (typeof path !== 'string' || !path) return path;
+  const base = basename(path);
+  const dot = base.lastIndexOf('.');
+  const hasExt = dot > 0; // 有点且不在首字符（排除「.gitignore」被误判）
+  if (hasExt) return path;
+  const m = /\.([^./\\]+)$/.exec(fallbackName || '');
+  const ext = m ? '.' + m[1] : '.txt';
+  return path + ext;
+}
+
 // 计算弹窗要展示的「绝对路径 + 文件名」（完整，不省略）。
 //   - pane.path 优先（调用方显式给的完整绝对路径，最可靠）
 //   - Tauri 模式 target.path 即绝对路径
@@ -110,55 +126,16 @@ async function resolveSaveAs(target, content) {
 }
 
 // ---------------------------------------------------------------------------
-// 内联样式（占位；最终由 C3 Agent 在 compare.css 统一完善）
+// 弹窗视觉：复用全站 .modal-overlay / .modal-card / .modal-btn 体系（editor.css），
+// 不再使用硬编码内联颜色，确保与编辑/预览页「打开文件」弹窗外观一致，且随主题（明暗）自适应。
 // ---------------------------------------------------------------------------
-const OVERLAY_STYLE = [
-  'position:fixed', 'inset:0', 'z-index:99999',
-  'display:flex', 'align-items:center', 'justify-content:center',
-  'background:rgba(0,0,0,0.45)',
-  'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
-].join(';') + ';';
-
-// R3 修复 ⑥：runSavePoll 弹窗视觉重做为「系统式样」，与原生 showOpenFilePicker / showSaveFilePicker
-// 弹窗（操作系统提供的对话框）观感一致——浅色卡片、圆角、按钮强调色（系统蓝 accent）。
-// 浏览器侧无法 100% 复刻 OS 原生，但通过统一调色板、字体、间距达成「观感对齐」。
-const BOX_STYLE = [
-  'min-width:380px', 'max-width:90vw', 'background:#ffffff', 'color:#1f2328',
-  'border:1px solid #d0d7de', 'border-radius:12px', 'padding:20px 22px',
-  'box-shadow:0 8px 28px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)',
-  'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
-].join(';') + ';';
-
-const PATH_STYLE = [
-  'margin:10px 0', 'padding:8px 10px', 'background:#f6f8fa', 'border:1px solid #eaeef2',
-  'border-radius:6px',
-  'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
-  'font-size:12px', 'word-break:break-all', 'line-height:1.5', 'color:#57606a',
-].join(';') + ';';
-
-const HINT_STYLE = [
-  'font-size:12px', 'color:#57606a', 'margin-bottom:14px', 'line-height:1.55',
-].join(';') + ';';
-
-// 系统式按钮：浅灰底 + 细边，hover 加深。emphasis=true 时用系统蓝（accent）强调（主操作）。
-const BTN_STYLE = [
-  'flex:1', 'margin:0 4px', 'padding:7px 14px',
-  'border:1px solid #d0d7de', 'border-radius:6px',
-  'background:#f6f8fa', 'color:#1f2328', 'cursor:pointer',
-  'font-size:13px', 'font-weight:500', 'transition:background .12s',
-].join(';') + ';';
-const BTN_EMPHASIS_BG = '#0969da'; // 系统蓝（GitHub/Windows accent）
-const BTN_EMPHASIS_BORDER = '#0969da';
-const BTN_EMPHASIS_TEXT = '#ffffff';
 
 // 通用：构造覆盖层 + 居中卡片，返回 { overlay, box, close }。
 function buildOverlay() {
   const overlay = document.createElement('div');
-  overlay.className = 'save-poll-overlay';
-  overlay.style.cssText = OVERLAY_STYLE;
+  overlay.className = 'save-poll-overlay modal-overlay';
   const box = document.createElement('div');
-  box.className = 'save-poll-modal';
-  box.style.cssText = BOX_STYLE;
+  box.className = 'save-poll-modal modal-card';
   overlay.appendChild(box);
   let escHandler = null;
   const close = (onEsc) => {
@@ -188,19 +165,17 @@ function showPaneSaveDialog(pane) {
     const { box, close, setEscResolver } = buildOverlay();
 
     const title = document.createElement('div');
+    title.className = 'modal-title';
     title.textContent = '保存文件';
-    title.style.cssText = 'font-size:15px;font-weight:600;margin-bottom:2px;';
 
     const path = document.createElement('div');
-    path.className = 'save-poll-path';
-    path.style.cssText = PATH_STYLE;
+    path.className = 'save-poll-path modal-hint';
     const full = displayPath(pane);
     path.textContent = '路径：' + full;
     path.title = full; // tooltip 显示完整绝对路径（不省略）
 
     const hint = document.createElement('div');
-    hint.className = 'save-poll-hint';
-    hint.style.cssText = HINT_STYLE;
+    hint.className = 'modal-hint';
     if (pane.target == null) {
       hint.textContent = '该栏无源文件（合并结果）。「保存」将等同于「另存为」，请指定新路径与文件名（默认 merged.md）。';
     } else {
@@ -208,12 +183,12 @@ function showPaneSaveDialog(pane) {
     }
 
     const bar = document.createElement('div');
-    bar.style.cssText = 'display:flex;gap:0;margin-top:4px;';
+    bar.className = 'modal-actions';
 
     const mk = (label, action, emphasis) => {
       const b = document.createElement('button');
+      b.className = 'modal-btn' + (emphasis ? ' modal-btn-primary' : '');
       b.textContent = label;
-      b.style.cssText = BTN_STYLE + (emphasis ? `background:${BTN_EMPHASIS_BG};border-color:${BTN_EMPHASIS_BORDER};color:${BTN_EMPHASIS_TEXT};` : '');
       b.onclick = () => { close(); resolve({ action }); };
       return b;
     };
@@ -272,7 +247,16 @@ export async function showSaveAsDialog({ suggestedName, types } = {}) {
   // Tauri（返回 { path }）/ 非安全上下文（返回 { download, name } 由 write 走 Blob 下载）。
   try {
     const target = await resolvePickSaveTarget(name);
-    return target || null;
+    // 取消 / 无效目标 → null（#7 收口加固：避免 { path: null } 之类伪目标被当真值误写）
+    if (!target || typeof target !== 'object') return null;
+    if (target.handle || target.download) return target;
+    if (typeof target.path === 'string' && target.path) {
+      // #7：用户若在原生保存框中未带扩展名，补上默认扩展名，避免 Rust validate_path 拒绝。
+      const fixed = ensureExtension(target.path, name);
+      
+      return { path: fixed };
+    }
+    return null;
   } catch (err) {
     if (err && err.name === 'AbortError') return null; // 用户取消
     console.error('[save-poll] pickSaveTarget 失败：', err);
@@ -285,24 +269,56 @@ export async function showSaveAsDialog({ suggestedName, types } = {}) {
 // 用轻量 toast（不拦截其它交互、数秒后自动消失），仅在浏览器 DOM 环境生效；
 // node 环境下 document 不存在，直接跳过，避免破坏 node 测试。
 // ---------------------------------------------------------------------------
-function showSaveErrors(count) {
+// #9：失败提示带上首个错误原因，避免「只报数量、不报原因」导致用户无法定位。
+function showSaveErrors(errors) {
   if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') {
     return;
   }
+  const n = Array.isArray(errors) ? errors.length : 1;
+  let msg = n + ' 个文件保存失败';
+  if (Array.isArray(errors) && errors[0] && errors[0].error) {
+    const reason = errors[0].error.message || String(errors[0].error);
+    msg += '：' + reason;
+    if (errors.length > 1) msg += '（等 ' + errors.length + ' 处）';
+  } else {
+    msg += '，请重试';
+  }
   const toast = document.createElement('div');
   toast.className = 'save-poll-toast';
-  toast.textContent = count + ' 个文件保存失败，请重试';
+  toast.textContent = msg;
   toast.style.cssText = [
     'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)',
     'z-index:100000', 'padding:10px 16px', 'background:#5a1d1d', 'color:#ffd7d7',
     'border:1px solid #8a2d2d', 'border-radius:8px',
     'font-family:system-ui,-apple-system,sans-serif', 'font-size:13px',
     'box-shadow:0 8px 24px rgba(0,0,0,0.5)', 'pointer-events:none',
+    'max-width:80vw', 'white-space:pre-wrap', 'word-break:break-all',
   ].join(';') + ';';
   document.body.appendChild(toast);
   setTimeout(() => {
     if (toast.parentNode) toast.parentNode.removeChild(toast);
-  }, 5000);
+  }, 6000);
+}
+
+// #9：保存成功也给予可见确认（之前只有失败提示，成功静默不易确认）。
+function showSaveSuccess(count) {
+  if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') {
+    return;
+  }
+  const toast = document.createElement('div');
+  toast.className = 'save-poll-toast';
+  toast.textContent = count + ' 个文件已保存';
+  toast.style.cssText = [
+    'position:fixed', 'left:50%', 'bottom:24px', 'transform:translateX(-50%)',
+    'z-index:100000', 'padding:10px 16px', 'background:#1d3a1d', 'color:#d7ffd7',
+    'border:1px solid #2d8a2d', 'border-radius:8px',
+    'font-family:system-ui,-apple-system,sans-serif', 'font-size:13px',
+    'box-shadow:0 8px 24px rgba(0,0,0,0.5)', 'pointer-events:none',
+  ].join(';') + ';';
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  }, 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,14 +389,21 @@ export async function runSavePoll(panes, order) {
         }
       } catch (err) {
         console.error('[save-poll] 栏 ' + key + ' 保存失败：', err);
+        // #9：记录错误并继续处理其余栏，避免单栏失败中断整体保存（EXE 下如 D:\System\Desktop 受限）。
         errors.push({ key, error: err });
         result.actions.push({ key, action: 'error' });
       }
     }
 
-    // M3：一轮结束，若有失败栏，给出非阻塞 UI 提示（不吞掉错误）。
+    // M3/#9：一轮结束，失败带原因提示；全部成功则给可见确认。
     if (errors.length) {
-      showSaveErrors(errors.length);
+      
+      showSaveErrors(errors);
+    } else {
+      const saved = (result.actions || []).filter(
+        (a) => a.action === 'save' || a.action === 'saveAs'
+      ).length;
+      if (saved > 0) showSaveSuccess(saved);
     }
   } finally {
     inFlight = false; // M2：无论成功/异常/中止，复位重入标志

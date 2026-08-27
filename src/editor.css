@@ -1036,19 +1036,20 @@ mark {
   flex-shrink: 0;
 }
 
-/* 窄屏微调：收紧间距 */
+/* 窄屏微调：收紧内边距，但间距仍跟随 --ui-gap（密度档位），
+   避免硬编码 px 覆盖 setDensity 设置的变量，导致「按钮间距」下拉在窄窗失效（#2）。 */
 @media (max-width: 900px) {
   .toolbar {
     padding: 0 8px;
-    gap: 4px;
+    gap: var(--ui-gap);
   }
   .toolbar-left,
   .toolbar-center,
   .toolbar-right {
-    gap: 2px;
+    gap: var(--ui-gap);
   }
   .toolbar-group {
-    gap: 2px;
+    gap: var(--ui-gap);
   }
 }
 
@@ -1247,7 +1248,9 @@ body {
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  /* #2 修复：gap 跟随 --ui-gap（密度档位 2/4/14px），与上方 .toolbar-group 规则统一唯一来源。
+     原写死 4px 会以「后定义者胜」覆盖前者 gap: var(--ui-gap)，导致「按钮间距」下拉失效。 */
+  gap: var(--ui-gap);
   padding: 2px 0;
   border-radius: var(--radius-sm);
 }
@@ -1369,6 +1372,38 @@ body {
 .toolbar-btn.active {
   background: var(--bg-active);
   color: var(--text-accent);
+}
+
+/* #3 滚动同步按钮：btnScroll 仅挂 compare-toolbar-btn 类，其 .active 高亮依赖的
+   CSS 变量在部分主题下未定义 → 不可见（表现为「始终灰色」）。此处用 id+class 提权
+   并给出显式颜色，保证「开/关」两态清晰可辨（开=高亮、关=灰色次级）。 */
+#btnScroll.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: var(--accent, #3b82f6);
+}
+
+/* #2 光标锚定局部采纳浮层按钮：固定在视口、随活动栏光标定位，点击把光标段落/选区写入结果。
+   注意：本按钮是 compareHost 的直接子节点（merge 视图的兄弟），非 .cm-mergeView 后代，
+   不违反 MergeView 层叠上下文铁律；仅用绝对定位 + 背景色，不加 transform/filter/backdrop-filter。 */
+.cm-inline-accept {
+  position: fixed;
+  z-index: 2000;
+  display: none;
+  padding: 2px 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 4px;
+  border: 1px solid var(--accent, #3b82f6);
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.cm-inline-accept:hover {
+  background: var(--accent-strong, #2563eb);
+  border-color: var(--accent-strong, #2563eb);
 }
 
 .toolbar-btn strong {
@@ -1710,48 +1745,94 @@ body {
 .editor-container .cm-editor .cm-content {
   background: transparent !important;
 }
+/* R10 修复：编辑栏 .cm-content/.cm-line 直接消费 --editor-line-height。
+   原仅绑在 .cm-editor（外层 wrapper），.cm-content 落到 CodeMirror 主题自带
+   line-height:1.5（恒定 21px）而忽略根变量，导致「设置/滚轮行间距」编辑栏不响应。
+   对齐 compare.css:498 做法，绑定到内容元素本身，使编辑栏与对比/预览三栏一致联动。
+   仅作用于 .editor-container 子树，不影响 .compare-view 内的对比栏（其由 compare.css 管理）。 */
+.editor-container .cm-editor .cm-content,
+.editor-container .cm-editor .cm-line {
+  line-height: var(--editor-line-height);
+}
 
 .editor-container .cm-editor .cm-scroller {
   overflow: auto;
   font-family: var(--editor-font-family);
 }
 
-/* G8 显示选项：行尾换行符/换行标记（Decoration.line + ::after 伪元素，零 widget DOM，F1）
-   弱化显示、不可选中、不拦截事件；两开关同时开启时 pilcrow 声明在后 → 显示 ¶ */
-.cm-eol-arrow::after,
-.cm-eol-pilcrow::after {
-  content: '\21b5'; /* ↵ */
-  margin-left: 2px;
-  color: var(--text-muted);
-  opacity: 0.55;
-  font-size: 0.85em;
+/* G8 显示选项：行尾换行符/换行标记（#12/#13）
+   inline widget 显示实际换行符类型（CR/LF/CR LF），紧贴文本末尾，不撑高行高。 */
+.cm-eol-label {
+  display: inline-block;
+  margin-left: 0.35em;
+  padding: 0.05em 0.35em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+  /* #12/#13 纠正：字号缩小 40%（约 0.43em），垂直居中、line-height:1 保持行高不变。 */
+  font-size: 0.43em;
+  font-weight: 500;
+  line-height: 1;
+  vertical-align: middle;
   user-select: none;
   pointer-events: none;
-}
-.cm-eol-pilcrow::after {
-  content: '\00b6'; /* ¶ */
+  white-space: pre;
 }
 
-/* ㉑ 显示空格 → 红色居中小圆点（VS Code Render Whitespace dot 风格，染红）。
-   highlightWhitespace() 给空格加 .cm-highlightSpace、给制表符加 .cm-highlightTab，
-   CM6 默认是灰色径向点/箭头；此处覆盖为红色，圆点居中（circle at 50% 55%）。 */
-.editor-container .cm-editor .cm-content .cm-highlightSpace {
-  background-image: radial-gradient(circle at 50% 55%, var(--danger) 30%, transparent 8%);
-  background-position: center;
+/* 换行标记（eolMark）：空行占位提示，仅回车箭头 ⏎，无红框、无背景，不撑高行高（#12/#13 纠正）。 */
+.cm-eolmark-label {
+  display: inline-block;
+  margin-left: 0.2em;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  line-height: 1;
+  vertical-align: middle;
+  user-select: none;
+  pointer-events: none;
+  white-space: pre;
 }
-.editor-container .cm-editor .cm-content .cm-highlightTab {
+
+/* ㉑#10 显示空格 → 红色居中小圆点（VS Code Render Whitespace dot 风格，染红）。
+   highlightWhitespace() 给空格加 .cm-highlightSpace、给制表符加 .cm-highlightTab，
+   CM6 默认是灰色径向点/箭头；此处全局覆盖为红色。
+   全局作用域（.cm-content 前缀，不限祖先）：覆盖主编辑区、A/B 栏（MergeView 内）、
+   C 栏（独立 theirsView，不在 .cm-mergeView 内）——R6 #10 收尾：C 栏此前因不在
+   .editor-container/.cm-mergeView 内而漏网，现统一命中。
+   严守 MergeView 层叠上下文铁律：::before 仅用 position:absolute + 负 margin 居中，
+   绝不写 transform/filter/backdrop-filter（否则复现 B2 块级采纳按钮划花）。 */
+.cm-content .cm-highlightSpace {
+  position: relative;
+  background-image: none !important; /* 覆盖 CodeMirror 默认 .cm-highlightSpace 灰色径向点（#10 根治） */
+}
+.cm-content .cm-highlightSpace::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.108em;
+  height: 0.108em;
+  margin-left: -0.054em;
+  margin-top: -0.054em;
+  border-radius: 50%;
+  background: var(--danger);
+  pointer-events: none;
+}
+.cm-content .cm-highlightSpace::after {
+  content: none;
+}
+.cm-content .cm-highlightTab {
   background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23e5484d" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>');
   background-size: auto 100%;
   background-position: right 90%;
   background-repeat: no-repeat;
 }
 
-/* ㉑ 空格 → 红色居中小圆点（JS Agent 渲染 .cm-space-dot span，内容 '·' / '◦'）。
-   红色走主题 --danger、字号略小、垂直居中、不改变行高（line-height:1 + vertical-align:middle）。
+/* ㉑ 空格 → 红色居中小圆点（JS Agent 渲染 .cm-space-dot span 包裹原空格字符）。
+   红点由 .cm-highlightSpace::after 零宽覆盖层绘制（#10 修复）；此处仅做布局中性约束：
+   不缩放字号（保持原空格正常占位宽度）、垂直居中、不改变行高。
    选择器仅命中空格 span，不影响其它 .cm-specialChar。 */
 .cm-space-dot {
   color: var(--danger) !important;
-  font-size: 0.7em;
   line-height: 1;
   vertical-align: middle;
   text-indent: 0;
@@ -3233,7 +3314,7 @@ body {
    注意：这里必须逐条复位 .side-panel 的浮层属性（position/top/right/max-height/
    box-shadow/z-index），否则 fixed 定位会让它继续脱离文档流盖在预览区上。 */
 .side-panel.side-panel-docked {
-  position: static;
+  position: relative;
   top: auto;
   right: auto;
   width: auto;
@@ -3242,7 +3323,12 @@ body {
   flex: 0 0 var(--outline-width, 260px);
   min-width: 160px;
   box-shadow: none;
-  z-index: auto;
+  /* 抬升层叠：CodeMirror 的 .cm-editor 默认 position:relative（已定位元素），
+     按 CSS 绘制顺序会绘制在 static 的 docked 大纲面板之上，导致对比视图下
+     大纲面板被编辑器内容遮挡（elementFromPoint 命中 .cm-md-token-*，occluded:true）。
+     改为 relative + z-index:1 使其成为已定位元素且层叠高于编辑器(z-index:auto)，
+     从而正确覆盖在编辑器内容之上。不影响 flex 布局（relative 仍在流内）。 */
+  z-index: 1;
 }
 
 /* 大纲分隔条只在大纲展开时出现。

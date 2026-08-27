@@ -1,7 +1,8 @@
 // compare.js — 对比合并页面入口与控制器（T1 骨架 + T2/T4/T4b 整合）
 //
 // 职责：
-//   1. 读取 window.__compareMount 提供的挂载约定（root / mountPoints / fileSlots / imageDrop）。
+//   1. 挂载点取自当前文档 DOM（集成模式下来自 editor.html 的 #compareHost，由 HOST 作用域隔离；
+//      独立 compare.html 模式下来自页面自身）。不再依赖 window.__compareMount。
 //   2. 根据工具栏按钮切换「两栏 / 三栏」两种视图（对比/合并必为两栏或三栏，无单栏）。
 //   3. 绑定文件选择、块导航、图片插入、导出结果 / 导出 diff 报告。
 //
@@ -17,6 +18,11 @@
 // 禁用类名闸门：
 //   严禁使用方案列明的禁用类名。本文件按钮统一用 compare-toolbar-btn。
 
+// 方案A：对比样式经 JS import 引入，确保无论独立 compare.html 还是内嵌 editor.html
+// （对比 UI 集成进编辑器初始上下文）都能随 compare.js 加载而生效，不依赖 HTML <link>
+// 在编辑器页被 Vite 构建图裁剪。浏览器侧 compare.html 的 <link> 仍保留作为兜底。
+import './compare.css';
+
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
@@ -30,7 +36,13 @@ import {
 import { exportResult } from "./compare-export.js";
 import { buildDiffText } from "./compare-diff-export.js";
 // 共享编辑器扩展工厂（编辑页 / 对比·合并页共用同一套 CM6 内核，见设计文档 §8.1/§8.2）
-import { createEditorExtensions } from "./editor-extensions.js";
+import { createEditorExtensions, applyInvisiblesSettings } from "./editor-extensions.js";
+import {
+  getEditorFontSize, setEditorFontSize,
+  getEditorLetterSpacing, setEditorLetterSpacing,
+  getEditorLineHeight, setEditorLineHeight,
+  applyZoomFromWheel,
+} from "./focus-mode.js";
 // 保存轮询 + 另存为弹窗（§5）
 import { runSavePoll, showSaveAsDialog } from "./save-poll.js";
 // 可复用多栏滚动同步（§9）；控制器由 createCompareMergeView 内部创建并挂到 instance.scrollSync，
@@ -75,16 +87,30 @@ import { initToolbarScroll } from "./toolbar-scroll.js";
 import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MAX_WIDTH_ABS } from "./outline-const.js";
 
 (function bootstrapCompare() {
-  // 挂载点直接取自 compare.html 中定义的 DOM 节点（不再依赖 window.__compareMount，
-  // 该约定在 compare.html 中并未注入，否则会导致整页无法初始化）。
-  const root = document.getElementById("compareRoot");
+  // 方案A（根治 #4/#7 EXE 对比页拖放失效）：
+  //   EXE(Tauri/WebView2) 下，OS 文件拖放事件仅在「初始 webview 页面上下文」派发
+  //   （已知缺陷 wry#904）。此前 btnCompare 用 window.location.href='compare.html'
+  //   或 window.open 跳离 editor.html，导致对比页 drop 永远收不到。
+  //   现改为：对比 UI 直接内嵌进 editor.html（#compareHost），不再导航离开初始上下文。
+  //   editor.js 的持久 onDragDropEvent 监听（已在初始上下文、真机坐实可用）转发到
+  //   window.__compareHandleTauriDrop 即可让对比页收到拖放。
+  //   HOST 作用域：集成模式下所有 getElementById/querySelector 限定在 #compareHost 内，
+  //   避免与 editor.html 既有 #outlinePanel/#outlineClose 等 ID 冲突。
+  const HOST = (typeof window !== "undefined" && window.__compareHost) || document;
+  const integrated = !!(typeof window !== "undefined" && window.__compareIntegrated);
+  // 标记当前处于对比/合并页，供 editor.js 持久 drop 监听转发判断。
+  window.__inCompare = true;
+
+  // 挂载点直接取自 compare DOM 中定义的 DOM 节点（集成模式下来自 #compareHost，
+  // 独立模式下来自 compare.html 自身）。用 HOST.getElementById 作用域隔离。
+  const root = HOST.getElementById("compareRoot");
   const mountPoints = {
-    two: document.getElementById("viewTwo"),
-    three: document.getElementById("viewThree"),
+    two: HOST.getElementById("viewTwo"),
+    three: HOST.getElementById("viewThree"),
   };
   const fileSlots = {
-    a: document.getElementById("fileSlotA"),
-    b: document.getElementById("fileSlotB"),
+    a: HOST.getElementById("fileSlotA"),
+    b: HOST.getElementById("fileSlotB"),
   };
   if (!root || !mountPoints.two || !mountPoints.three) {
     console.error(
@@ -165,6 +191,32 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   });
 
+  // R8：编辑栏「显示选项」切换时，实时联动对比/合并页 A/B/C 三栏的空格符/换行符/换行标记
+  window.addEventListener('cme-invisibles-change', (e) => {
+    if (!instance || !e.detail) return;
+    const s = e.detail;
+    for (const v of [instance.a, instance.b, instance.theirsView]) {
+      if (v) applyInvisiblesSettings(v, s);
+    }
+  });
+
+  // R8：对比/合并页 A/B/C 三栏 Ctrl+滚轮缩放（字号/字间距/行间距，与编辑栏共用 :root 变量 → 一致+联动）
+  let compareWheelBound = false;
+  function bindCompareWheelZoom() {
+    if (compareWheelBound) return;
+    const root = HOST.getElementById("compareRoot");
+    if (!root) return;
+    root.addEventListener("wheel", (e) => {
+      if (applyZoomFromWheel(e)) syncCompareDisplayInputs();
+    }, { passive: false });
+    compareWheelBound = true;
+  }
+  function syncCompareDisplayInputs() {
+    const f = document.getElementById("dsEditorFont"); if (f) f.value = getEditorFontSize() || 14;
+    const ls = document.getElementById("dsEditorLetterSpacing"); if (ls) ls.value = getEditorLetterSpacing() || 0;
+    const lh = document.getElementById("dsEditorLineHeight"); if (lh) lh.value = getEditorLineHeight() || 1.6;
+  }
+
   // 公共扩展：复用编辑页同款内核（语法高亮彩色 / 查找替换 / / 面板 / 块拖拽 + 选区拖拽）
   // + 对照/合并专属 diff 行标记 + 活动栏跟踪。Callout 不做盒子渲染（仅源码语法高亮，见 §D12）。
   // F3：localStorage 不可用（隐私模式/被禁用）时返回默认值，避免初始化崩溃
@@ -196,8 +248,30 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     ];
   }
 
-  // ── DOM 查询 ──
-  const $ = (id) => document.getElementById(id);
+  // ── DOM 查询（作用域隔离：集成模式下限定在 #compareHost，避免与 editor.html 既有 ID 冲突）──
+  const $ = (id) => {
+    // R3 修复：EXE 集成模式下 compare.js 加载时 window.__compareHost 尚未注入，
+    // HOST 回退为 document；document.getElementById 会命中主编辑区 toolbar 中的
+    // btnSave / btnScroll / btnUndo / btnRedo 等同名 id，导致对比视图按钮的视觉
+    // 状态更新（如 #btnScroll.active）落到隐藏的主编辑区按钮上。
+    // 兜底：在 document 宿主下优先在 #compareToolbar 内查找，确保拿到对比视图按钮。
+    if (HOST === document) {
+      const scoped = document.querySelector(`#compareToolbar #${id}`);
+      if (scoped) return scoped;
+    }
+    return HOST.getElementById(id);
+  };
+  // 对比大纲面板在两种宿主下的 id 兼容（根治 #5「大纲按钮无效果」）：
+  //  - EXE 集成模式（editor.html 内嵌 #compareHost）：主编辑区与对比区各有一个 #outlinePanel。
+  //    若 document.getElementById 命中主编辑区那个，它位于 MAIN#editorMain，绘制在 #compareHost
+  //    (position:fixed; z-index:1000) 之下，永远不可见。故对比大纲改用唯一 id #compareOutlinePanel
+  //    （editor.html 中已改名），优先解析它。
+  //  - 浏览器扩展独立页（compare.html）：仅一个 #outlinePanel，回退到此 id。
+  // 其余对比 DOM（#compareRoot/#viewTwo 等）在两份 HTML 中 id 唯一，无需此兼容。
+  const getOutlineEl = (base) => {
+    const prefixed = "compare" + base.charAt(0).toUpperCase() + base.slice(1);
+    return HOST.getElementById(prefixed) || HOST.getElementById(base);
+  };
   // 模式切换：对照 / 合并（按钮由 C3 在 compare.html 注入，此处做 null 保护）
   const btnModeCompare = $("btnModeCompare");
   const btnModeMerge = $("btnModeMerge");
@@ -218,9 +292,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   const locationPaneResizerEl = $("locationPaneResizer");
   // 需求7：大纲面板独立元素
   const btnToggleOutline = $("btnToggleOutline");
-  const outlinePanelEl = $("outlinePanel");
-  const outlineListEl = $("outlineList");
-  const outlineCloseBtn = $("outlineClose");
+  const outlinePanelEl = getOutlineEl("outlinePanel");
+  const outlineListEl = getOutlineEl("outlineList");
+  const outlineCloseBtn = getOutlineEl("outlineClose");
   // 「保存」按钮由 compare.html 提供；该按钮可能尚未上线，必须做 null 保护
   const btnSave = $("btnSave");
   // 撤销 / 重做（任务1）：作用于当前获得焦点的活动栏
@@ -247,8 +321,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   };
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.9.10（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.10";
+  // 运行时兜底 1.9.15（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.15";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -281,24 +355,34 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       unsubscribeStatus = null;
     }
 
-  // R3 修复 ⑤：通用错误 toast（不阻塞交互、3s 自动消失），让 EXE 侧 dialog.open 抛错时
-  // 用户能看到失败原因（之前只 console.error 不可见，导致「点击无效」困惑）。
-  function showCompareErrorToast(message) {
+  // R3/R5 修复：通用 toast（不阻塞交互、自动消失），让 EXE 侧操作反馈可见。
+  // R6 修复 #9：去掉 transform 居中（EXE WebView2 下不稳健），改 left:0;right:0;margin:auto 居中；
+  //   改顶部居中(top:24px)避免被底部 .compare-footer 遮挡（根因：底部 toast 被 footer 盖住 → 用户"没看到"）；
+  //   提 z-index 至最高层、字号 14px、停留 3500ms，便于在 EXE 下核验反馈可见性。
+  // type: 'error' | 'success' | 'warn'；默认 'error'。
+  function showCompareToast(message, type = "error") {
     if (typeof document === "undefined" || !document.body) return;
+    const palette = {
+      error: { bg: "#5a1d1d", fg: "#ffd7d7", border: "#8a2d2d" },
+      success: { bg: "#14522d", fg: "#d4edda", border: "#28a745" },
+      warn: { bg: "#5c4800", fg: "#fff3cd", border: "#b38f00" },
+    };
+    const c = palette[type] || palette.error;
     const toast = document.createElement("div");
     toast.style.cssText = [
-      "position:fixed", "left:50%", "bottom:24px", "transform:translateX(-50%)",
-      "z-index:100001", "padding:10px 18px", "background:#5a1d1d", "color:#ffd7d7",
-      "border:1px solid #8a2d2d", "border-radius:8px",
-      "font-family:system-ui,-apple-system,sans-serif", "font-size:13px",
-      "box-shadow:0 8px 24px rgba(0,0,0,0.5)", "pointer-events:none",
-      "max-width:80vw", "white-space:pre-wrap", "word-break:break-all",
+      "position:fixed", "top:24px", "left:0", "right:0", "margin:0 auto", "width:fit-content",
+      "max-width:90vw", "z-index:2147483640", "padding:12px 22px", `background:${c.bg}`, `color:${c.fg}`,
+      `border:1px solid ${c.border}`, "border-radius:8px",
+      "font-family:system-ui,-apple-system,sans-serif", "font-size:14px", "font-weight:600",
+      "box-shadow:0 8px 24px rgba(0,0,0,0.5)", "pointer-events:none", "text-align:center",
+      "white-space:pre-wrap", "word-break:break-all",
     ].join(";");
     toast.textContent = message;
     document.body.appendChild(toast);
+    
     setTimeout(() => {
       if (toast.parentNode) toast.parentNode.removeChild(toast);
-    }, 3000);
+    }, 3500);
   }
     if (locationPane) {
       try {
@@ -442,6 +526,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
     for (const it of items) {
       if (!it) continue;
+      
       const level = Math.max(1, Math.min(num(it.level, 1), 6));
       const el = document.createElement("div");
       el.className = `outline-item outline-level-${level}`;
@@ -482,6 +567,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       // 复用主界面 .side-panel 的可见性约定：.open 类控制 display:flex。
       outlinePanelEl.classList.toggle("open", outlineVisible);
     }
+
     if (btnToggleOutline) btnToggleOutline.classList.toggle("active", outlineVisible);
     lastOutlineDoc = null;
     lastOutlinePaneKey = null;
@@ -489,6 +575,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   function toggleOutlinePanel() {
+    
     setOutlineVisible(!outlineVisible);
   }
 
@@ -496,7 +583,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 宽度常量取自 ./outline-const.js（F5 单一事实源）
 
   function outlineMaxWidth() {
-    const root = document.getElementById("compareRoot");
+    const root = HOST.getElementById("compareRoot");
     const avail = root ? root.clientWidth : 0;
     if (!avail) return OUTLINE_MAX_WIDTH_ABS;
     // 不写死上限：窄窗口下 520px 会把编辑区挤没，取「主区宽度的 45%」与绝对上限的较小值。
@@ -504,7 +591,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   function applyOutlineWidth(px, { persist = false } = {}) {
-    const panel = document.getElementById("outlinePanel");
+    const panel = getOutlineEl("outlinePanel");
     if (!panel) return;
     const n = Number(px);
     const w = Number.isFinite(n)
@@ -524,16 +611,16 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // .view-hidden（display:none!important），此时若分隔条还在，右侧会挂空条。
   // CSS 选不到「前一个兄弟」，故用 MutationObserver 监听 class 变化统一同步。
   function syncOutlineDockState() {
-    const root = document.getElementById("compareRoot");
-    const panel = document.getElementById("outlinePanel");
+    const root = HOST.getElementById("compareRoot");
+    const panel = getOutlineEl("outlinePanel");
     if (!root || !panel) return;
     const visible = panel.classList.contains("open") && !panel.classList.contains("view-hidden");
     root.classList.toggle("outline-docked-open", visible);
   }
 
   function initCompareOutlineDock() {
-    const panel = document.getElementById("outlinePanel");
-    const resizer = document.getElementById("resizerCompareOutline");
+    const panel = getOutlineEl("outlinePanel");
+    const resizer = HOST.getElementById("resizerCompareOutline");
     if (!panel) return;
 
     let saved = null;
@@ -643,27 +730,149 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // 滚动同步按钮状态
   function updateScrollButton() {
-    if (btnScroll) {
-      // 需求⑤：无有效跨滚动盒链接（两栏等场景各栏共用同一滚动盒 → 同步天然恒开、
-      // 控制器 isEffective()=false 为 no-op）时，按钮置灰并说明，避免「点了没反应」。
-      const effective = !!(
-        scrollSync &&
-        (typeof scrollSync.isEffective !== "function" || scrollSync.isEffective())
-      );
-      btnScroll.classList.toggle("disabled", !effective);
-      if (!effective) {
-        btnScroll.classList.remove("active");
-        btnScroll.title = "滚动同步：各栏共用同一滚动盒（两栏模式），天然同步，无需开关";
-        return;
-      }
-      // R3 修复 ⑨⑩：三栏模式下 A/B 栏在同一个 MergeView .cm-scroller 内共享滚动盒，
-      // 这是 CM6 MergeView 架构行为，开关无法解除（结构性联动）。开关仅控制
-      // A↔C / B↔C 跨盒链接。tooltip 明确告知用户，避免「不激活时 A/B 仍同步」困惑。
-      btnScroll.classList.toggle("active", scrollSyncEnabled);
-      btnScroll.title = scrollSyncEnabled
-        ? "滚动同步：开（点击关闭；A/B 栏因 MergeView 共享滚动盒天然联动，开关仅控制与 C 栏的同步）"
-        : "滚动同步：关（点击开启；A/B 栏因 MergeView 共享滚动盒天然联动，无法关闭）";
+    if (!btnScroll) return;
+    // 根因修复：按钮的「置灰/禁用」只取决于控制器是否就绪（scrollSync 是否存在），
+    // 不再以 isEffective() 作为置灰依据。isEffective() 仅描述「是否存在跨滚动盒链接」，
+    // 曾在某些三栏布局时序下返回 false，导致按钮被永久置灰（disabled + pointer-events:none）
+    // 且点击被早退忽略，表现为「两种状态都灰、不随 scrollSyncEnabled 切换」。
+    // 视觉 active 态始终由本地开关 scrollSyncEnabled 驱动：启用=高亮，禁用=灰色次级按钮。
+    if (!scrollSync) {
+      btnScroll.classList.add("disabled");
+      btnScroll.classList.remove("active");
+      btnScroll.title = "滚动同步：视图加载中，稍后可用";
+      return;
     }
+    const effective =
+      typeof scrollSync.isEffective !== "function" || scrollSync.isEffective();
+    btnScroll.classList.remove("disabled");
+    btnScroll.classList.toggle("active", scrollSyncEnabled);
+    // A/B 栏在 MergeView 共享滚动盒天然联动，开关实际控制与 C 栏的同步（用户已确认的语义）。
+    const base = scrollSyncEnabled
+      ? "滚动同步：开（点击关闭；A/B 栏因 MergeView 共享滚动盒天然联动，开关仅控制与 C 栏的同步）"
+      : "滚动同步：关（点击开启；A/B 栏因 MergeView 共享滚动盒天然联动，无法关闭）";
+    btnScroll.title = effective
+      ? base
+      : base + "（提示：当前无跨栏滚动盒，各栏天然已同步）";
+  }
+
+  // ── 光标锚定局部采纳按钮（#2）：在活动栏光标处浮动显示「采纳」，点击把光标段落/选区写入结果(b) ──
+  let inlineAcceptBtn = null;
+  let __inlineAcceptWired = false;
+  function wireInlineAcceptGlobal() {
+    if (__inlineAcceptWired) return;
+    __inlineAcceptWired = true;
+    let raf = 0;
+    document.addEventListener("selectionchange", () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        try { showInlineAcceptIfInChunk(); } catch (_) { /* 非对比态忽略 */ }
+      });
+    });
+    // 任意栏滚动时仅重定位（不重算命中），避免按钮漂移
+    document.addEventListener("scroll", () => { try { positionInlineAccept(); } catch (_) {} }, true);
+  }
+  // R6 修复 #2：统一采纳动作。改用 mousedown 触发（避免鼠标轻微位移导致 click 不触发；
+  //   R5 实机复验整份无 ui.inlineAccept.click 证明 click 从未触发）。提交前以 try/catch 包裹 chunkAtCursor 命中检查，
+  //   成功后弹「已采纳到结果栏(B)」明确反馈，失败弹 warn，让用户捋顺采纳逻辑。
+  function doInlineAccept() {
+    const pane = getActivePane();
+    const view = paneViewMap()[pane];
+    const head = view ? view.state.selection.main.head : 0;
+    let hit = -1;
+    try { hit = instance ? instance.chunkAtCursor(pane, head) : -1; } catch (_) { /* ignore */ }
+    
+    if (instance && typeof instance.acceptAtCursor === "function") {
+      let ok = false;
+      try { ok = instance.acceptAtCursor(pane, head); } catch (err) { console.error("[compare] 光标采纳失败:", err); }
+      
+      if (ok) {
+        showCompareToast("已采纳到结果栏(B)", "success");
+        if (instance.refreshDecorations) instance.refreshDecorations();
+      } else {
+        showCompareToast("采纳失败：光标 / 选区不在差异块内", "warn");
+      }
+    }
+    hideInlineAccept();
+  }
+  function ensureInlineAcceptBtn() {
+    if (inlineAcceptBtn) return inlineAcceptBtn;
+    if (typeof HOST === "undefined" || !HOST) return null;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cm-inline-accept";
+    btn.textContent = "采纳";
+    // R6 #2：title 明确「采纳到结果栏(B)」，让用户捋顺采纳逻辑
+    btn.title = "采纳到结果栏(B)：把光标所在段落 / 已框选内容写入结果栏（选区优先；可跨多句）";
+    btn.style.display = "none";
+    // R6 修复 #2：改用 mousedown 触发采纳（见 doInlineAccept），避免 click 因轻微位移而丢失
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault(); // 不抢编辑器焦点
+      doInlineAccept();
+    });
+    // R3 修复：EXE 集成模式下 HOST 可能为 document，document.appendChild 非法会抛错，
+    // 导致按钮从未创建。统一挂载到 body（fixed 定位，不依赖 compareHost）。
+    const mount = (HOST !== document ? HOST : document.body);
+    mount.appendChild(btn);
+    inlineAcceptBtn = btn;
+    
+    wireInlineAcceptGlobal();
+    return btn;
+  }
+  function hideInlineAccept() {
+    if (inlineAcceptBtn) {
+      
+      inlineAcceptBtn.style.display = "none";
+    }
+  }
+  function positionInlineAccept() {
+    const btn = inlineAcceptBtn;
+    if (!btn || btn.style.display === "none") return;
+    const pane = getActivePane();
+    if (pane === "b") return hideInlineAccept(); // b 为结果栏，无可采纳内容（R6 #2）
+    const view = paneViewMap()[pane];
+    if (!view) return hideInlineAccept();
+    const head = view.state.selection.main.head;
+    const coords = view.coordsAtPos(head);
+    
+    if (!coords) return hideInlineAccept();
+    // R6 #2：改到光标右侧同行（coords.right+8, coords.top），避免压在下一行文本上导致点击落到编辑器；
+    //   右溢出则翻到光标左侧（coords.left - 宽 - 8）。
+    const btnW = btn.offsetWidth || 80;
+    let left = coords.right + 8;
+    if (left + btnW > (window.innerWidth || document.documentElement.clientWidth) - 8) {
+      left = Math.max(8, coords.left - btnW - 8);
+    }
+    btn.style.left = `${left}px`;
+    btn.style.top = `${coords.top}px`;
+  }
+  function showInlineAcceptIfInChunk() {
+    const btn = ensureInlineAcceptBtn();
+    
+    if (!btn) return;
+    if (!instance || typeof instance.acceptAtCursor !== "function") return hideInlineAccept();
+    const pane = getActivePane();
+    if (pane === "b") return hideInlineAccept(); // b 为结果栏，无可采纳内容
+    const view = paneViewMap()[pane];
+    if (!view) return hideInlineAccept();
+    const head = view.state.selection.main.head;
+    let hit = -1;
+    try { hit = instance.chunkAtCursor(pane, head); } catch (e) {  return hideInlineAccept(); }
+    
+    if (hit < 0) return hideInlineAccept();
+    const coords = view.coordsAtPos(head);
+    
+    if (!coords) return hideInlineAccept();
+    btn.style.display = "block";
+    // R6 #2：同 positionInlineAccept，右侧同行 + 右溢出翻左
+    const btnW = btn.offsetWidth || 80;
+    let left = coords.right + 8;
+    if (left + btnW > (window.innerWidth || document.documentElement.clientWidth) - 8) {
+      left = Math.max(8, coords.left - btnW - 8);
+    }
+    btn.style.left = `${left}px`;
+    btn.style.top = `${coords.top}px`;
+    
   }
 
   // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
@@ -914,6 +1123,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
         bindPaneFocus(instance.theirsView, "c");
+        
       } else {
         instance = createCompareMergeView({
           mode: "compare",
@@ -928,6 +1138,17 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         // （见 bindPaneFocus 的 focusin 与下方 setActivePane 复位后的绑定）。
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
+      }
+      // R8：对比/合并页 A/B/C 三栏支持 Ctrl+滚轮缩放字号/字间距/行间距（与编辑栏一致）
+      bindCompareWheelZoom();
+      // R5 修复：#2 光标锚定浮动采纳按钮需要一次主动初始化，才能在 selectionchange 时
+      // 被触发。否则 ensureInlineAcceptBtn/wireInlineAcceptGlobal 与 selectionchange 形成
+      // 死锁，按钮逻辑永远不会启动。
+      try {
+        ensureInlineAcceptBtn();
+        
+      } catch (e) {
+        
       }
     } catch (e) {
       console.error("[compare] 渲染视图失败:", e);
@@ -1311,6 +1532,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 导出 diff 报告（D17）：生成 git 风格统一 diff 文本，经「另存为」弹窗写盘（非逐栏轮询）──
   async function onExportDiff() {
+    
     if (!instance) return;
     try {
       const panes = buildPanes();
@@ -1323,11 +1545,14 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       const b = getContent("b") || getContent("c") || "";
       const diffText = buildDiffText(a, b);
       const target = await showSaveAsDialog({ suggestedName: "diff.txt", types: [{ description: "文本文件", accept: { "text/plain": [".txt"] } }] });
+      
       if (target) await ioBridge.saveAs(target, diffText); // 写入新文件，不覆盖源
     } catch (e) {
       // 用户取消保存：忽略 AbortError
       if (!(e && e.name === "AbortError")) {
         console.error("[compare] 导出 diff 失败:", e);
+        // #7 收口：可见提示，避免 EXE 下静默失败被误判为「点击无反应」
+        showCompareErrorToast("导出 diff 失败：" + (e && e.message ? e.message : String(e)));
       }
     }
   }
@@ -1352,17 +1577,47 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     return out;
   }
 
-  async function onSave() {
-    if (!instance) return;
-    const panes = buildPanes();
-    const order = buildOrder();
-    try {
-      const r = await runSavePoll(panes, order); // 逐栏弹窗（§5）
-      if (r && !r.aborted) refreshLoadedSnapshots(); // 保存成功 → 复位 D8 脏检查
-    } catch (e) {
-      // 用户取消保存框：忽略 AbortError
-      if (!(e && e.name === "AbortError")) console.error("[compare] 保存失败:", e);
+  // 保存「活动栏」：激活哪一栏即写哪一栏的文件（#9 修正——此前轮询全栏但实测只落 A 栏）。
+  // 无源文件（如合并结果 b）走「另存为」；有源则覆盖写盘。
+  function saveSuggestedName(pane) {
+    if (pane && pane.target && typeof pane.target.path === "string" && pane.target.path) {
+      const b = pane.target.path.split(/[\\/]/).pop();
+      if (b) return b;
     }
+    return pane && pane.key === "b" ? "merged.md" : "untitled.md";
+  }
+  async function saveActivePane() {
+    
+    if (!instance) return { aborted: false, saved: 0 };
+    const key = getActivePane(); // 'a' | 'b' | 'c'
+    const panes = buildPanes();
+    const pane = panes.find((p) => p.key === key);
+    if (!pane) return { aborted: false, saved: 0 };
+    try {
+      
+      if (pane.target == null) {
+        const target = await showSaveAsDialog({ suggestedName: saveSuggestedName(pane) });
+        if (!target) return { aborted: true, saved: 0 };
+        await ioBridge.saveAs(target, pane.content); // 写入新文件，不覆盖源
+      } else {
+        await ioBridge.write(pane.target, pane.content); // 覆盖源文件
+        
+      }
+      // R5 修复：compare.js 是 ES 模块，editor.js 的 showToast 并未暴露到 window。
+      // 使用 compare.js 自有的通用 toast 函数给出成功反馈。
+      showCompareToast("文件已保存", "success");
+      refreshLoadedSnapshots(); // 复位 D8 脏检查
+      return { aborted: false, saved: 1 };
+    } catch (e) {
+      if (!(e && e.name === "AbortError")) {
+        console.error("[compare] 保存活动栏失败:", e);
+        showCompareToast("保存失败：" + (e && e.message ? e.message : String(e)), "error");
+      }
+      return { aborted: false, saved: 0, error: e };
+    }
+  }
+  async function onSave() {
+    await saveActivePane();
   }
 
   // ── 折叠 / 展开未改（增量 E） ──
@@ -1450,7 +1705,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           ? { a: "文件一", b: "文件二", c: "文件三" }
           : { a: "文件一", b: "文件二" };
     for (const p of ["a", "b", "c"]) {
-      const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
+      const el = HOST.querySelector(`.pane-header[data-pane="${p}"]`);
       if (!el) continue;
       const isVisible = visiblePanes.includes(p);
       el.hidden = !isVisible;
@@ -1469,7 +1724,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 关闭态视觉同步（修复 R6）：CSS 已定义 .pane-header.is-off，此前无人添加该类 ──
   function syncPaneOffClass(p) {
-    const el = document.querySelector(`.pane-header[data-pane="${p}"]`);
+    const el = HOST.querySelector(`.pane-header[data-pane="${p}"]`);
     if (el) el.classList.toggle("is-off", !!paneOffState[p]);
   }
 
@@ -1571,61 +1826,106 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   }
 
-  // ── 绑定工具栏按钮 ──
-  // 模式切换（§3）：对照 / 合并；列数切换（仅对照模式）；滚动同步开关
-  if (btnModeCompare)
-    btnModeCompare.addEventListener("click", () => switchMode("compare"));
-  if (btnModeMerge) btnModeMerge.addEventListener("click", () => switchMode("merge"));
-  if (btnColToggle)
-    btnColToggle.addEventListener("click", () => {
-      if (mode !== "compare") return; // 合并模式不出现该按钮
-      colCount = colCount === 2 ? 3 : 2;
-      updateColToggleLabel();
-      render();
-    });
-  if (btnScroll)
-    btnScroll.addEventListener("click", () => {
-      // 需求⑤：控制器无有效同步链接（两栏共用滚动盒）时按钮已置灰，点击直接忽略，
-      // 不再产生「翻转了高亮但底层无效」的假开关。
-      if (
-        !scrollSync ||
-        (typeof scrollSync.isEffective === "function" && !scrollSync.isEffective())
-      ) {
-        return;
-      }
-      // M5（补充）：compare.js 持有本地开关态 scrollSyncEnabled，按钮翻转它并推给唯一控制器
-      // instance.scrollSync（含三栏 B↔C / A↔C）；不再直接 toggle 控制器内部态，否则按钮高亮
-      // （updateScrollButton 只读 compare.js 的 scrollSyncEnabled）会与真实开关脱钩。
-      scrollSyncEnabled = !scrollSyncEnabled;
-      if (scrollSync) {
-        if (scrollSyncEnabled) scrollSync.enable();
-        else scrollSync.disable();
-      }
-      updateScrollButton();
-    });
-  if (btnPrevChunk) btnPrevChunk.addEventListener("click", navPrev);
-  if (btnNextChunk) btnNextChunk.addEventListener("click", navNext);
+
+  // ── 工具栏按钮：事件委托（#9 / #3 根因修复）──
+  // 原实现为每个按钮各自 addEventListener("click", handler)。实测在部分运行环境
+  // （桌面 EXE 对比页实机复验）下 btnSave / btnScroll 的逐按钮监听器未触发（点击命中
+  // 按钮但 handler 0 次执行），导致「保存 / 滚动同步」无响应。
+  // 改为在稳定的祖先 #compareToolbar 上挂单一「捕获」监听，按
+  // e.target.closest("[id]") 路由到各 handler：
+  //   1) 监听器挂载在稳定祖先上，免疫按钮子树的重父化 / 重绑 / 子节点 stopPropagation；
+  //   2) 捕获阶段早于按钮自身与子节点处理，确保委托必达；
+  //   3) 全部工具栏按钮统一由一处接管，杜绝逐个绑定遗漏。
+  // 注：<select id="selHighlightWords"> 使用 change 事件，不在此 click 委托内，保留下方
+  // 独立 change 监听；#outlineClose / #locationPane / #btnBackToEditor / paneHeader 等均
+  // 不在 #compareToolbar 内，保留各自原绑定。
+  const toolbarEl = HOST.getElementById("compareToolbar");
+  if (toolbarEl) {
+    toolbarEl.addEventListener(
+      "click",
+      (e) => {
+        const el = e.target.closest("[id]");
+        if (!el) return;
+        const id = el.id;
+        switch (id) {
+          case "btnModeCompare":
+            switchMode("compare");
+            break;
+          case "btnModeMerge":
+            switchMode("merge");
+            break;
+          case "btnColToggle":
+            if (mode !== "compare") return; // 合并模式不出现该按钮
+            colCount = colCount === 2 ? 3 : 2;
+            updateColToggleLabel();
+            render();
+            break;
+          case "btnScroll": {
+            // 仅当控制器尚未就绪（scrollSync 为 null）时忽略点击；
+            // 不再以 isEffective() 拦截——否则三栏时序下 isEffective() 返回 false 会让
+            // 点击被早退，按钮永远无法切换（本次修复的根因）。
+            if (!scrollSync) return;
+            scrollSyncEnabled = !scrollSyncEnabled;
+            if (scrollSyncEnabled) scrollSync.enable();
+            else scrollSync.disable();
+            updateScrollButton();
+            break;
+          }
+          case "btnPrevChunk":
+            navPrev();
+            break;
+          case "btnNextChunk":
+            navNext();
+            break;
+          case "btnPickFiles":
+            onPickFiles();
+            break;
+          case "btnExportResult":
+            onExportResult();
+            break;
+          case "btnExportDiff":
+            onExportDiff();
+            break;
+          case "btnToggleCollapse":
+            onToggleCollapse();
+            break;
+          case "btnAcceptTheirs":
+            onAcceptTheirs();
+            break;
+          case "btnToggleLocationPane":
+            toggleLocationPane();
+            break;
+          case "btnToggleOutline":
+            toggleOutlinePanel();
+            break;
+          case "btnSave":
+            // 委托接管：onSave 首行即 emit ui.save.enter，可直接证明其执行
+            onSave();
+            break;
+          case "btnUndo":
+            onUndo();
+            break;
+          case "btnRedo":
+            onRedo();
+            break;
+          case "btnApplyNonConflicting":
+            applyNonConflictingChunks();
+            break;
+          // #selHighlightWords 为 <select>，change 事件，下方独立监听；
+          // #outlineClose / #locationPane / #btnBackToEditor / paneHeader 不在本工具栏内。
+        }
+      },
+      true // 捕获阶段：确保委托早于任何子节点处理，必达
+    );
+  }
 
   // ── 块导航快捷键：复用按钮点击的同一组 navNext / navPrev（B / ] 下一块，Shift+B / [ 上一块） ──
   bindChunkNavigationKeys({ next: navNext, prev: navPrev });
-  if (btnPickFiles) btnPickFiles.addEventListener("click", onPickFiles);
-  if (btnExportResult) btnExportResult.addEventListener("click", onExportResult);
-  if (btnExportDiff) btnExportDiff.addEventListener("click", onExportDiff);
-  if (btnToggleCollapse) btnToggleCollapse.addEventListener("click", onToggleCollapse);
-  if (btnAcceptTheirs) btnAcceptTheirs.addEventListener("click", onAcceptTheirs);
-  if (btnToggleLocationPane)
-    btnToggleLocationPane.addEventListener("click", toggleLocationPane);
-  // 需求7：大纲面板按钮（切换独立 #outlinePanel 可见性）
-  if (btnToggleOutline) btnToggleOutline.addEventListener("click", toggleOutlinePanel);
+
+  // 大纲面板关闭（#outlineClose 不在 #compareToolbar 内，保留原绑定）
   if (outlineCloseBtn) outlineCloseBtn.addEventListener("click", () => setOutlineVisible(false));
-  // 需求8：差异导航线（#locationPane 细线本体作为点击热区）→ 跳到下一处差异
-  // （复用现有块导航 navNext；navNext 内部对无实例场景做了防御，不会抛错）。
+  // 差异导航线点击跳到下一处差异（#locationPane 不在 #compareToolbar 内，保留原绑定）
   if (locationPaneEl) locationPaneEl.addEventListener("click", () => navNext());
-  if (btnSave) btnSave.addEventListener("click", onSave);
-  // 撤销 / 重做（任务1）：作用于当前活动栏（由 getActivePane 决定）；
-  // 快捷键 Ctrl+Z / Ctrl+Y(Ctrl+Shift+Z) 已由 editor-extensions 的 historyKeymap 提供，此处仅补按钮。
-  if (btnUndo) btnUndo.addEventListener("click", onUndo);
-  if (btnRedo) btnRedo.addEventListener("click", onRedo);
 
   // 需求7：应用大纲面板初始可见性（默认开启 → 加 .open 类并点亮按钮；无实例 时内部跳过渲染）。
   setOutlineVisible(outlineVisible);
@@ -1633,10 +1933,12 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 需求 B3：初始化对比页大纲拖拽分隔条（移到最右后补 resizer）
   initCompareOutlineDock();
 
+
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。
-  if (btnApplyNonConflicting)
-    btnApplyNonConflicting.addEventListener("click", applyNonConflictingChunks);
+  // 注：btnApplyNonConflicting 的点击已由上方 #compareToolbar 事件委托统一路由
+  // （switch 内 case "btnApplyNonConflicting" → applyNonConflictingChunks），
+  // 此处不再单独绑定，避免重复触发。
   // B↔C 逐块采纳已迁移至 compare-merge.js（acceptBcChunkAt + mountBcRevertColumn），
   // 本文件不再持有 bulk 采纳逻辑（需求⑩ 已删除顶部「批量采纳方向」按钮，
   // 全量采纳入口仅剩「应用非冲突变更」applyNonConflictingChunks）。
@@ -1647,23 +1949,38 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // ── 返回主界面（D8）：有未保存改动 → 先走保存轮询；取消则留页内；否则关闭/返回 ──
   // compare 页由 editor 经 window.open 打开，可脚本关闭；若部分环境禁止
   // window.close（页面未真正关闭），则降级跳转到 editor.html，避免用户被困。
-  const btnBackToEditor = document.getElementById('btnBackToEditor');
+  const btnBackToEditor = HOST.getElementById('btnBackToEditor');
   if (btnBackToEditor) {
     btnBackToEditor.addEventListener("click", async () => {
       // 任一栏相对初始内容 dirty → 必须先走保存轮询（§5.1 / D8）
       if (instance && isAnyPaneDirty()) {
-        const panes = buildPanes();
-        const order = buildOrder();
         try {
-          const r = await runSavePoll(panes, order);
-          if (r && r.aborted) return; // 用户「取消」→ 中止返回、留页内（不关窗）
-          if (r && !r.aborted) refreshLoadedSnapshots();
+          const r = await saveActivePane();
+          if (r.aborted) return; // 用户「取消」→ 中止返回、留页内（不关窗）
         } catch (e) {
           if (!(e && e.name === "AbortError")) console.error("[compare] 返回前保存失败:", e);
           return; // 出错也留在页内，避免丢失改动
         }
       }
-      // 全部处理完（或本就无改动）→ 关闭 / 返回主界面
+      // 全部处理完（或本就无改动）→ 返回主界面
+      // 修复（与 PR#21 同语义）：integrated 为模块加载时一次性求值的常量，
+      // 集成模式（EXE 内嵌 #compareHost）下被错锁为 false，导致走整页导航而空白。
+      // 改为运行时动态读取 window.__compareIntegrated，根除 stale const 根因。
+      if (window.__compareIntegrated) {
+        // 方案A：集成模式下对比 UI 内嵌于 editor.html，绝不导航（导航会销毁编辑器状态）。
+        // 隐藏 #compareHost 并复位 __inCompare，同时通过自定义事件通知 editor.js 还原主页 UI。
+        try {
+          if (window.__compareHost && typeof window.__compareHost.setAttribute === "function") {
+            window.__compareHost.setAttribute("hidden", "");
+          }
+        } catch (_) {}
+        window.__inCompare = false;
+        try {
+          window.dispatchEvent(new CustomEvent("compare:exit"));
+        } catch (_) {}
+        
+        return;
+      }
       try { window.close(); } catch (_) {}
       window.location.href = 'editor.html';
     });
@@ -1672,7 +1989,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // ── per-pane 标题栏：勾选框（关闭/恢复栏）与关闭按钮 ──
   for (const p of ["a", "b", "c"]) {
     const toggle = paneToggles[p];
-    const closeBtn = document.querySelector(
+    const closeBtn = HOST.querySelector(
       `.pane-header-close[data-pane="${p}"]`
     );
     if (toggle) {
@@ -1873,21 +2190,41 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     // 通过 isTauriEnv() 守卫注册 Tauri 拖放监听，按路径走 compare-shims.readFile
     // （Rust read_multiple_text_files 命令）读取 → 与 HTML5 drop 同一路由分发到 a/b/c 栏。
     if (typeof isTauriEnv === "function" && isTauriEnv()) {
-      const onTauriDragOver = (e) => {
-        const p = e && e.payload;
-        if (p && (p.type === "over" || p.type === "enter")) {
-          e.preventDefault();
-        }
-      };
-      const onTauriDrop = async (e) => {
+      // U2 修复（方案A+）：集成模式与独立模式均在 EXE 下【自注册】onDragDropEvent，
+      // 对称 editor.js 编辑页的自包含逻辑，彻底去除对 editor.js 转发
+      // window.__compareHandleTauriDrop 的脆弱跨模块依赖（0f46fa6 引入的转发架构
+      // 在 EXE 中静默失效，表现为对比页拖放无反应）。
+      // 仅在 __inCompare（集成对比页可见）时处理，避免编辑模式拖放被本监听抢走而
+      // 污染对比栏 / 触发隐藏 render（修一漏一防御）。
+      // R3 修复 ④ 修正：Tauri 2.x 在 WebView2 下 window 的 tauri://drag-drop /
+      // tauri://file-drop 自定义事件不可靠（editor.js 同结论）。桌面端必须用
+      // getCurrentWebview().onDragDropEvent 接收 OS 文件拖放，payload.type==='drop'
+      // 时携带真实路径数组 payload.paths。
+      (async () => {
         try {
-          const p = e && e.payload;
-          if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
-          e.preventDefault();
-          // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻一份）
+          const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+          await getCurrentWebview().onDragDropEvent((event) => {
+            const p = event && event.payload;
+            if (!p || p.type !== "drop" || !Array.isArray(p.paths) || !p.paths.length) return;
+            // 仅对比页可见时处理；编辑模式交由 editor.js 的自身监听打开文件
+            if (!window.__inCompare) return;
+            handleTauriDrop(p.paths);
+          });
+        } catch (err) {
+          console.error("[compare] Tauri 拖放监听注册失败:", err);
+          
+        }
+      })();
+      // 抽成独立函数，避免 onDragDropEvent 闭包内过深嵌套；逻辑与 HTML5 drop 同一路由。
+      // 仍挂到 window.__compareHandleTauriDrop 向后兼容（editor.js 旧转发分支已移除，
+      // 此处保留不影响任何路径）。
+      window.__compareHandleTauriDrop = handleTauriDrop;
+      async function handleTauriDrop(paths) {
+        try {
+          // 读 + 走与 HTML5 drop 同一路由（onPageDrop 内的 files 路由逻辑复刻）
           const { readFile } = await import("./compare-shims.js");
           const dropped = [];
-          for (const path of p.paths) {
+          for (const path of paths) {
             try {
               const name = String(path).split(/[\\/]/).pop() || String(path);
               const content = await readFile(path);
@@ -1913,57 +2250,10 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         } catch (err) {
           console.error("[compare] Tauri 拖放处理失败:", err);
         }
-      };
-      window.addEventListener("tauri://drag-enter", onTauriDragOver);
-      window.addEventListener("tauri://drag-over", onTauriDragOver);
-      window.addEventListener("tauri://drag-drop", onTauriDrop);
-      // Tauri 2.x 替代命名（getCurrentWindow 派发的事件名）
-      window.addEventListener("tauri://file-drop", onTauriDrop);
-      window.addEventListener("tauri://file-drop-hover", onTauriDragOver);
+      }
     }
   }
 
-  // ── 调试钩子（仅当 cmp-debug=1 时暴露，生产默认不暴露，便于自动化探针读取真实状态） ──
-  if (localStorage.getItem("cmp-debug") === "1") {
-    window.__cmp = {
-      get instance() {
-        return instance;
-      },
-      get files() {
-        return files;
-      },
-      get mode() {
-        return mode;
-      },
-      get colCount() {
-        return colCount;
-      },
-      get activePane() {
-        return getActivePane();
-      },
-      // BUG 5/6 端到端测试钩子（仅 cmp-debug=1 暴露）：暴露路由纯函数供 CDP 验证。
-      // onPickFiles / onPageDrop 在浏览器内是闭包私有，无法直接 mock 文件框；
-      // 但它们的「路由决策」全部收敛到 resolvePickTarget / resolveDropTargets，
-      // 故验证纯函数+files 状态变更 即可锁定 BUG 5/6 是否修复。
-      resolvePickTarget,
-      resolveDropTargets,
-      currentPanes,
-      render,
-      switchMode,
-      // 自动化探针专用：绕过「编辑回写」逻辑直接注入文件并切栏，避免被旧 instance 空文档覆盖。
-      applyFiles: (obj) => {
-        if (obj && typeof obj === "object") Object.assign(files, obj);
-        skipSaveOnNextRender = true; // 注入文件视为「重新载入」，跳过本次回写
-        render();
-      },
-      setColCount: (n) => {
-        if (n === 2 || n === 3) {
-          colCount = n;
-          render();
-        }
-      },
-    };
-  }
 
   // 差异概览侧栏宽度拖拽（必须在首次 render 前恢复宽度，避免首帧按默认宽度量错布局）
   initLocationPaneResizer();
@@ -1973,4 +2263,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 空态初始化：首次 render 可能未创建 instance（无文件），updateScrollButton 未被调用，
   // 这里补一次让 btnScroll 置灰并显示"加载文件后可用"提示，避免空态下按钮看着可点但实际无效
   updateScrollButton();
+
+  // 标记对比模块已挂载（供 editor.js 集成入口判断是否已完成加载，避免重复挂载）
+  window.__compareMounted = true;
 })();

@@ -36,8 +36,8 @@
 //   opts.enableMoveDetect  是否启用块移动检测蓝色标识（默认 true，仅 === false 时关闭）
 
 import { MergeView, getChunks, Chunk } from "@codemirror/merge";
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorState, StateField, StateEffect, RangeSetBuilder } from "@codemirror/state";
+import { EditorView, Decoration } from "@codemirror/view";
 
 import {
   inlineWordDiffExtension,
@@ -182,6 +182,67 @@ function resolveCollapse(collapsed, collapseConf, viewA) {
   return collapsed ? collapseConf : undefined;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// #2 修复（C栏整行差异高亮）：B↔C 层行级高亮基础设施
+//
+// 根因：A-B 两栏的整行红绿底来自 @codemirror/merge 的 MergeView 自带 highlightChanges
+// （compare-merge.js:1069/1598 的 highlightChanges:true）。但 C 栏(theirsView) 是独立
+// EditorView（非 MergeView 一部分），没有库内整行高亮，只有 decoExtC 的行内字词高亮 +
+// 移动块装饰（三份不同文件时移动块为 0）→ 用户感知「C栏无红绿色差异」。
+//
+// compare.css:1424/1427 已预留 .cm-md-bc-line-added / .cm-md-bc-line-removed 行级类（死代码，
+// JS 从未 dispatch）。本段补齐 JS 侧：把 B↔C 的 chunks 整行块以 Decoration.line 写入
+// theirsView，复用已存在的 CSS 配色，使 A/B/C 三栏视觉一致。
+//
+// 最小作用域：仅影响 bc 层（writeB && bSide==='b'）的 viewB（=theirsView）；不动 MergeView
+// 本身、不碰连线、不扩移动块语义（严守六红线）。
+// ─────────────────────────────────────────────────────────────────────────────
+const setBcLineEffect = StateEffect.define();
+
+const bcLineField = StateField.define({
+  create() {
+    return Decoration.none;
+  },
+  update(deco, tr) {
+    deco = deco.map(tr.changes);
+    for (const e of tr.effects) {
+      if (e.is(setBcLineEffect)) return e.value;
+    }
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/**
+ * 把 B↔C 的 chunks 转成 theirsView 侧的整行高亮装饰集。
+ * chunks 的 fromB/toB 属 B 侧（theirsView）坐标；凡 theirsView 有差异的行统一标
+ * cm-md-bc-line-added（淡绿底，与 ab 层 .cm-changedLine 视觉等价）。
+ * @param {import('@codemirror/view').EditorView} viewB theirsView
+ * @param {readonly any[]} chunks B↔C 差异块
+ * @returns {import('@codemirror/view').DecorationSet}
+ */
+function buildBcLineDecorations(viewB, chunks) {
+  const builder = new RangeSetBuilder();
+  const doc = viewB.state.doc;
+  for (const c of chunks || []) {
+    // 整块标 theirsView 侧行（fromB..toB），跳过纯删除块（toB 无内容，无 theirsView 行可标）
+    if (!(c.toB > c.fromB)) continue;
+    const startLine = doc.lineAt(c.fromB).number;
+    const endLine = doc.lineAt(c.toB - 1).number;
+    for (let n = startLine; n <= endLine; n++) {
+      if (n < 1 || n > doc.lines) continue;
+      const line = doc.line(n);
+      builder.add(line.from, line.from, Decoration.line({ class: "cm-md-bc-line-added" }));
+    }
+  }
+  return builder.finish();
+}
+
+function dispatchBcLineDecorations(viewB, chunks) {
+  if (!viewB || !viewB.dom) return;
+  viewB.dispatch({ effects: setBcLineEffect.of(buildBcLineDecorations(viewB, chunks)) });
+}
+
 /**
  * 依据当前 diff chunks 重算并推送「行内字词级差异」与「块移动」装饰。
  *
@@ -203,9 +264,14 @@ function resolveCollapse(collapsed, collapseConf, viewA) {
  *        'off' 时依旧走 dispatch，但推空数组 —— 必须推，否则上一次的高亮会僵在屏幕上。
  * @param {{aSide?:'a'|'b'|null,bSide?:'a'|'b'|null,writeA?:boolean,writeB?:boolean,computeChunks?:boolean}} [sides]
  * @param {ReturnType<typeof createDocCache>} cache 实例级脏检查缓存（O1，由调度器持有）
- * @returns {{pairs:import('./compare/move-detection.js').MovePair[], chunks:readonly any[], truncated:boolean}}
+ * @param {Map<string,import('./compare/inline-word-diff.js').WordDiffData[]>|null} [accumA]
+ *        行内字词差异累积表（视图 A 侧）：本层算出的 WordDiffData[] 按 layer 写入，由 runAll 合并后统一 dispatch。
+ * @param {Map<string,import('./compare/inline-word-diff.js').WordDiffData[]>|null} [accumB]
+ *        行内字词差异累积表（视图 B 侧）。
+ * @param {string} [layerId] 本层标识（'ab'/'bc'/'ac'），用于累积表的 key。
+ * @returns {{pairs:import('./compare/move-detection.js').MovePair[], chunks:readonly any[], truncated:boolean, diffPairs:any[]}}
  */
-function refreshDecorations(viewA, viewB, flags, sides, cache) {
+function refreshDecorations(viewA, viewB, flags, sides, cache, accumA, accumB, layerId) {
   const wordDiff = flags.wordDiff;
   const moveDetect = flags.moveDetect;
   const wordMode =
@@ -278,8 +344,11 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
         aData.push(...buildWordDiffData(aLines, bLines, "before", aStart, wordMode));
         bData.push(...buildWordDiffData(aLines, bLines, "after", bStart, wordMode));
       }
-      if (writeA) viewA.dispatch({ effects: setWordDiffEffect.of(aData) });
-      if (writeB) viewB.dispatch({ effects: setWordDiffEffect.of(bData) });
+      // 不再各自直接 dispatch：setWordDiffEffect 是全量替换，同视图被多层写入会互相覆盖。
+      // 改为写入 accumA/accumB（按 layer 区分），由 runAll 合并后对每个视图一次性 dispatch。
+      // writeA/writeB 仍控制本层是否参与该侧的累积（false 则跳过，不污染对侧）。
+      if (writeA && accumA) accumA.set(layerId || "ab", aData);
+      if (writeB && accumB) accumB.set(layerId || "ab", bData);
     }
 
     if (moveDetect) {
@@ -296,6 +365,9 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
       // 右栏 Theirs 画 dst），避免同一视图被两层同时写入 moveBlockField 而互相覆盖。
       if (writeA && opt.aSide) setMoveBlocks(viewA, pairs, opt.aSide);
       if (writeB && opt.bSide) setMoveBlocks(viewB, pairs, opt.bSide);
+      // #2 修复：B↔C 层（writeB && bSide==='b'，目标视图=theirsView）补整行差异高亮。
+      // 仅此层需要——A-B 两栏由 MergeView 自带 highlightChanges 负责整行底，无需重复。
+      if (writeB && opt.bSide === "b") dispatchBcLineDecorations(viewB, chunks);
       return {
         pairs,
         chunks,
@@ -308,6 +380,59 @@ function refreshDecorations(viewA, viewB, flags, sides, cache) {
     console.error("[compare-merge] 刷新差异装饰失败:", err);
     return EMPTY;
   }
+}
+
+/**
+ * 合并多组 WordDiffData[]（来自不同差异层，如三栏的 ab / bc / ac）为单组，
+ * 供同一视图的 setWordDiffEffect 一次性全量写入。
+ *
+ * 必要性：setWordDiffEffect 是【全量替换】语义（inline-word-diff.js 的 wordDiffDataField），
+ * 三栏下同视图被多层写入（A:ab+ac / B:ab+bc / C:bc+ac）时若每层各自直接 dispatch，
+ * 后写层会整体覆盖先写层。故改由调度器按「视图→层」累积，最后对每视图合并成一份再 dispatch。
+ *
+ * 合并规则：逐行聚合区间，按 from 排序并合并重叠/相邻区间，行号升序。这样产出可被
+ * buildWordDiffDecorations 的 RangeSetBuilder 按升序安全消费（否则两组标记同一行、
+ * 区间交错的区间若乱序添加会直接抛错）。两栏每层独占视图，合并后等同于原值，行为不变。
+ *
+ * @param {import('./compare/inline-word-diff.js').WordDiffData[][]} lists
+ * @returns {import('./compare/inline-word-diff.js').WordDiffData[]}
+ */
+function mergeWordDiffDataList(lists) {
+  /** @type {Map<number, {from:number,to:number,type:'added'|'removed'}[]>} */
+  const byLine = new Map();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const d of list) {
+      if (!d || !Number.isFinite(d.lineNumber) || !Array.isArray(d.ranges) || !d.ranges.length) continue;
+      let arr = byLine.get(d.lineNumber);
+      if (!arr) {
+        arr = [];
+        byLine.set(d.lineNumber, arr);
+      }
+      for (const r of d.ranges) {
+        if (r && Number.isFinite(r.from) && Number.isFinite(r.to)) {
+          arr.push({ from: r.from, to: r.to, type: r.type });
+        }
+      }
+    }
+  }
+  const out = [];
+  for (const [lineNumber, ranges] of byLine) {
+    const sorted = ranges.slice().sort((a, b) => a.from - b.from || a.to - b.to);
+    const merged = [];
+    for (const r of sorted) {
+      const last = merged[merged.length - 1];
+      // 重叠或相邻：并入上一段（取较远的 to），type 以先到者为准。
+      if (last && r.from <= last.to) {
+        if (r.to > last.to) last.to = r.to;
+      } else {
+        merged.push({ from: r.from, to: r.to, type: r.type });
+      }
+    }
+    out.push({ lineNumber, ranges: merged });
+  }
+  out.sort((a, b) => a.lineNumber - b.lineNumber);
+  return out;
 }
 
 /**
@@ -340,12 +465,41 @@ function createDecorationScheduler(flags) {
   const listeners = new Set();
 
   function runAll() {
+    // 三栏下同一视图会被多层写入（A:ab+ac / B:ab+bc / C:bc+ac），而 setWordDiffEffect
+    // 是全量替换语义。故先把各层 WordDiffData 按「视图→层」累积，最后对每视图合并成一份、
+    // 一次性 dispatch（见 mergeWordDiffDataList）。两栏每层独占视图，合并即原值，行为不变。
+    /** @type {Map<EditorView, Map<string, import('./compare/inline-word-diff.js').WordDiffData[]>>} */
+    const wordAccum = new Map();
+    const accumFor = (view) => {
+      if (!view) return null;
+      let m = wordAccum.get(view);
+      if (!m) {
+        m = new Map();
+        wordAccum.set(view, m);
+      }
+      return m;
+    };
     for (const vp of viewPairs) {
-      const r = refreshDecorations(vp.a, vp.b, flags, vp.sides, docCache);
+      const r = refreshDecorations(
+        vp.a,
+        vp.b,
+        flags,
+        vp.sides,
+        docCache,
+        accumFor(vp.a),
+        accumFor(vp.b),
+        vp.layer || "ab"
+      );
       vp.pairs = r.pairs;
       vp.chunks = r.chunks;
       vp.truncated = r.truncated;
       vp.diffPairs = r.diffPairs;
+    }
+    // 合并各层贡献并统一推送（视图不存在或被销毁则跳过）。
+    for (const [view, layerMap] of wordAccum) {
+      if (!view || !view.dom) continue;
+      const merged = mergeWordDiffDataList([...layerMap.values()]);
+      view.dispatch({ effects: setWordDiffEffect.of(merged) });
     }
     for (const fn of listeners) {
       try {
@@ -915,6 +1069,8 @@ export function createCompareMergeView(opts) {
     decoExtB.push(scheduler.listener);
     decoExtC.push(scheduler.listener);
   }
+  // #2 修复：C 栏(theirsView) 整行差异高亮字段（B↔C 层由 refreshDecorations 写入）
+  decoExtC.push(bcLineField);
 
   // ── 第三期基础设施：移动块连线绘制器 + 三栏滚动同步 ──
   // 连线数据来自 scheduler 各层 pairs；由 move-connectors.js 负责 SVG 渲染
@@ -967,6 +1123,7 @@ export function createCompareMergeView(opts) {
         });
       }
     }
+    
     return out;
   }
   // 【已知取舍】无 AbortController 的环境下，本函数与 createScrollSync 注册的 scroll
@@ -986,7 +1143,10 @@ export function createCompareMergeView(opts) {
     box.addEventListener(
       "scroll",
       () => {
-        if (connectorPainter) connectorPainter.draw();
+        if (connectorPainter) {
+          
+          connectorPainter.draw();
+        }
       },
       acOpts
     );
@@ -1096,21 +1256,28 @@ export function createCompareMergeView(opts) {
       ];
       if (isCompareThree) {
         // 对照三栏：A-B / B-C / A-C 三组（a/b/c 均为真实独立文件，无合并结果栏）
+        // 采纳 WinMerge 三向策略：同视图被多层写入时合并而非覆盖（见 mergeWordDiffDataList
+        // 与 runAll 的 wordAccum）。各栏高亮集合：A = ab∪ac，B = ab∪bc，C = bc∪ac。
         attachPairs.push({
           a: mv.b,
           b: theirsView,
           layer: "bc",
-          sides: { aSide: null, bSide: "b", writeA: false, writeB: true, computeChunks: true },
+          // writeA:true → B 栏(mv.b)收到 B↔C 的 A 侧词差，与 ab 层合并成 ab∪bc。
+          // （中栏移动块装饰仍只归 ab 层：本层 aSide:null，不会向 B 写 moveBlock。）
+          sides: { aSide: null, bSide: "b", writeA: true, writeB: true, computeChunks: true },
         });
         attachPairs.push({
           a: mv.a,
           b: theirsView,
           layer: "ac",
-          // M7：ac 层不得再向 C 栏（theirsView）写 setWordDiffEffect。runAll() 按 [ab,bc,ac]
-          // 顺序执行，ac 在末尾后写会整体覆盖先写的 bc 层，导致 B↔C 行内字词高亮被静默顶替丢失。
-          // 取舍：C 栏只画与其相邻中间栏的 B↔C 差异（bc 层），A↔C 关系仍由连线层/块模型表达，
-          // 不再用内联高亮覆盖 C 栏。故 writeB 置 false（writeA 本就 false，ac 层不再写任何内联装饰）。
-          sides: { aSide: null, bSide: "b", writeA: false, writeB: false, computeChunks: true },
+          // 修复：ac 层此前 writeA/writeB 全 false，C 栏(theirsView)只收 bc 层、
+          // 完全不显示 A↔C 的内联红绿高亮（用户报障）。
+          // 现改为写入 A 与 C：A 栏(mv.a)收到 ab∪ac，C 栏收到 bc∪ac。
+          // aSide/bSide 置 null —— ac 不写移动块/整行 bc-line（避免与 bc 层整行高亮互相覆盖），
+          // 仅贡献行内字词差异；整行 A↔C 差异仍由连线层/块模型表达。
+          // 覆盖问题由 runAll 的 wordAccum 合并解决：两层 WordDiffData 按行聚合、
+          // 区间排序去重叠后一次性 dispatch，不再后写覆盖先写。
+          sides: { aSide: null, bSide: null, writeA: true, writeB: true, computeChunks: true },
         });
       } else {
         // 合并三栏：仅 A-B / B-C（结果作为中间栏）
@@ -1129,6 +1296,7 @@ export function createCompareMergeView(opts) {
       }
       scheduler.attach(attachPairs);
       scheduler.scheduleRefresh();
+      
     }
 
     // ── 双层连线 + 三栏滚动联动 ──
@@ -1510,6 +1678,37 @@ export function createCompareMergeView(opts) {
       },
       /** 共享滚动同步控制器（供「滚动」按钮 toggle，见 §9 / D16） */
       scrollSync,
+      /**
+       * 光标锚定局部采纳（#2）：返回活动栏(pane)光标 head 命中的差异块下标。
+       *  - pane 'a'：在 ab 层按 a 侧坐标 [srcFrom,srcTo] 命中
+       *  - pane 'c'：在 bc 层按 c 侧坐标 [srcFrom,srcTo] 命中
+       *  - pane 'b'：结果栏本身，无可采纳内容，返回 -1
+       * @param {string} pane 'a'|'b'|'c'
+       * @param {number} head 活动栏视图光标 head（字符坐标）
+       * @returns {number} 命中块下标；未命中返回 -1
+       */
+      chunkAtCursor(pane, head) {
+        const model = buildChunkModel();
+        if (pane === "a") return model.ab.findIndex((c) => head >= c.srcFrom && head <= c.srcTo);
+        if (pane === "c") return model.bc.findIndex((c) => head >= c.srcFrom && head <= c.srcTo);
+        return -1;
+      },
+      /**
+       * 光标锚定局部采纳（#2）：把活动栏光标所在段落 / 鼠标已框选字符串写入结果(b)。
+       *  - pane 'a' → a→b（采纳左）：仅写源视图光标/选区所在行（acceptChunkAtCursor 已处理「段落 vs 选区」）
+       *  - pane 'c' → c→b（采纳右）：同上，源为 c
+       *  - 选区优先于光标段落；选区可跨多句、不必等于整段（由 acceptChunkAtCursor 判定相交行）
+       * @param {string} pane 'a'|'b'|'c'
+       * @param {number} head 活动栏视图光标 head（字符坐标）
+       * @returns {boolean} 是否实际产生写入
+       */
+      acceptAtCursor(pane, head) {
+        const i = this.chunkAtCursor(pane, head);
+        if (i < 0) return false;
+        if (pane === "a") return acceptPartialThree(i, "left");
+        if (pane === "c") return acceptBcChunkAt(i, "right");
+        return false;
+      },
       destroy() {
         if (scrollSync) scrollSync.destroy();
         if (scheduler) scheduler.dispose(); // 必须先停 rAF / debounce，再销毁视图

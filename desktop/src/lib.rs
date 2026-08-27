@@ -13,8 +13,11 @@
 // 文件读写放在 Rust 侧（std::fs），彻底绕开 Tauri fs 插件对“未授权绝对路径”
 // 的 scope 限制——否则 fs:allow-read-text-file 权限给了也会被 scope 拒绝。
 
-use tauri::Manager;
 use std::sync::Mutex;
+use tauri_plugin_dialog::DialogExt;
+
+
+
 
 // 记录「启动时通过命令行传入的 .md 文件」
 struct AppState {
@@ -49,7 +52,7 @@ fn get_initial_file(state: tauri::State<AppState>) -> Option<String> {
     state.initial_file.lock().unwrap().clone()
 }
 
-// 返回原始命令行参数（诊断用）：用于排查「双击 .md 启动 EXE 时
+// 返回原始命令行参数（排查用）：用于排查「双击 .md 启动 EXE 时
 // Windows 到底传了什么」，便于定位文件关联未传参等问题。
 #[tauri::command]
 fn debug_args() -> Vec<String> {
@@ -177,8 +180,33 @@ fn save_compare_result(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入失败 {}: {}", path, e))
 }
 
+
+// 自定义「保存文件」对话框命令（#7 修复）：直接调用 dialog 插件的原生保存框，
+// 返回用户选定的绝对路径字符串；用户取消时返回 null。前端 io-bridge 通过此命令完成
+// 「另存为」选路径，绕开 plugin:dialog|save 在部分发布下的 IPC 调用怪异（该命令调用即被拒）。
+// 注意 tauri-plugin-dialog 2.7.2 的 save_file 为回调式 API（save_file(f: FnOnce(Option<FilePath>)），
+// 故用 std::sync::mpsc 桥接回调结果；命令以同步 fn 实现，阻塞在 worker 线程等待对话框关闭。
+#[tauri::command]
+fn save_file_dialog(app: tauri::AppHandle, default_path: Option<String>) -> Result<Option<String>, String> {
+    use std::sync::mpsc;
+    let (tx, rx) = mpsc::channel::<Option<String>>();
+    let mut builder = app.dialog().file();
+    if let Some(name) = default_path.filter(|s| !s.is_empty()) {
+        builder = builder.set_file_name(name.as_str());
+    }
+    builder.save_file(move |file_path: Option<tauri_plugin_dialog::FilePath>| {
+        let path = file_path.map(|p| match p {
+            tauri_plugin_dialog::FilePath::Path(buf) => buf.to_string_lossy().into_owned(),
+            tauri_plugin_dialog::FilePath::Url(url) => url.to_string(),
+        });
+        let _ = tx.send(path);
+    });
+    Ok(rx.recv().ok().flatten())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -199,6 +227,7 @@ pub fn run() {
             write_binary_file,
             read_multiple_text_files,
             save_compare_result,
+            save_file_dialog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

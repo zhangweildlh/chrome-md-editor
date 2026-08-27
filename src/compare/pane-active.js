@@ -77,7 +77,7 @@ export function setPaneActiveClass(view, active) {
 }
 
 /**
- * 读取某栏当前活动态（供测试与诊断）。
+ * 读取某栏当前活动态（供测试断言与状态查询）。
  * @param {import("@codemirror/view").EditorView|null|undefined} view
  * @returns {boolean|undefined} undefined=未挂载扩展
  */
