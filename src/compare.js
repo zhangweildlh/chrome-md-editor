@@ -340,15 +340,21 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       unsubscribeStatus = null;
     }
 
-  // R3 修复 ⑤：通用错误 toast（不阻塞交互、3s 自动消失），让 EXE 侧 dialog.open 抛错时
-  // 用户能看到失败原因（之前只 console.error 不可见，导致「点击无效」困惑）。
-  function showCompareErrorToast(message) {
+  // R3/R5 修复：通用 toast（不阻塞交互、3s 自动消失），让 EXE 侧操作反馈可见。
+  // type: 'error' | 'success' | 'warn'；默认 'error'。
+  function showCompareToast(message, type = "error") {
     if (typeof document === "undefined" || !document.body) return;
+    const palette = {
+      error: { bg: "#5a1d1d", fg: "#ffd7d7", border: "#8a2d2d" },
+      success: { bg: "#14522d", fg: "#d4edda", border: "#28a745" },
+      warn: { bg: "#5c4800", fg: "#fff3cd", border: "#b38f00" },
+    };
+    const c = palette[type] || palette.error;
     const toast = document.createElement("div");
     toast.style.cssText = [
       "position:fixed", "left:50%", "bottom:24px", "transform:translateX(-50%)",
-      "z-index:100001", "padding:10px 18px", "background:#5a1d1d", "color:#ffd7d7",
-      "border:1px solid #8a2d2d", "border-radius:8px",
+      "z-index:100001", "padding:10px 18px", `background:${c.bg}`, `color:${c.fg}`,
+      `border:1px solid ${c.border}`, "border-radius:8px",
       "font-family:system-ui,-apple-system,sans-serif", "font-size:13px",
       "box-shadow:0 8px 24px rgba(0,0,0,0.5)", "pointer-events:none",
       "max-width:80vw", "white-space:pre-wrap", "word-break:break-all",
@@ -1171,6 +1177,15 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
       }
+      // R5 修复：#2 光标锚定浮动采纳按钮需要一次主动初始化，才能在 selectionchange 时
+      // 被触发。否则 ensureInlineAcceptBtn/wireInlineAcceptGlobal 与 selectionchange 形成
+      // 死锁，按钮逻辑永远不会启动。
+      try {
+        ensureInlineAcceptBtn();
+        if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.bootInit", { ok: true });
+      } catch (e) {
+        if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.bootInit", { ok: false, error: String(e && e.message || e) });
+      }
     } catch (e) {
       console.error("[compare] 渲染视图失败:", e);
       target.innerHTML = "";
@@ -1624,17 +1639,15 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         await ioBridge.write(pane.target, pane.content); // 覆盖源文件
         if (typeof window.__probe === "function") window.__probe("ui.save.write.ok", { key, path: pane.target.path });
       }
-      // R4 修复：compare.js 是 ES 模块，模块内 typeof showToast 检测不到 editor.js
-      // 在全局 window 上定义的 showToast。改为显式取 window.showToast。
-      if (typeof window === "object" && typeof window.showToast === "function") {
-        window.showToast("文件已保存", "success");
-      }
+      // R5 修复：compare.js 是 ES 模块，editor.js 的 showToast 并未暴露到 window。
+      // 使用 compare.js 自有的通用 toast 函数给出成功反馈。
+      showCompareToast("文件已保存", "success");
       refreshLoadedSnapshots(); // 复位 D8 脏检查
       return { aborted: false, saved: 1 };
     } catch (e) {
       if (!(e && e.name === "AbortError")) {
         console.error("[compare] 保存活动栏失败:", e);
-        showCompareErrorToast("保存失败：" + (e && e.message ? e.message : String(e)));
+        showCompareToast("保存失败：" + (e && e.message ? e.message : String(e)), "error");
       }
       return { aborted: false, saved: 0, error: e };
     }
