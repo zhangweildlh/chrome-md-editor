@@ -62,7 +62,7 @@ export function parseUnifiedDiff(text) {
       }
       if (currentFile) files.push(currentFile);
       currentFile = { oldPath: '', newPath: '', oldText: null, newText: null, hunks: [], binary: false };
-      // 尝试解析路径：diff --git a/x b/y
+      // 尝试解析路径：diff --git a/x b/y（备用，主要从 --- / +++ 行获取）
       const m = line.match(/^diff --git a\/(.+) b\/(.+)/);
       if (m) {
         currentFile.oldPath = m[1];
@@ -75,7 +75,7 @@ export function parseUnifiedDiff(text) {
     // --- a/x 或 --- /dev/null
     if (line.startsWith('--- ')) {
       const path = line.slice(4).trim();
-      if (currentFile) currentFile.oldPath = path === '/dev/null' ? '' : path;
+      if (currentFile) currentFile.oldPath = path === '/dev/null' ? '' : path.replace(/^a\//, '');
       i++;
       continue;
     }
@@ -83,7 +83,7 @@ export function parseUnifiedDiff(text) {
     // +++ b/y 或 +++ /dev/null
     if (line.startsWith('+++ ')) {
       const path = line.slice(4).trim();
-      if (currentFile) currentFile.newPath = path === '/dev/null' ? '' : path;
+      if (currentFile) currentFile.newPath = path === '/dev/null' ? '' : path.replace(/^b\//, '');
       i++;
       continue;
     }
@@ -124,9 +124,13 @@ export function parseUnifiedDiff(text) {
     // hunk 头
     if (line.startsWith('@@')) {
       const m = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+      // 先保存前一个 hunk（如果有）
+      if (currentHunk) {
+        currentFile?.hunks.push(currentHunk);
+        currentHunk = null;
+      }
+      // 只有 hunk 数未达上限时才创建新 hunk
       if (m && currentFile && currentFile.hunks.length < MAX_HUNKS_PER_FILE) {
-        // 保存上一个 hunk
-        if (currentHunk) currentFile.hunks.push(currentHunk);
         currentHunk = {
           oldStart: parseInt(m[1], 10),
           oldLines: m[2] ? parseInt(m[2], 10) : 1,
@@ -188,8 +192,19 @@ export function parseUnifiedDiff(text) {
       for (const l of hunk.added) newLines.push(l);
     }
 
-    f.oldText = oldLines.length > 0 ? oldLines.join('\n') + '\n' : '';
-    f.newText = newLines.length > 0 ? newLines.join('\n') + '\n' : '';
+    // 如果是新文件（oldPath 为空），oldText 为 null
+    if (f.oldPath === '') {
+      f.oldText = null;
+    } else {
+      f.oldText = oldLines.length > 0 ? oldLines.join('\n') + '\n' : '';
+    }
+
+    // 如果是删除文件（newPath 为空），newText 为 null
+    if (f.newPath === '') {
+      f.newText = null;
+    } else {
+      f.newText = newLines.length > 0 ? newLines.join('\n') + '\n' : '';
+    }
   }
 
   return { files };
