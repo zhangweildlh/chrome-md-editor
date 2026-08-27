@@ -99,27 +99,27 @@ test('io-bridge: 目标为空时 read 抛错', () => {
   assert.throws(() => bridge.read(undefined), /目标描述符无效/);
 });
 
-test('io-bridge: 目标为空时 write 抛错', () => {
+test('io-bridge: 目标为空时 write 抛错', async () => {
   const bridge = createIoBridge({ isTauri: false });
-  assert.throws(() => bridge.write(null, 'x'), /目标描述符无效/);
+  await assert.rejects(() => bridge.write(null, 'x'), /目标描述符无效/);
 });
 
-test('io-bridge: Tauri 模式目标缺 path 时抛错', () => {
+test('io-bridge: Tauri 模式目标缺 path 时抛错', async () => {
   const invoke = () => Promise.resolve();
   const bridge = createIoBridge({ isTauri: true, invoke });
-  assert.throws(() => bridge.read({}), /必须含 path/);
-  assert.throws(() => bridge.write({}, 'x'), /必须含 path/);
+  await assert.rejects(async () => bridge.read({}), /必须含 path/);
+  await assert.rejects(() => bridge.write({}, 'x'), /必须含 path/);
 });
 
-test('io-bridge: 浏览器模式目标缺 handle 时抛错', () => {
+test('io-bridge: 浏览器模式目标缺 handle 时抛错', async () => {
   const bridge = createIoBridge({ isTauri: false });
-  assert.throws(() => bridge.read({ path: '/x' }), /必须含 handle/);
-  assert.throws(() => bridge.write({ path: '/x' }, 'x'), /必须含 handle/);
+  await assert.rejects(async () => bridge.read({ path: '/x' }), /必须含 handle/);
+  await assert.rejects(() => bridge.write({ path: '/x' }, 'x'), /必须含 handle/);
 });
 
-test('io-bridge: content 非字符串时 write 抛错', () => {
+test('io-bridge: content 非字符串时 write 抛错', async () => {
   const bridge = createIoBridge({ isTauri: false });
-  assert.throws(() => bridge.write({ handle: {} }, 123), /content 必须为字符串/);
+  await assert.rejects(() => bridge.write({ handle: {} }, 123), /content 必须为字符串/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────

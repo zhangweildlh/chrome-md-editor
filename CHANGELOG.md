@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 Format based on Keep a Changelog.
 Project uses Semantic Versioning.
 
+## [1.9.15] - 2026-08-27（移除调试探针 / 测试接口 / 调试桥 + 死代码清理）
+
+> 本次清理移除开发期可观测与诊断设施，代码恢复为「无调试接口」的纯净生产态。历史条目（1.9.10–1.9.14）中有关调试桥 / 探针的记录为当时版本的真实状态，仅供追溯，不代表当前代码。
+
+### 移除
+- **前端运行态探针（window.__probe）全量移除**：删除 `src/debug-probe.js` 整文件，并移除 compare.js / editor.js / compare-merge.js / compare/io-bridge.js / compare/move-connectors.js / save-poll.js / focus-mode.js 共 7 个模块中全部 `window.__probe` 守卫调用及 2 处 `import './debug-probe.js'`。探针以 `if (typeof window.__probe === "function") { ... }` 守卫包裹，删除后为无副作用的 no-op 移除。
+- **对比页测试接口（window.__cmp）移除**：删除 compare.js 中仅在 `localStorage.cmp-debug=1` 时暴露的 `window.__cmp`（applyFiles / setColCount / resolvePickTarget / resolveDropTargets / currentPanes / render / switchMode），该接口为 CDP 自动化入口，非产品功能。
+- **EXE 侧调试桥（Rust）全量移除**：删除 `desktop/src/lib.rs` 的 `debug_bridge` 模块（含 `127.0.0.1:9555` TCP 接口、环形缓冲、`%temp%/cme-exe-probe-<pid>.jsonl` 落盘、运行时 `CME_DEBUG=1` + 编译期 `feature="debug-bridge"` 双重门控）、`debug_bridge_status` / `write_probe_log` 命令及其 `invoke_handler!` 注册项；同步删除 `desktop/Cargo.toml` 的 `[features]` 段（debug-bridge 为唯一 feature）与 `.github/workflows/desktop-build.yml` 的 `--features debug-bridge` 构建参数。
+- **死代码清理（均经二次确认）**：删除 compare.js 的 `probeToolbarReachability()` 函数及其 2 处调用（grep 确认仅 def + 2 caller 无其它读者）；删除 editor.js 中无读者的 `window.__editor` / `window.__setEditorContent` 全局赋值；保留真实功能全局 `window.__inCompare` 与真实命令 `debug_args`（CLI 参数回退）。
+- **注释与文案对齐**：清除约 17 处残留的「探针 / 诊断 / 调试桥」字样注释（含被删调用遗留的仅空白行），并改写 README 功能表——移除「调试桥（开发者）」行，使文档与「无调试接口」的代码态一致。
+- **版本戳同步**：随本次发布升版 `1.9.14 → 1.9.15`，八处版本戳全量对齐（`package.json` / `public/manifest.json` / `desktop/tauri.conf.json` / `src/editor.js` 兜底 / `src/editor.html` 徽标×2 / `src/compare.js` 兜底 / `src/compare.html` 徽标 + 本 CHANGELOG 条目），经 grep 全仓 `1.9.14` 逐点核对无残留漂移。
+
 ## [1.9.14] - 2026-08-27（R11 缩放手势预览联动 + 滚轮探针全覆盖）
 
 ### 修复

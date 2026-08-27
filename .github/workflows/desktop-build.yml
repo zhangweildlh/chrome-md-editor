@@ -46,7 +46,7 @@ jobs:
         working-directory: desktop
         run: |
           npm install
-          npm run tauri build -- --features debug-bridge
+          npm run tauri build
 
       - name: Locate & prepare portable EXE
         id: prep

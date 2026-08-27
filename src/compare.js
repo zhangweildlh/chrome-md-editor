@@ -18,10 +18,6 @@
 // 禁用类名闸门：
 //   严禁使用方案列明的禁用类名。本文件按钮统一用 compare-toolbar-btn。
 
-// 运行态探针（调试桥）：默认关闭，需 ?debug=1 或 localStorage['cme-debug']=1 或
-// window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
-// 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销。
-import './debug-probe.js';
 // 方案A：对比样式经 JS import 引入，确保无论独立 compare.html 还是内嵌 editor.html
 // （对比 UI 集成进编辑器初始上下文）都能随 compare.js 加载而生效，不依赖 HTML <link>
 // 在编辑器页被 Vite 构建图裁剪。浏览器侧 compare.html 的 <link> 仍保留作为兜底。
@@ -104,20 +100,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   const integrated = !!(typeof window !== "undefined" && window.__compareIntegrated);
   // 标记当前处于对比/合并页，供 editor.js 持久 drop 监听转发判断。
   window.__inCompare = true;
-  // 诊断探针（#3/#6/#7/#8/#9 根因坐实）：记录集成模式关键事实，确认按钮绑定是否因
-  // HOST 作用域（#compareHost 空容器）导致 getElementById 失效。下一轮 EXE 真机读取。
-  if (typeof window.__probe === "function") {
-    window.__probe("ui.init.host", {
-      integrated,
-      hostIsCompareHost: !!(window.__compareHost && HOST === window.__compareHost),
-      hostIsDocument: HOST === document,
-      btnSave: !!HOST.getElementById("btnSave"),
-      btnExportDiff: !!HOST.getElementById("btnExportDiff"),
-      btnToggleCollapse: !!HOST.getElementById("btnToggleCollapse"),
-      btnToggleOutline: !!HOST.getElementById("btnToggleOutline"),
-      btnScroll: !!HOST.getElementById("btnScroll"),
-    });
-  }
+
   // 挂载点直接取自 compare DOM 中定义的 DOM 节点（集成模式下来自 #compareHost，
   // 独立模式下来自 compare.html 自身）。用 HOST.getElementById 作用域隔离。
   const root = HOST.getElementById("compareRoot");
@@ -338,8 +321,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   };
 
   // 注入扩展版本戳：版本唯一事实源 = package.json，Vite 构建时经 __APP_VERSION__ 注入，
-  // 运行时兜底 1.9.14（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
-  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.14";
+  // 运行时兜底 1.9.15（与 editor.js 保持一致，避免 compare 页版本戳写死漂移）。
+  const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.15";
   const verEl = $("compareVersion");
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
@@ -375,7 +358,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // R3/R5 修复：通用 toast（不阻塞交互、自动消失），让 EXE 侧操作反馈可见。
   // R6 修复 #9：去掉 transform 居中（EXE WebView2 下不稳健），改 left:0;right:0;margin:auto 居中；
   //   改顶部居中(top:24px)避免被底部 .compare-footer 遮挡（根因：底部 toast 被 footer 盖住 → 用户"没看到"）；
-  //   提 z-index 至最高层、字号 14px、停留 3500ms、加 ui.toast.show 探针以便核验。
+  //   提 z-index 至最高层、字号 14px、停留 3500ms，便于在 EXE 下核验反馈可见性。
   // type: 'error' | 'success' | 'warn'；默认 'error'。
   function showCompareToast(message, type = "error") {
     if (typeof document === "undefined" || !document.body) return;
@@ -396,7 +379,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     ].join(";");
     toast.textContent = message;
     document.body.appendChild(toast);
-    if (typeof window.__probe === "function") window.__probe("ui.toast.show", { type, message, mounted: true });
+    
     setTimeout(() => {
       if (toast.parentNode) toast.parentNode.removeChild(toast);
     }, 3500);
@@ -543,7 +526,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
     for (const it of items) {
       if (!it) continue;
-      if (typeof window.__probe === "function") window.__probe("ui.outline.item", { level: it.level, text: (typeof it.text === "string" && it.text) ? it.text.slice(0, 30) : "(空标题)" });
+      
       const level = Math.max(1, Math.min(num(it.level, 1), 6));
       const el = document.createElement("div");
       el.className = `outline-item outline-level-${level}`;
@@ -583,84 +566,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (outlinePanelEl) {
       // 复用主界面 .side-panel 的可见性约定：.open 类控制 display:flex。
       outlinePanelEl.classList.toggle("open", outlineVisible);
-      if (typeof window.__probe === "function") {
-        const cs = getComputedStyle(outlinePanelEl);
-        const rect = outlinePanelEl.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const atPoint = (typeof document !== "undefined" && document.elementFromPoint) ? document.elementFromPoint(cx, cy) : null;
-        const occluded = !!(atPoint && atPoint !== outlinePanelEl && !outlinePanelEl.contains(atPoint));
-        const parentCs = outlinePanelEl.parentElement ? getComputedStyle(outlinePanelEl.parentElement) : null;
-        const near = (atPoint && atPoint.closest) ? atPoint.closest("[id]") : null;
-        window.__probe("ui.outline.setVisible", {
-          visible: outlineVisible,
-          hasOpenClass: outlinePanelEl.classList.contains("open"),
-          display: cs.display,
-          computedWidth: cs.width,
-          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height), right: Math.round(rect.right) },
-          center: { cx: Math.round(cx), cy: Math.round(cy) },
-          atPointTagName: atPoint ? atPoint.tagName : null,
-          atPointId: atPoint ? (atPoint.id || null) : null,
-          atPointClass: atPoint && atPoint.className && typeof atPoint.className === "string" ? atPoint.className.slice(0, 90) : null,
-          atPointNearestId: near ? (near.tagName + "#" + near.id) : null,
-          occluded,
-          parentDisplay: parentCs ? parentCs.display : null,
-          parentFlexDir: parentCs ? parentCs.flexDirection : null,
-          // 层叠诊断：直接抓大纲与遮挡元素的计算 position/zIndex，
-          // 并向上回溯遮挡元素最近的「已定位祖先」(position!=static) 的 z-index，
-          // 定位到底是哪一层 stacking context 压住了大纲。
-          outlinePosition: cs.position,
-          outlineZIndex: cs.zIndex,
-          atPointPosition: atPoint ? getComputedStyle(atPoint).position : null,
-          atPointZIndex: atPoint ? getComputedStyle(atPoint).zIndex : null,
-          atPointNearestPositionedZ: (function () {
-            let el = atPoint ? atPoint.parentElement : null;
-            while (el) {
-              const ecs = getComputedStyle(el);
-              if (ecs.position !== "static") {
-                const id = el.id ? "#" + el.id : "";
-                return (el.tagName + id + " z=" + ecs.zIndex + " pos=" + ecs.position);
-              }
-              el = el.parentElement;
-            }
-            return null;
-          })(),
-          // 完整祖先链（从遮挡元素一直到 root）：每一层的 tag#id、position、zIndex。
-          // 用于看清到底是哪一层 stacking context 的 z-index 高于大纲(z=1)。
-          atPointChain: (function () {
-            const chain = [];
-            let el = atPoint;
-            let guard = 0;
-            while (el && guard < 16) {
-              const ecs = getComputedStyle(el);
-              const id = el.id ? "#" + el.id : "";
-              const cls = (el.className && typeof el.className === "string") ? "." + el.className.trim().split(/\s+/).join(".") : "";
-              chain.push(el.tagName + id + cls + " [pos=" + ecs.position + ",z=" + ecs.zIndex + "]");
-              el = el.parentElement;
-              guard++;
-            }
-            return chain;
-          })(),
-          // 大纲面板自身祖先链（确认大纲处于哪一层 stacking context）
-          outlineChain: (function () {
-            const chain = [];
-            let el = outlinePanelEl;
-            let guard = 0;
-            while (el && guard < 16) {
-              const ecs = getComputedStyle(el);
-              const id = el.id ? "#" + el.id : "";
-              const cls = (el.className && typeof el.className === "string") ? "." + el.className.trim().split(/\s+/).join(".") : "";
-              chain.push(el.tagName + id + cls + " [pos=" + ecs.position + ",z=" + ecs.zIndex + "]");
-              el = el.parentElement;
-              guard++;
-            }
-            return chain;
-          })(),
-        });
-      }
-    } else if (typeof window.__probe === "function") {
-      window.__probe("ui.outline.setVisible", { visible: outlineVisible, hasOpenClass: false, display: "no-panel" });
     }
+
     if (btnToggleOutline) btnToggleOutline.classList.toggle("active", outlineVisible);
     lastOutlineDoc = null;
     lastOutlinePaneKey = null;
@@ -668,7 +575,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   function toggleOutlinePanel() {
-    if (typeof window.__probe === "function") window.__probe("ui.outline.toggle", { before: outlineVisible, hasPanel: !!outlinePanelEl, hasList: !!outlineListEl });
+    
     setOutlineVisible(!outlineVisible);
   }
 
@@ -866,7 +773,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     document.addEventListener("scroll", () => { try { positionInlineAccept(); } catch (_) {} }, true);
   }
   // R6 修复 #2：统一采纳动作。改用 mousedown 触发（避免鼠标轻微位移导致 click 不触发；
-  //   R5 探针整份无 ui.inlineAccept.click 证明 click 从未触发）。最前加 try 探针（含 chunkAtCursor 命中），
+  //   R5 实机复验整份无 ui.inlineAccept.click 证明 click 从未触发）。提交前以 try/catch 包裹 chunkAtCursor 命中检查，
   //   成功后弹「已采纳到结果栏(B)」明确反馈，失败弹 warn，让用户捋顺采纳逻辑。
   function doInlineAccept() {
     const pane = getActivePane();
@@ -874,11 +781,11 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     const head = view ? view.state.selection.main.head : 0;
     let hit = -1;
     try { hit = instance ? instance.chunkAtCursor(pane, head) : -1; } catch (_) { /* ignore */ }
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.click.try", { pane, head, hit, hasInstance: !!instance, hasAcceptAtCursor: !!(instance && typeof instance.acceptAtCursor === "function") });
+    
     if (instance && typeof instance.acceptAtCursor === "function") {
       let ok = false;
       try { ok = instance.acceptAtCursor(pane, head); } catch (err) { console.error("[compare] 光标采纳失败:", err); }
-      if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.click", { pane, head, hit, ok });
+      
       if (ok) {
         showCompareToast("已采纳到结果栏(B)", "success");
         if (instance.refreshDecorations) instance.refreshDecorations();
@@ -908,13 +815,13 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     const mount = (HOST !== document ? HOST : document.body);
     mount.appendChild(btn);
     inlineAcceptBtn = btn;
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.created", { mount: mount === document.body ? "body" : "host", hasHost: !!HOST, hostIsDocument: HOST === document });
+    
     wireInlineAcceptGlobal();
     return btn;
   }
   function hideInlineAccept() {
     if (inlineAcceptBtn) {
-      if (inlineAcceptBtn.style.display !== "none" && typeof window.__probe === "function") window.__probe("ui.inlineAccept.hide", { display: "none" });
+      
       inlineAcceptBtn.style.display = "none";
     }
   }
@@ -927,7 +834,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (!view) return hideInlineAccept();
     const head = view.state.selection.main.head;
     const coords = view.coordsAtPos(head);
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.position", { pane, head, coords, display: btn.style.display });
+    
     if (!coords) return hideInlineAccept();
     // R6 #2：改到光标右侧同行（coords.right+8, coords.top），避免压在下一行文本上导致点击落到编辑器；
     //   右溢出则翻到光标左侧（coords.left - 宽 - 8）。
@@ -941,7 +848,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
   function showInlineAcceptIfInChunk() {
     const btn = ensureInlineAcceptBtn();
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.check", { hasBtn: !!btn, hasInstance: !!instance, hasAcceptAtCursor: !!(instance && typeof instance.acceptAtCursor === "function") });
+    
     if (!btn) return;
     if (!instance || typeof instance.acceptAtCursor !== "function") return hideInlineAccept();
     const pane = getActivePane();
@@ -950,11 +857,11 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (!view) return hideInlineAccept();
     const head = view.state.selection.main.head;
     let hit = -1;
-    try { hit = instance.chunkAtCursor(pane, head); } catch (e) { if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.chunkError", { pane, head, error: String(e && e.message || e) }); return hideInlineAccept(); }
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.chunk", { pane, head, hit });
+    try { hit = instance.chunkAtCursor(pane, head); } catch (e) {  return hideInlineAccept(); }
+    
     if (hit < 0) return hideInlineAccept();
     const coords = view.coordsAtPos(head);
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.coords", { pane, head, coords });
+    
     if (!coords) return hideInlineAccept();
     btn.style.display = "block";
     // R6 #2：同 positionInlineAccept，右侧同行 + 右溢出翻左
@@ -965,7 +872,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
     btn.style.left = `${left}px`;
     btn.style.top = `${coords.top}px`;
-    if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.show", { pane, head, left, top: coords.top });
+    
   }
 
   // 取实例各栏视图（优先 C2 暴露的 getPanes，失败兜底按 files/instance 构造）
@@ -1216,16 +1123,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         bindPaneFocus(instance.a, "a");
         bindPaneFocus(instance.b, "b");
         bindPaneFocus(instance.theirsView, "c");
-        if (typeof window.__probe === "function") {
-          window.__probe("ui.render.three", {
-            hasInstance: !!instance,
-            hasCView: !!(instance && instance.theirsView),
-            cContentLen: instance && instance.theirsView && instance.theirsView.state ? instance.theirsView.state.doc.length : -1,
-            cFileName: cFile && cFile.name,
-            colCount,
-            isCompareThree: true,
-          });
-        }
+        
       } else {
         instance = createCompareMergeView({
           mode: "compare",
@@ -1248,9 +1146,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       // 死锁，按钮逻辑永远不会启动。
       try {
         ensureInlineAcceptBtn();
-        if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.bootInit", { ok: true });
+        
       } catch (e) {
-        if (typeof window.__probe === "function") window.__probe("ui.inlineAccept.bootInit", { ok: false, error: String(e && e.message || e) });
+        
       }
     } catch (e) {
       console.error("[compare] 渲染视图失败:", e);
@@ -1634,7 +1532,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
 
   // ── 导出 diff 报告（D17）：生成 git 风格统一 diff 文本，经「另存为」弹窗写盘（非逐栏轮询）──
   async function onExportDiff() {
-    if (typeof window.__probe === "function") window.__probe("ui.exportDiff.enter", { hasInstance: !!instance });
+    
     if (!instance) return;
     try {
       const panes = buildPanes();
@@ -1647,7 +1545,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       const b = getContent("b") || getContent("c") || "";
       const diffText = buildDiffText(a, b);
       const target = await showSaveAsDialog({ suggestedName: "diff.txt", types: [{ description: "文本文件", accept: { "text/plain": [".txt"] } }] });
-      if (typeof window.__probe === "function") window.__probe("ui.exportDiff.target", { hasTarget: !!target });
+      
       if (target) await ioBridge.saveAs(target, diffText); // 写入新文件，不覆盖源
     } catch (e) {
       // 用户取消保存：忽略 AbortError
@@ -1689,21 +1587,21 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     return pane && pane.key === "b" ? "merged.md" : "untitled.md";
   }
   async function saveActivePane() {
-    if (typeof window.__probe === "function") window.__probe("ui.save.enter", { hasInstance: !!instance });
+    
     if (!instance) return { aborted: false, saved: 0 };
     const key = getActivePane(); // 'a' | 'b' | 'c'
     const panes = buildPanes();
     const pane = panes.find((p) => p.key === key);
     if (!pane) return { aborted: false, saved: 0 };
     try {
-      if (typeof window.__probe === "function") window.__probe("ui.save.activePane", { key, hasTarget: !!pane.target });
+      
       if (pane.target == null) {
         const target = await showSaveAsDialog({ suggestedName: saveSuggestedName(pane) });
         if (!target) return { aborted: true, saved: 0 };
         await ioBridge.saveAs(target, pane.content); // 写入新文件，不覆盖源
       } else {
         await ioBridge.write(pane.target, pane.content); // 覆盖源文件
-        if (typeof window.__probe === "function") window.__probe("ui.save.write.ok", { key, path: pane.target.path });
+        
       }
       // R5 修复：compare.js 是 ES 模块，editor.js 的 showToast 并未暴露到 window。
       // 使用 compare.js 自有的通用 toast 函数给出成功反馈。
@@ -1727,14 +1625,10 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 反而要多点一次才能读全文。需要精简视图时再手动点「折叠未改」。
   let collapsed = false;
   function onToggleCollapse() {
-    if (typeof window.__probe === "function") window.__probe("ui.collapse.enter", { hasInstance: !!instance, before: collapsed });
     collapsed = !collapsed;
     if (!instance) return;
     if (typeof instance.setCollapse === "function") {
-      if (typeof window.__probe === "function") window.__probe("ui.collapse.setCollapse", { collapsed, hasMethod: true });
       instance.setCollapse(collapsed);
-    } else if (typeof window.__probe === "function") {
-      window.__probe("ui.collapse.setCollapse", { collapsed, hasMethod: false });
     }
     if (btnToggleCollapse) {
       btnToggleCollapse.textContent = collapsed ? "展开未改" : "折叠未改";
@@ -1932,54 +1826,10 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   }
 
-  // ── 静态可达性探针（#9 死结）：在 init 阶段即检测 5 个目标按钮是否真能被点到。
-  // 诊断逻辑：按钮中心点 elementFromPoint 必须落在按钮自身或子元素上；
-  // pointer-events:none / .disabled 类 / disabled 属性任一命中 → 点击无法到达 onSave 等 handler。
-  function probeToolbarReachability() {
-    if (typeof window.__probe !== "function") return;
-    const buttons = [
-      { id: "btnSave", name: "save" },
-      { id: "btnExportDiff", name: "exportDiff" },
-      { id: "btnToggleCollapse", name: "collapse" },
-      { id: "btnToggleOutline", name: "outline" },
-      { id: "btnScroll", name: "scroll" },
-    ];
-    for (const { id, name } of buttons) {
-      const btn = HOST.getElementById(id);
-      if (!btn) {
-        window.__probe(`ui.init.reachability.${name}`, { found: false });
-        continue;
-      }
-      const rect = btn.getBoundingClientRect();
-      const cx = Math.round(rect.left + rect.width / 2);
-      const cy = Math.round(rect.top + rect.height / 2);
-      const computed = getComputedStyle(btn);
-      let ancestorPointerEventsNone = false;
-      let el = btn.parentElement;
-      while (el && el !== document.body) {
-        if (getComputedStyle(el).pointerEvents === "none") {
-          ancestorPointerEventsNone = true;
-          break;
-        }
-        el = el.parentElement;
-      }
-      const atPoint = document.elementFromPoint(cx, cy);
-      window.__probe(`ui.init.reachability.${name}`, {
-        found: true,
-        rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height), cx, cy },
-        pointerEvents: computed.pointerEvents,
-        ancestorPointerEventsNone,
-        hasDisabledClass: btn.classList.contains("disabled"),
-        disabledProp: btn.disabled,
-        elementFromPointIsSelfOrChild: !!(atPoint && (atPoint === btn || btn.contains(atPoint))),
-        atPointTagName: atPoint ? atPoint.tagName : null,
-      });
-    }
-  }
 
   // ── 工具栏按钮：事件委托（#9 / #3 根因修复）──
   // 原实现为每个按钮各自 addEventListener("click", handler)。实测在部分运行环境
-  // （桌面 EXE 对比页）下 btnSave / btnScroll 的逐按钮监听器未触发（探针显示点击命中
+  // （桌面 EXE 对比页实机复验）下 btnSave / btnScroll 的逐按钮监听器未触发（点击命中
   // 按钮但 handler 0 次执行），导致「保存 / 滚动同步」无响应。
   // 改为在稳定的祖先 #compareToolbar 上挂单一「捕获」监听，按
   // e.target.closest("[id]") 路由到各 handler：
@@ -1997,10 +1847,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         const el = e.target.closest("[id]");
         if (!el) return;
         const id = el.id;
-        // 诊断探针（#9 / #3 收口验证）：确认委托捕获到工具栏点击
-        if (typeof window.__probe === "function") {
-          window.__probe("ui.delegate.click", { id });
-        }
         switch (id) {
           case "btnModeCompare":
             switchMode("compare");
@@ -2015,13 +1861,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
             render();
             break;
           case "btnScroll": {
-            // 诊断探针（#3 收口验证）：记录滚动同步按钮点击时控制器真实状态
-            if (typeof window.__probe === "function") {
-              window.__probe("ui.scroll.click", {
-                hasScrollSync: !!scrollSync,
-                scrollSyncEnabled,
-              });
-            }
             // 仅当控制器尚未就绪（scrollSync 为 null）时忽略点击；
             // 不再以 isEffective() 拦截——否则三栏时序下 isEffective() 返回 false 会让
             // 点击被早退，按钮永远无法切换（本次修复的根因）。
@@ -2094,12 +1933,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   // 需求 B3：初始化对比页大纲拖拽分隔条（移到最右后补 resizer）
   initCompareOutlineDock();
 
-  // 静态可达性探针：在 layout 完成后采集一次，太早有概率拿到 0 尺寸。
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(() => probeToolbarReachability());
-  } else {
-    probeToolbarReachability();
-  }
 
   // ── 批量合并（对齐 JetBrains Merge Revisions 顶部栏）──
   // 注：以下控件归属 .merge-only 组，对照模式下由 C3 的 CSS 控制 display:none（§11）。
@@ -2145,9 +1978,7 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         try {
           window.dispatchEvent(new CustomEvent("compare:exit"));
         } catch (_) {}
-        if (typeof window.__probe === "function") {
-          window.__probe("compare.backToEditor", { integrated: true });
-        }
+        
         return;
       }
       try { window.close(); } catch (_) {}
@@ -2305,15 +2136,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
       if (md.length) {
         const dropped = await readCompareFiles(md);
         if (dropped.length) {
-          // 探针（调试桥）：HTML5 drop 路由结果，供坐实 #4/#7 拖拽是否落入 a/b/c 栏
-          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-            const active = getActivePane();
-            window.__probe('compare.drop.html5', {
-              source: 'html5', mode, active,
-              fileCount: md.length, droppedCount: dropped.length,
-              names: dropped.map((d) => d.name || (d.target && d.target.path) || '?'),
-            });
-          }
           // 拖拽多文件路由（BUG 5）：按活动栏优先填入 + 其余按 a→b→c 顺序填入空栏。
           // 先记录活动栏：drop 事件期间焦点可能受 drop 自身影响漂移，使用 drop 事件触发瞬间的活动栏。
           const active = getActivePane();
@@ -2388,15 +2210,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
             if (!window.__inCompare) return;
             handleTauriDrop(p.paths);
           });
-          // 诊断探针：确认 onDragDropEvent 注册成功（区别于事件未触发）
-          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-            window.__probe('compare.tauri.drop.register', { ok: true });
-          }
         } catch (err) {
           console.error("[compare] Tauri 拖放监听注册失败:", err);
-          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-            window.__probe('compare.tauri.drop.register', { ok: false, error: String(err && err.message || err) });
-          }
+          
         }
       })();
       // 抽成独立函数，避免 onDragDropEvent 闭包内过深嵌套；逻辑与 HTML5 drop 同一路由。
@@ -2419,14 +2235,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
           }
           if (!dropped.length) return;
           const active = getActivePane();
-          // 探针（调试桥）：Tauri(EXE) drop 路由结果，供坐实 #4/#7 EXE 拖拽是否落入 a/b/c 栏
-          if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-            window.__probe('compare.drop.tauri', {
-              source: 'tauri', mode, active,
-              pathCount: paths.length, droppedCount: dropped.length,
-              names: dropped.map((d) => d.name || (d.target && d.target.path) || '?'),
-            });
-          }
           const targets = resolveDropTargets(active, mode, files, dropped.length);
           for (let i = 0; i < dropped.length; i++) {
             const t = targets[i];
@@ -2446,47 +2254,6 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     }
   }
 
-  // ── 调试钩子（仅当 cmp-debug=1 时暴露，生产默认不暴露，便于自动化探针读取真实状态） ──
-  if (localStorage.getItem("cmp-debug") === "1") {
-    window.__cmp = {
-      get instance() {
-        return instance;
-      },
-      get files() {
-        return files;
-      },
-      get mode() {
-        return mode;
-      },
-      get colCount() {
-        return colCount;
-      },
-      get activePane() {
-        return getActivePane();
-      },
-      // BUG 5/6 端到端测试钩子（仅 cmp-debug=1 暴露）：暴露路由纯函数供 CDP 验证。
-      // onPickFiles / onPageDrop 在浏览器内是闭包私有，无法直接 mock 文件框；
-      // 但它们的「路由决策」全部收敛到 resolvePickTarget / resolveDropTargets，
-      // 故验证纯函数+files 状态变更 即可锁定 BUG 5/6 是否修复。
-      resolvePickTarget,
-      resolveDropTargets,
-      currentPanes,
-      render,
-      switchMode,
-      // 自动化探针专用：绕过「编辑回写」逻辑直接注入文件并切栏，避免被旧 instance 空文档覆盖。
-      applyFiles: (obj) => {
-        if (obj && typeof obj === "object") Object.assign(files, obj);
-        skipSaveOnNextRender = true; // 注入文件视为「重新载入」，跳过本次回写
-        render();
-      },
-      setColCount: (n) => {
-        if (n === 2 || n === 3) {
-          colCount = n;
-          render();
-        }
-      },
-    };
-  }
 
   // 差异概览侧栏宽度拖拽（必须在首次 render 前恢复宽度，避免首帧按默认宽度量错布局）
   initLocationPaneResizer();

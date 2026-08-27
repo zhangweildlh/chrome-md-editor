@@ -706,17 +706,6 @@ export function createConnectorPainter(opts) {
     }
     svg.appendChild(frag);
 
-    // 诊断探针（#5 根因定位）：报告落盘 path 数量与 SVG 可见尺寸，
-    // 用于区分「配色缺失 / 几何偏移 / 层叠被遮」三类「无连线」真因。
-    if (typeof window !== "undefined" && typeof window.__probe === "function") {
-      window.__probe("ui.connector.draw", {
-        pathCount: specs.length,
-        svgW: svg.offsetWidth || (svg.getBoundingClientRect ? Math.round(svg.getBoundingClientRect().width) : -1),
-        svgH: svg.offsetHeight || (svg.getBoundingClientRect ? Math.round(svg.getBoundingClientRect().height) : -1),
-        dropped: geo.dropped,
-      });
-    }
-
     // 超限丢弃必须留下可断言的语义出口（对齐 truncated 的做法）：否则「少了几条带子」
     // 到底是防卡顿丢弃还是绘制 BUG，自动化测试与人工排查都无从分辨。
     // 未超限时移除属性，不留上一帧的脏状态。

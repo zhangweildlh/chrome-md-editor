@@ -253,9 +253,7 @@ export async function showSaveAsDialog({ suggestedName, types } = {}) {
     if (typeof target.path === 'string' && target.path) {
       // #7：用户若在原生保存框中未带扩展名，补上默认扩展名，避免 Rust validate_path 拒绝。
       const fixed = ensureExtension(target.path, name);
-      if (fixed !== target.path && typeof window.__probe === 'function') {
-        window.__probe('ui.saveAsDialog.path', { original: target.path, fixed });
-      }
+      
       return { path: fixed };
     }
     return null;
@@ -391,14 +389,7 @@ export async function runSavePoll(panes, order) {
         }
       } catch (err) {
         console.error('[save-poll] 栏 ' + key + ' 保存失败：', err);
-        // #9：错误探针，上报命令/路径/异常，便于 EXE 下定位（如 D:\System\Desktop 受限）。
-        if (typeof window.__probe === 'function') {
-          window.__probe('ui.savePoll.write.error', {
-            key,
-            path: target && target.path,
-            err: String((err && err.message) || err),
-          });
-        }
+        // #9：记录错误并继续处理其余栏，避免单栏失败中断整体保存（EXE 下如 D:\System\Desktop 受限）。
         errors.push({ key, error: err });
         result.actions.push({ key, action: 'error' });
       }
@@ -406,12 +397,7 @@ export async function runSavePoll(panes, order) {
 
     // M3/#9：一轮结束，失败带原因提示；全部成功则给可见确认。
     if (errors.length) {
-      if (typeof window.__probe === 'function') {
-        window.__probe('ui.savePoll.errors', {
-          count: errors.length,
-          first: errors[0] && errors[0].error && errors[0].error.message,
-        });
-      }
+      
       showSaveErrors(errors);
     } else {
       const saved = (result.actions || []).filter(

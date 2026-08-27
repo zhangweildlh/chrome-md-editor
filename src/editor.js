@@ -8,10 +8,6 @@
 // 必须在 src/editor.js 顶部以 ES Module 形式 import，否则 vite 不会把它打包进
 // bundle（src/editor.html 中的 <script src="./desktop-shims.js"> 会被 vite 静默移除）。
 import './desktop-shims.js';
-// 运行态探针（调试桥）：默认关闭，需 ?debug=1 或 localStorage['cme-debug']=1 或
-// window.__CME_DEBUG__=true 才启用；EXE 侧经 invoke('write_probe_log') 落盘 %temp%，
-// 浏览器侧经 console.log('[PROBE]...') 由外部 CDP 探针采集。零开销（关闭时仅挂 no-op）。
-import './debug-probe.js';
 // 方案A+：对比/合并 UI 内嵌 editor.html 初始上下文（#compareHost）。compare.js 随编辑器首页
 // 静态加载（同源 chunk），规避 Tauri/WebView2 下动态 import 分包不确定性导致的「对比模块加载失败」。
 // 浏览器侧 compare.html 仍独立加载同一 compare.js（Vite 会去重为同一 chunk）。
@@ -141,9 +137,9 @@ import {
 
 /** Visible build stamp so we can tell if Chrome reloaded the new package.
  *  版本由 Vite 在构建时从 package.json 注入(__APP_VERSION__)，与 manifest 自动同步；
- *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.14"。 */
+ *  若在未经 Vite 的环境(如使用 node 直接 import)中运行，回退到 "1.9.15"。 */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.14";
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.9.15";
 import {
   getPresetDefaultModel,
   getTranslatePreset,
@@ -1771,7 +1767,7 @@ async function openInitialCliFile() {
     const { invoke } = await import('@tauri-apps/api/core');
     const path = await invoke('get_initial_file');
     if (path) {
-      if (typeof window.__probe === 'function') window.__probe('editor.open.cli', { path });
+      
       await openFileByPath(path);
       return;
     }
@@ -3256,9 +3252,7 @@ function bindEvents() {
         //「对比模块加载失败」。若因异常未挂载（如构建产物缺失），给出可读错误并回退。
         if (!window.__compareMounted) {
           console.error('[editor] 对比模块未就绪（window.__compareMounted 为假）');
-          if (typeof window.__probe === 'function') {
-            window.__probe('compare.load.error', { message: 'compare.js 未挂载（可能构建产物缺失）', mounted: false });
-          }
+          
           showToast('对比模块加载失败：请重新编译部署', 'error');
           host.setAttribute('hidden', '');
           for (const el of mainEls) { if (el) el.removeAttribute('hidden'); }
@@ -3266,9 +3260,7 @@ function bindEvents() {
           setTimeout(() => { intentionalLeave = false; }, 100);
           return;
         }
-        if (typeof window.__probe === 'function') {
-          window.__probe('compare.enter.integrated', { ok: true });
-        }
+        
       } else {
         // 浏览器侧（Chrome 扩展）保持同源新标签打开
         window.open('compare.html', '_blank');
@@ -3378,15 +3370,9 @@ function bindEvents() {
             showToast('请拖入 .md 或 .markdown 文件', 'error');
           }
         });
-        // 诊断探针：确认主编辑器 onDragDropEvent 注册成功
-        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-          window.__probe('editor.tauri.drop.register', { ok: true });
-        }
       } catch (e) {
         // 监听注册失败不影响双击打开；忽略
-        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-          window.__probe('editor.tauri.drop.register', { ok: false, error: String(e && e.message || e) });
-        }
+        
       }
     })();
   }
@@ -3456,26 +3442,8 @@ function bindEvents() {
             setEditorLetterSpacing(eLetterSpacing.value === '' ? '' : eLetterSpacing.value);
     });
     if (eLineHeight) {
-      // R9 诊断探针：捕获「设置改行间距」时三栏实时 computed line-height + 变量值，
-      // 用于定位「仅预览生效、编辑/对比不生效」根因（与 Ctrl+Alt+滚轮路径对照）。
-      const probeLH = () => {
-        if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-          const cs = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).lineHeight : '(none)'; };
-          window.__probe('display.lineHeight.applied', {
-            trigger: 'settings-input',
-            value: eLineHeight.value,
-            varOnRoot: (getComputedStyle(document.documentElement).getPropertyValue('--editor-line-height') || '').trim(),
-            editorCmContent: cs('.editor-container .cm-editor .cm-content'),
-            editorCmLine: cs('.editor-container .cm-editor .cm-line'),
-            preview: cs('.markdown-body'),
-            compareCmContent: cs('.compare-view .cm-editor .cm-content'),
-          });
-        }
-      };
-      eLineHeight.addEventListener('input', probeLH);
       eLineHeight.addEventListener('change', () => {
         setEditorLineHeight(eLineHeight.value === '' ? '' : eLineHeight.value);
-        probeLH();
       });
     }
     // ⑱ Win11 记事本默认值「默认」按钮：点击写入 Win11 默认并触发对应 setter
@@ -3612,8 +3580,6 @@ function bindEvents() {
     document.getElementById('btnTasks')?.classList.remove('active');
   });
 
-  window.__setEditorContent = setEditorContent;
-  window.__editor = editor;
 }
 
 // 同步专注模式 / 打字机按钮的 active 状态（init 恢复持久化设置后调用）
@@ -4381,10 +4347,6 @@ function init() {
   // 桌面端：处理「双击 .md 文件启动 EXE」传入的路径参数
   openInitialCliFile();
 
-  // 探针：编辑器初始化完成标记（供外部观测 init 是否执行到底、有无早崩）
-  if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-    window.__probe('editor.init.done', { version: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : null) });
-  }
 }
 
 // ==========================================

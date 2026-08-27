@@ -163,24 +163,6 @@ export function applyZoomFromWheel(e) {
     // R10：字号缩放同步预览字号，落实三栏联动。
     setPreviewFontSize(next);
   }
-  // R10 诊断探针：覆盖全部缩放子路径（字号/字间距/行高），
-  // 捕获三栏 computed line-height + 预览 font-size 及根变量值，用于核对预览是否随缩放联动。
-  if (typeof window !== 'undefined' && typeof window.__probe === 'function') {
-    const cs = (sel, prop) => { const el = document.querySelector(sel); return el ? getComputedStyle(el)[prop] : '(none)'; };
-    window.__probe('display.lineHeight.applied', {
-      trigger: 'wheel',
-      kind,
-      value: next,
-      varEditorLineHeight: (getComputedStyle(document.documentElement).getPropertyValue('--editor-line-height') || '').trim(),
-      varEditorFontSize: (getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size') || '').trim(),
-      varPreviewFontSize: (getComputedStyle(document.documentElement).getPropertyValue('--preview-font-size') || '').trim(),
-      editorCmContentLH: cs('.editor-container .cm-editor .cm-content', 'lineHeight'),
-      editorCmLineLH: cs('.editor-container .cm-editor .cm-line', 'lineHeight'),
-      previewLH: cs('.markdown-body', 'lineHeight'),
-      previewFS: cs('.markdown-body', 'fontSize'),
-      compareCmContentLH: cs('.compare-view .cm-editor .cm-content', 'lineHeight'),
-    });
-  }
   return true;
 }
 

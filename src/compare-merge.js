@@ -1123,10 +1123,7 @@ export function createCompareMergeView(opts) {
         });
       }
     }
-    if (typeof window !== "undefined" && typeof window.__probe === "function") {
-      const summary = out.map((l) => ({ layer: l.layer, pairs: (l.pairs || []).length }));
-      window.__probe("ui.connector.layers", { count: out.length, summary });
-    }
+    
     return out;
   }
   // 【已知取舍】无 AbortController 的环境下，本函数与 createScrollSync 注册的 scroll
@@ -1147,7 +1144,7 @@ export function createCompareMergeView(opts) {
       "scroll",
       () => {
         if (connectorPainter) {
-          if (typeof window !== "undefined" && typeof window.__probe === "function") window.__probe("ui.connector.draw", { trigger: "scroll" });
+          
           connectorPainter.draw();
         }
       },
@@ -1299,15 +1296,7 @@ export function createCompareMergeView(opts) {
       }
       scheduler.attach(attachPairs);
       scheduler.scheduleRefresh();
-      if (typeof window !== "undefined" && typeof window.__probe === "function") {
-        window.__probe("ui.merge.attachPairs", {
-          isCompareThree,
-          layerCount: attachPairs.length,
-          layers: attachPairs.map((p) => p.layer),
-          hasTheirsView: !!theirsView,
-          theirsDocLen: theirsView && theirsView.state ? theirsView.state.doc.length : -1,
-        });
-      }
+      
     }
 
     // ── 双层连线 + 三栏滚动联动 ──

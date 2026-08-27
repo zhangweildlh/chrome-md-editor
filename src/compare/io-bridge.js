@@ -156,21 +156,13 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
       if (typeof envInvoke !== 'function') {
         throw new Error('ioBridge.write: 桌面端缺少可用的 invoke');
       }
-      // #9：错误探针——写盘失败时显式上报命令、路径与异常，避免 EXE 下静默失败。
+      // #9：写盘失败时原样上抛异常，由调用方（save-poll / compare）给出可见提示，避免 EXE 下静默失败。
       try {
         const res = await envInvoke('write_text_file', { path: target.path, content });
-        if (typeof window.__probe === 'function') {
-          window.__probe('ui.io.write.ok', { cmd: 'write_text_file', path: target.path });
-        }
+        
         return res;
       } catch (e) {
-        if (typeof window.__probe === 'function') {
-          window.__probe('ui.io.write.error', {
-            cmd: 'write_text_file',
-            path: target.path,
-            err: String((e && e.message) || e),
-          });
-        }
+        
         throw e; // 原样上抛，由调用方（save-poll / compare）给出可见提示
       }
     }
@@ -206,38 +198,23 @@ export function createIoBridge({ isTauri: injectedTauri, invoke: injectedInvoke 
         const res = await envInvoke('save_file_dialog', { default_path: defaultPath });
         const path = res == null ? null : res.filePath ?? res.path ?? res;
         if (typeof path === 'string' && path) {
-          // #9：成功探针，回传所选路径，便于核对「对话框能弹但无写盘」时的真实返回值。
-          if (typeof window.__probe === 'function') {
-            window.__probe('ui.io.pickSaveTarget.ok', { cmd: 'save_file_dialog', path });
-          }
+          // #9：返回所选路径（{ path } 描述符），与 read/write 约定一致。
           return { path };
         }
         return null; // 用户取消 / 无效路径
       } catch (firstErr) {
-        if (typeof window.__probe === 'function') {
-          window.__probe('ui.io.pickSaveTarget.error', {
-            cmd: 'save_file_dialog',
-            err: String((firstErr && firstErr.message) || firstErr),
-          });
-        }
+        
         // 退化：尝试 dialog 插件标准命令名 plugin:dialog|save
         try {
           const res = await envInvoke('plugin:dialog|save', { default_path: defaultPath });
           const path = res == null ? null : res.filePath ?? res.path ?? res;
           if (typeof path === 'string' && path) {
-            if (typeof window.__probe === 'function') {
-              window.__probe('ui.io.pickSaveTarget.ok', { cmd: 'plugin:dialog|save', path });
-            }
+            
             return { path };
           }
           return null;
         } catch (secondErr) {
-          if (typeof window.__probe === 'function') {
-            window.__probe('ui.io.pickSaveTarget.error', {
-              cmd: 'plugin:dialog|save',
-              err: String((secondErr && secondErr.message) || secondErr),
-            });
-          }
+          
           throw firstErr; // 抛出首个错误，保留最贴近的失败原因
         }
       }
