@@ -1783,52 +1783,19 @@ body {
   white-space: pre;
 }
 
-/* ㉑ 显示空格 → 红色居中小圆点（VS Code Render Whitespace dot 风格，染红）。
+/* ㉑#10 显示空格 → 红色居中小圆点（VS Code Render Whitespace dot 风格，染红）。
    highlightWhitespace() 给空格加 .cm-highlightSpace、给制表符加 .cm-highlightTab，
-   CM6 默认是灰色径向点/箭头；此处覆盖为红色，圆点居中（circle at 50% 55%）。 */
-.editor-container .cm-editor .cm-content .cm-highlightSpace {
+   CM6 默认是灰色径向点/箭头；此处全局覆盖为红色。
+   全局作用域（.cm-content 前缀，不限祖先）：覆盖主编辑区、A/B 栏（MergeView 内）、
+   C 栏（独立 theirsView，不在 .cm-mergeView 内）——R6 #10 收尾：C 栏此前因不在
+   .editor-container/.cm-mergeView 内而漏网，现统一命中。
+   严守 MergeView 层叠上下文铁律：::before 仅用 position:absolute + 负 margin 居中，
+   绝不写 transform/filter/backdrop-filter（否则复现 B2 块级采纳按钮划花）。 */
+.cm-content .cm-highlightSpace {
   position: relative;
   background-image: none !important; /* 覆盖 CodeMirror 默认 .cm-highlightSpace 灰色径向点（#10 根治） */
 }
-/* ㉑ 空格红点：零宽 ::before 覆盖层（#10 修复）。使用 ::before 而非 ::after，
-   直接覆盖 CodeMirror 默认给 .cm-highlightSpace::before 绘制的灰色径向点，
-   杜绝红点下方残留灰点。红点绝对定位居中、不参与布局，
-   故「显示红点 / 不显示红点」两种状态下空格占位宽度完全一致、不变化。
-   原空格保持正常字号与占位宽度（见下方 .cm-space-dot，已移除 font-size 缩放）。 */
-.editor-container .cm-editor .cm-content .cm-highlightSpace::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 0.108em;
-  height: 0.108em;
-  /* 严禁 transform：.cm-highlightSpace 处于 .cm-mergeView 后代，违反 MergeView 层叠上下文硬约束（会复现 B2 块级采纳按钮划花）。改用负 margin 居中，不创建层叠上下文。 */
-  margin-left: -0.054em;
-  margin-top: -0.054em;
-  border-radius: 50%;
-  background: var(--danger);
-  pointer-events: none;
-}
-.editor-container .cm-editor .cm-content .cm-highlightSpace::after {
-  content: none;
-}
-.editor-container .cm-editor .cm-content .cm-highlightTab {
-  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23e5484d" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>');
-  background-size: auto 100%;
-  background-position: right 90%;
-  background-repeat: no-repeat;
-}
-
-/* ㉑#10 R6 修复：对比/合并页三栏（MergeView）不在 .editor-container 内，
-   原 .editor-container 前缀选择器不命中 → 走 CodeMirror 默认灰点。
-   故新增 .cm-mergeView 前缀变体，使三栏同样覆盖为红色小圆点。
-   严守 MergeView 层叠上下文铁律：::before 仅用 position:absolute + 负 margin 居中，
-   绝不写 transform/filter/backdrop-filter（否则复现 B2 块级采纳按钮划花）。 */
-.cm-mergeView .cm-editor .cm-content .cm-highlightSpace {
-  position: relative;
-  background-image: none !important; /* 覆盖 CodeMirror 默认灰色径向点（#10） */
-}
-.cm-mergeView .cm-editor .cm-content .cm-highlightSpace::before {
+.cm-content .cm-highlightSpace::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -1841,10 +1808,10 @@ body {
   background: var(--danger);
   pointer-events: none;
 }
-.cm-mergeView .cm-editor .cm-content .cm-highlightSpace::after {
+.cm-content .cm-highlightSpace::after {
   content: none;
 }
-.cm-mergeView .cm-editor .cm-content .cm-highlightTab {
+.cm-content .cm-highlightTab {
   background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23e5484d" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>');
   background-size: auto 100%;
   background-position: right 90%;
