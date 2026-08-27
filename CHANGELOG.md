@@ -17,6 +17,9 @@ Project uses Semantic Versioning.
 - **注释与文案对齐**：清除约 17 处残留的「探针 / 诊断 / 调试桥」字样注释（含被删调用遗留的仅空白行），并改写 README 功能表——移除「调试桥（开发者）」行，使文档与「无调试接口」的代码态一致。
 - **版本戳同步**：随本次发布升版 `1.9.14 → 1.9.15`，八处版本戳全量对齐（`package.json` / `public/manifest.json` / `desktop/tauri.conf.json` / `src/editor.js` 兜底 / `src/editor.html` 徽标×2 / `src/compare.js` 兜底 / `src/compare.html` 徽标 + 本 CHANGELOG 条目），经 grep 全仓 `1.9.14` 逐点核对无残留漂移。
 
+### 清理
+- **手动清理的已跟踪文件移除**：经用户手动删除并巡查确认，移除 11 个已跟踪文件——`.test-run/` 下 8 个 E2E 测试白名单库（`bnd-compare` / `bnd-fixtures` / `bnd-lib` / `diag-cm` / `diag-cmpx` / `diag-token` / `e2e-editor-lib` / `fix-verify` `.mjs`，对应 `.gitignore` L43-50 白名单）与根目录 3 份历史规划文档（`BUG复验勾销清单_v1.9.10`、`功能清单_v1.9.1`、`需求实施方案_讨论结论`）。受保护清单（src/public/desktop/scripts/tests/.github/.git/.workbuddy + 配置/README/CHANGELOG）全部完好；删除全部可 `git restore` 恢复，无代码损失。注意：`.test-run` 白名单库移除后，若需跑 Playwright E2E 须先 `git restore` 恢复这 8 个文件。
+
 ## [1.9.14] - 2026-08-27（R11 缩放手势预览联动 + 滚轮探针全覆盖）
 
 ### 修复
