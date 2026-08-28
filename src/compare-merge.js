@@ -43,10 +43,12 @@ import {
   inlineWordDiffExtension,
   setWordDiffEffect,
   buildWordDiffData,
+  computeNonEmphRanges,
   setFillerEffect,
   fillerDataField,
   fillerViewPlugin,
 } from "./compare/inline-word-diff.js";
+import { trailingSpaceViewPlugin } from "./compare/trailing-space-view-plugin.js";
 import { detectMoves } from "./compare/move-detection.js";
 import {
   moveDecorationsExtension,
