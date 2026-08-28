@@ -542,6 +542,23 @@ function createDecorationScheduler(flags) {
       vp.truncated = r.truncated;
       vp.diffPairs = r.diffPairs;
     }
+    // A4: 填充标记数据流接入 —— 为 unpaired 行注入 setFillerEffect
+    for (const vp of viewPairs) {
+      if (!vp.a?.dom || !vp.b?.dom) continue;
+      const fillerA = [];
+      const fillerB = [];
+      for (const p of vp.diffPairs || []) {
+        if (p.variant === "added") {
+          // B 侧独有行 → A 侧填充点
+          fillerA.push({ lineNumber: p.dstStartLine + 1, type: "added" });
+        } else if (p.variant === "removed") {
+          // A 侧独有行 → B 侧填充点
+          fillerB.push({ lineNumber: p.srcStartLine + 1, type: "removed" });
+        }
+      }
+      if (fillerA.length) vp.a.dispatch({ effects: setFillerEffect.of(fillerA) });
+      if (fillerB.length) vp.b.dispatch({ effects: setFillerEffect.of(fillerB) });
+    }
     // 合并各层贡献并统一推送（视图不存在或被销毁则跳过）。
     for (const [view, layerMap] of wordAccum) {
       if (!view || !view.dom) continue;
