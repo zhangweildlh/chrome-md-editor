@@ -1467,18 +1467,18 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (instance && instance.navView) {
       bindChunkNavigation(instance.navView).next();
       // B1: 更新当前块索引并刷新徽标
+      // bindChunkNavigation.next() 将光标移到目标块起始位置，head == chunk.start
+      // 需要找 head 所在（或刚经过）的块，而非下一个块
       try {
-        const chunks = instance.getChunks?.() || [];
         const res = getChunks(instance.navView.state);
         if (res?.chunks?.length) {
-          // navNext: 导航到下一个块；head 在目标块起始位置，找第一个 starts AFTER head 的 chunk
           const spans = res.chunks.map((c) =>
             res.side === "b" ? [c.fromB, c.toB] : [c.fromA, c.toA]
           );
           const head = instance.navView.state.selection.main.head;
-          // findIndex 返回的是第一个 s[0] > head 的索引，即当前块的下一个
-          const nextIdx = spans.findIndex((s) => s[0] > head);
-          currentChunkIndex = nextIdx >= 0 ? nextIdx : (spans.length > 0 ? 0 : -1);
+          // 找 head 所在的块：start <= head < end
+          const idx = spans.findIndex((s) => s[0] <= head && s[1] > head);
+          currentChunkIndex = idx >= 0 ? idx : 0;
         }
       } catch (_) {}
       updateStatusCount();
@@ -1495,11 +1495,9 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
             res.side === "b" ? [c.fromB, c.toB] : [c.fromA, c.toA]
           );
           const head = instance.navView.state.selection.main.head;
-          let found = -1;
-          for (let i = spans.length - 1; i >= 0; i--) {
-            if (spans[i][1] <= head) { found = i; break; }
-          }
-          currentChunkIndex = found >= 0 ? found : (spans.length > 0 ? spans.length - 1 : -1);
+          // 找 head 所在的块：start <= head < end
+          const idx = spans.findIndex((s) => s[0] <= head && s[1] > head);
+          currentChunkIndex = idx >= 0 ? idx : (spans.length > 0 ? spans.length - 1 : -1);
         }
       } catch (_) {}
       updateStatusCount();

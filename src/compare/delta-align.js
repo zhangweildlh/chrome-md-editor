@@ -441,13 +441,21 @@ export function annotatePair(minusLine, plusLine) {
   // 剩余部分可能只在一侧，需分别检查。
   if (minusOffset < before.length) {
     const trailing = before.slice(minusOffset);
-    if (trailing.trim() === "" && trailing.length > 0) {
+    if (trailing.trim() === "") {
+      // 纯空白尾随 → removed
+      push(minusRanges, { from: minusOffset, to: before.length }, "removed");
+    } else if (trailing.length > 0) {
+      // 非空白剩余 → 兜底为 removed（防止静默丢弃）
       push(minusRanges, { from: minusOffset, to: before.length }, "removed");
     }
   }
   if (plusOffset < after.length) {
     const trailing = after.slice(plusOffset);
-    if (trailing.trim() === "" && trailing.length > 0) {
+    if (trailing.trim() === "") {
+      // 纯空白尾随 → added
+      push(plusRanges, { from: plusOffset, to: after.length }, "added");
+    } else if (trailing.length > 0) {
+      // 非空白剩余 → 兜底为 added（防止静默丢弃）
       push(plusRanges, { from: plusOffset, to: after.length }, "added");
     }
   }

@@ -121,7 +121,7 @@ export function parseUnifiedDiff(text) {
       continue;
     }
 
-    // hunk 头
+    // hunk 头（兼容带上下文注释的格式，如 `@@ -1,3 +1,3 @@ function main`）
     if (line.startsWith('@@')) {
       const m = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
       // 先保存前一个 hunk（如果有）
