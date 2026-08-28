@@ -26,6 +26,7 @@ import './compare.css';
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
+import { getChunks } from "@codemirror/merge";
 import { pickSingleFile, readCompareFiles } from "./compare-files.js";
 import { resolvePickTarget, resolveDropTargets } from "./compare/pick-target.js";
 import {

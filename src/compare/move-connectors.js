@@ -422,14 +422,12 @@ export function createConnectorPainter(opts) {
       // 用户会以为移动的只有一行。拿不到有效行高时返回 null，交给下游三级兜底。
       if (head != null && tail == null && e > s) {
         // 【B4 修复】多行块末行测不出坐标时，不再用 defaultLineHeight 简单估算（折行后会低估）。
-        // 改为：尝试测量首行实际高度（head.bottom - head.top），再乘以行数；若测不出则退回 null。
-        const headBottom = edgeOf(view, doc.line(s), "bottom");
-        const lineH =
-          headBottom != null && head.bottom > head.top
-            ? headBottom - head.bottom
-            : typeof view.defaultLineHeight === "number" && view.defaultLineHeight > 0
-              ? view.defaultLineHeight
-              : 0;
+        // 改为：用首行的实际高度估算（head.bottom - head.top），再乘以剩余行数；若测不出则退回 null。
+        const lineH = head.bottom != null && head.top != null && head.bottom > head.top
+          ? head.bottom - head.top
+          : typeof view.defaultLineHeight === "number" && view.defaultLineHeight > 0
+            ? view.defaultLineHeight
+            : 0;
         if (lineH <= 0) return null;
         return { top: head.top, bottom: head.bottom + (e - s) * lineH };
       }

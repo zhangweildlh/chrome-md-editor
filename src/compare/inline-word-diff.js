@@ -292,10 +292,18 @@ export const wordDiffConfigField = StateField.define({
 
 const addedMark = Decoration.mark({ class: ADDED_CLASS });
 const removedMark = Decoration.mark({ class: REMOVED_CLASS });
-
-/** B4/A4: filler widget —— 独属行对侧占位小标 */
 const FILLER_ADDED_CLASS = "cm-compare-filler-added";
 const FILLER_REMOVED_CLASS = "cm-compare-filler-removed";
+
+/** A5: removed 区间 "-" widget 标记 */
+const minusWidgetMark = Decoration.widget({
+  widget: () => {
+    const span = document.createElement("span");
+    span.className = "cm-diff-minus-marker";
+    span.textContent = "−";
+    return span;
+  },
+});
 
 /** 创建 filler widget 装饰集合 */
 export function buildFillerDecorations(view) {

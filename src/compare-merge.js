@@ -60,7 +60,6 @@ import {
   buildExclusiveConnectorPairs,
   DEFAULT_MAX_LINE_DISTANCE,
 } from "./compare/delta-align.js";
-import { computeNonEmphRanges } from "./compare/inline-word-diff.js";
 // 块级「采纳」按钮复用统一的写入原语（单次 dispatch、区间校验），不自己拼 changes。
 // acceptChunkAtCursor 用于光标/选区粒度局部采纳（A↔B 与 B↔C 内联按钮，需求⑧）；
 // 整块覆写已不再需要（computeBcAcceptRange 的区间算术仍保留给越界钳制单测）。
@@ -1703,7 +1702,7 @@ export function createCompareMergeView(opts) {
       },
       /** A3: 变更统计概览（+N/-M 行数） */
       aggregateStats(chunks) {
-        return aggregateStats(chunks, mv.a.state, mv.b.state);
+        return aggregateStats(chunks, mv.a.state.doc, mv.b.state.doc);
       },
       /** 供 Location Pane 读取双层移动/差异数据 */
       getConnectorLayers: buildConnectorLayers,
