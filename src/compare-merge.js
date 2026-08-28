@@ -543,17 +543,18 @@ function createDecorationScheduler(flags) {
       vp.diffPairs = r.diffPairs;
     }
     // A4: 填充标记数据流接入 —— 为 unpaired 行注入 setFillerEffect
+    // diffPairs.srcStartLine/dstStartLine 已是 1-based（见 move-detection.js:281-284），直接用作 lineNumber。
     for (const vp of viewPairs) {
       if (!vp.a?.dom || !vp.b?.dom) continue;
       const fillerA = [];
       const fillerB = [];
       for (const p of vp.diffPairs || []) {
         if (p.variant === "added") {
-          // B 侧独有行 → A 侧填充点
-          fillerA.push({ lineNumber: p.dstStartLine + 1, type: "added" });
+          // B 侧独有行 → A 侧填充点（在 dstStartLine 处插入占位）
+          fillerA.push({ lineNumber: p.dstStartLine, type: "added" });
         } else if (p.variant === "removed") {
-          // A 侧独有行 → B 侧填充点
-          fillerB.push({ lineNumber: p.srcStartLine + 1, type: "removed" });
+          // A 侧独有行 → B 侧填充点（在 srcStartLine 处插入占位）
+          fillerB.push({ lineNumber: p.srcStartLine, type: "removed" });
         }
       }
       if (fillerA.length) vp.a.dispatch({ effects: setFillerEffect.of(fillerA) });

@@ -1471,10 +1471,12 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         const chunks = instance.getChunks?.() || [];
         const res = getChunks(instance.navView.state);
         if (res?.chunks?.length) {
+          // navNext: 导航到下一个块；head 在目标块起始位置，找第一个 starts AFTER head 的 chunk
           const spans = res.chunks.map((c) =>
             res.side === "b" ? [c.fromB, c.toB] : [c.fromA, c.toA]
           );
           const head = instance.navView.state.selection.main.head;
+          // findIndex 返回的是第一个 s[0] > head 的索引，即当前块的下一个
           const nextIdx = spans.findIndex((s) => s[0] > head);
           currentChunkIndex = nextIdx >= 0 ? nextIdx : (spans.length > 0 ? 0 : -1);
         }
