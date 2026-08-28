@@ -506,6 +506,11 @@
      横向只做裁剪，避免超长行把整个 MergeView 撑出一条横向滚动条。 */
   overflow-x: hidden;
 }
+/* B4: 超长行折行（方案乙）—— 允许 content 内折行，内容仍可横向滚动 */
+.cm-mergeView .cm-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 /* 三栏布局：MergeView（Yours|Result） + 独立 Theirs 编辑器 并排
    ── flex-direction: row !important 是必须的，别删 ──
    本类挂在 .compare-view 上，而上面的 `.compare-view:not([hidden])`（特异性 0-2-0）
@@ -1445,4 +1450,29 @@ body.mode-merge #btnColToggle {
 }
 [data-theme="dark"] .cm-content .cm-diff-word-removed {
   background-color: rgba(248, 81, 73, 0.4) !important;
+}
+/* A5: removed 区间 "-" 标记 widget */
+.cm-diff-minus-marker {
+  color: rgba(248, 81, 73, 0.8);
+  font-weight: bold;
+  margin-right: 1px;
+  font-size: 0.9em;
+}
+[data-theme="dark"] .cm-diff-minus-marker {
+  color: rgba(248, 81, 73, 0.9);
+}
+/* B2: emph 分层样式——配对行非改动间隙段弱色，叠加在强底之上 */
+.cm-content .cm-diff-word-nonemph {
+  background-color: rgba(128, 128, 128, 0.15) !important;
+}
+[data-theme="dark"] .cm-content .cm-diff-word-nonemph {
+  background-color: rgba(128, 128, 128, 0.25) !important;
+}
+/* A1: 行尾空白高亮（仅对比视图） */
+.cm-mergeView .cm-compare-trailing-space {
+  background-color: rgba(255, 0, 0, 0.15) !important;
+  border-bottom: 1px dotted rgba(255, 0, 0, 0.5) !important;
+}
+[data-theme="dark"] .cm-mergeView .cm-compare-trailing-space {
+  background-color: rgba(255, 80, 80, 0.25) !important;
 }

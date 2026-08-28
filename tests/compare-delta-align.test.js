@@ -357,3 +357,39 @@ test("buildExclusiveConnectorPairs：块中间删除 → 尖端落在右栏正�
   assert.notEqual(pairs[0].dstStartLine, 5); // 不等于块尾
 });
 
+
+// B3: 尾随空白独立分段
+test("annotatePair：行尾多余空白应被单独分段为 removed/added", () => {
+  const a = "hello   "; // 行尾 3 个空格
+  const b = "hello";
+  const res = annotatePair(a, b);
+  assert.equal(res.minusRanges.length, 1, "左侧应有 1 个 removed 区间");
+  assert.equal(res.minusRanges[0].from, 5, "removed 区间应从 'hello' 之后开始");
+  assert.equal(res.minusRanges[0].to, 8, "removed 区间应到行尾");
+  assert.equal(res.minusRanges[0].type, "removed");
+  assert.equal(res.plusRanges.length, 0, "右侧无改动");
+  assert.equal(res.distance, 0, "距离应为 0（仅尾随空白）");
+});
+
+test("annotatePair：两侧行尾都有多余空白时各自分段", () => {
+  const a = "hello  ";
+  const b = "hello   ";
+  const res = annotatePair(a, b);
+  // 算法匹配了前 2 个空格作为 NoOp，剩余 1 个空格在右侧
+  assert.equal(res.minusRanges.length, 0, "左侧无多余空白（已被 NoOp 消耗）");
+  assert.equal(res.plusRanges.length, 1, "右侧应有 1 个 added（多余空白）");
+  assert.equal(res.plusRanges[0].from, 7);
+  assert.equal(res.plusRanges[0].to, 8);
+});
+
+test("annotatePair：无行尾空白时不产生额外分段", () => {
+  const a = "hello";
+  const b = "world";
+  const res = annotatePair(a, b);
+  assert.equal(res.minusRanges.length, 1);
+  assert.equal(res.plusRanges.length, 1);
+  assert.equal(res.minusRanges[0].from, 0);
+  assert.equal(res.minusRanges[0].to, 5);
+  assert.equal(res.plusRanges[0].from, 0);
+  assert.equal(res.plusRanges[0].to, 5);
+});

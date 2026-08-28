@@ -22,7 +22,7 @@
 
 import { isTauriEnv } from "./compare-shims.js";
 
-const DEFAULT_ACCEPT = '.md,.markdown,.mdown,.mkd,.mkdn,.txt';
+const DEFAULT_ACCEPT = '.md,.markdown,.mdown,.mkd,.mkdn,.txt,.diff,.patch';
 
 /**
  * 读取一批 File 为 CompareFile[]（{name, content, target}）。

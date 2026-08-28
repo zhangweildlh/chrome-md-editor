@@ -13,6 +13,22 @@ import { Text } from "@codemirror/state";
 import { exportResult } from "./compare-export.js";
 
 /**
+ * 向上扫描 aLines 中第一个 ATX 标题行（^#{1,6}\s+），返回标题文本；无标题返回 null。
+ * 从目标行号上方两行开始（跳过 @@ 行本身占用的行），向下扫到开头。
+ * @param {string[]} aLines
+ * @param {number} targetLineStart 目标 chunk 起始行号（1-based，已在 aLines 中的下标 = targetLineStart - 1）
+ * @returns {string|null}
+ */
+function scanPrevHeading(aLines, targetLineStart) {
+  const startIdx = Math.max(0, targetLineStart - 2); // 从目标行上方开始
+  for (let i = startIdx; i >= 0; i--) {
+    const m = aLines[i].match(/^(#{1,6})\s+(.+)/);
+    if (m) return m[2].trim();
+  }
+  return null;
+}
+
+/**
  * 根据两侧文档生成 git 风格统一 diff 文本（行级）。
  * @param {string} a 原始文档（左侧 Yours）
  * @param {string} b 新文档（右侧 Theirs / 合并结果）
@@ -20,7 +36,8 @@ import { exportResult } from "./compare-export.js";
  * @returns {string} 统一 diff 文本（含 @@ 行与 +/- 标记）；无差异时返回空串。
  */
 export function buildDiffText(a, b, config) {
-  const ta = Text.of(a.split("\n"));
+  const aLines = a.split("\n");
+  const ta = Text.of(aLines);
   const tb = Text.of(b.split("\n"));
   const chunks = Chunk.build(ta, tb, config || { scanLimit: 500, timeout: 1500 });
   if (!chunks.length) return "";
@@ -42,7 +59,10 @@ export function buildDiffText(a, b, config) {
       newLines.push(line.text);
       pos = line.to + 1;
     }
-    out.push(`@@ -${oldStart},${oldLines.length} +${newStart},${newLines.length} @@`);
+    // A2: 向上扫描最近 ATX 标题作为 @@ 行后缀
+    const heading = scanPrevHeading(aLines, oldStart);
+    const headerSuffix = heading ? `  ${heading}` : "";
+    out.push(`@@ -${oldStart},${oldLines.length} +${newStart},${newLines.length} @@${headerSuffix}`);
     for (const l of oldLines) out.push(`- ${l}`);
     for (const l of newLines) out.push(`+ ${l}`);
   }

@@ -421,12 +421,15 @@ export function createConnectorPainter(opts) {
       // 且不留任何降级痕迹（不像 !srcRaw 分支还有 FALLBACK_BAND 可辨认），
       // 用户会以为移动的只有一行。拿不到有效行高时返回 null，交给下游三级兜底。
       if (head != null && tail == null && e > s) {
-        const lh =
-          typeof view.defaultLineHeight === "number" && view.defaultLineHeight > 0
+        // 【B4 修复】多行块末行测不出坐标时，不再用 defaultLineHeight 简单估算（折行后会低估）。
+        // 改为：用首行的实际高度估算（head.bottom - head.top），再乘以剩余行数；若测不出则退回 null。
+        const lineH = head.bottom != null && head.top != null && head.bottom > head.top
+          ? head.bottom - head.top
+          : typeof view.defaultLineHeight === "number" && view.defaultLineHeight > 0
             ? view.defaultLineHeight
             : 0;
-        if (lh <= 0) return null;
-        return { top: head.top, bottom: head.bottom + (e - s) * lh };
+        if (lineH <= 0) return null;
+        return { top: head.top, bottom: head.bottom + (e - s) * lineH };
       }
       const top = head != null ? head.top : tail.top;
       const bottom = tail != null ? tail.bottom : head.bottom;

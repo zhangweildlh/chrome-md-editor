@@ -43,7 +43,12 @@ import {
   inlineWordDiffExtension,
   setWordDiffEffect,
   buildWordDiffData,
+  computeNonEmphRanges,
+  setFillerEffect,
+  fillerDataField,
+  fillerViewPlugin,
 } from "./compare/inline-word-diff.js";
+import { trailingSpaceViewPlugin } from "./compare/trailing-space-view-plugin.js";
 import { detectMoves } from "./compare/move-detection.js";
 import {
   moveDecorationsExtension,
@@ -87,9 +92,29 @@ function safeChunks(state) {
 }
 
 /**
- * diff 计算参数。提为模块级常量，因为第三期的 B↔C 层需要在 refreshDecorations
- * （模块级函数）内用 Chunk.build 自算差异块，无法访问 createCompareMergeView 的局部作用域。
+ * 聚合变更统计：基于 chunks 数组计算增删行数。
+ *
+ * Chunk.fromA/toA/fromB/toB 是字符位置（非行号），须用 doc.lineAt() 换算。
+ * 三栏模式另有 fromC/toC，按相同方式用对应 doc 换算（Base/Yours/Theirs 两两比对各算各的）。
+ *
+ * @param {readonly any[]} chunks
+ * @param {import('@codemirror/state').EditorState} docA
+ * @param {import('@codemirror/state').EditorState} docB
+ * @returns {{added: number, removed: number}}
  */
+export function aggregateStats(chunks, docA, docB) {
+  let added = 0;
+  let removed = 0;
+  for (const c of chunks || []) {
+    if (c.toA > c.fromA) {
+      removed += docA.lineAt(c.toA - 1).number - docA.lineAt(c.fromA).number + 1;
+    }
+    if (c.toB > c.fromB) {
+      added += docB.lineAt(c.toB - 1).number - docB.lineAt(c.fromB).number + 1;
+    }
+  }
+  return { added, removed };
+}
 // scanLimit：@codemirror/merge 的差异块细分上限。库内会先 scanLimit >> 1（默认 500 → 250），
 // 当「去掉公共前后缀后的差异跨度」> 250*64 = 16000 字符时直接返回单个 Change，跳过精确 diff，
 // 导致大文档（如 3000 行 / 50 处分散差异）的 50 处差异被并成 1 个巨块，
@@ -320,17 +345,41 @@ function refreshDecorations(viewA, viewB, flags, sides, cache, accumA, accumB, l
             maxLineDistance: DEFAULT_MAX_LINE_DISTANCE,
           });
           // 同源行对 → 行内字词高亮（左侧用 minusRanges、右侧用 plusRanges）。
+          // B2: emph 分层样式——为配对行的非改动间隙段标记 nonemph，叠加强底之上形成弱色上下文。
           for (const pair of ie.pairs) {
+            const aLineIdx = pair.minusIndex;
+            const bLineIdx = pair.plusIndex;
+            const aLine = aLines[aLineIdx] || "";
+            const bLine = bLines[bLineIdx] || "";
+
+            // 主改动区间（added/removed）
             if (pair.minusRanges.length) {
               aData.push({
-                lineNumber: aStart + pair.minusIndex,
+                lineNumber: aStart + aLineIdx,
                 ranges: pair.minusRanges,
               });
             }
             if (pair.plusRanges.length) {
               bData.push({
-                lineNumber: bStart + pair.plusIndex,
+                lineNumber: bStart + bLineIdx,
                 ranges: pair.plusRanges,
+              });
+            }
+
+            // B2: 非改动间隙段（nonemph 弱色）
+            const { beforeNonEmph, afterNonEmph } = computeNonEmphRanges(
+              aLine, bLine, pair.minusRanges, pair.plusRanges
+            );
+            if (beforeNonEmph.length) {
+              aData.push({
+                lineNumber: aStart + aLineIdx,
+                ranges: beforeNonEmph,
+              });
+            }
+            if (afterNonEmph.length) {
+              bData.push({
+                lineNumber: bStart + bLineIdx,
+                ranges: afterNonEmph,
               });
             }
           }
@@ -494,6 +543,24 @@ function createDecorationScheduler(flags) {
       vp.chunks = r.chunks;
       vp.truncated = r.truncated;
       vp.diffPairs = r.diffPairs;
+    }
+    // A4: 填充标记数据流接入 —— 为 unpaired 行注入 setFillerEffect
+    // diffPairs.srcStartLine/dstStartLine 已是 1-based（见 move-detection.js:281-284），直接用作 lineNumber。
+    for (const vp of viewPairs) {
+      if (!vp.a?.dom || !vp.b?.dom) continue;
+      const fillerA = [];
+      const fillerB = [];
+      for (const p of vp.diffPairs || []) {
+        if (p.variant === "added") {
+          // B 侧独有行 → A 侧填充点（在 dstStartLine 处插入占位）
+          fillerA.push({ lineNumber: p.dstStartLine, type: "added" });
+        } else if (p.variant === "removed") {
+          // A 侧独有行 → B 侧填充点（在 srcStartLine 处插入占位）
+          fillerB.push({ lineNumber: p.srcStartLine, type: "removed" });
+        }
+      }
+      if (fillerA.length) vp.a.dispatch({ effects: setFillerEffect.of(fillerA) });
+      if (fillerB.length) vp.b.dispatch({ effects: setFillerEffect.of(fillerB) });
     }
     // 合并各层贡献并统一推送（视图不存在或被销毁则跳过）。
     for (const [view, layerMap] of wordAccum) {
@@ -1059,6 +1126,17 @@ export function createCompareMergeView(opts) {
     decoExtB.push(...inlineWordDiffExtension());
     decoExtC.push(...inlineWordDiffExtension());
   }
+  // A1: 行尾空白高亮（仅对比视图，不覆盖主编辑器）
+  decoExtA.push(trailingSpaceViewPlugin);
+  decoExtB.push(trailingSpaceViewPlugin);
+  decoExtC.push(trailingSpaceViewPlugin);
+  // A4: 独属行填充标记（filler widget，与 SVG 连线同色）
+  decoExtA.push(fillerViewPlugin);
+  decoExtB.push(fillerViewPlugin);
+  decoExtC.push(fillerViewPlugin);
+  decoExtA.push(fillerDataField);
+  decoExtB.push(fillerDataField);
+  decoExtC.push(fillerDataField);
   if (flags.moveDetect) {
     decoExtA.push(...moveDecorationsExtension({ side: "a" }));
     decoExtB.push(...moveDecorationsExtension({ side: "b" }));
@@ -1641,6 +1719,10 @@ export function createCompareMergeView(opts) {
       /** 手动触发一次差异装饰重算（供外部 / 自动化测试用） */
       refreshDecorations() {
         if (scheduler) scheduler.scheduleRefresh();
+      },
+      /** A3: 变更统计概览（+N/-M 行数） */
+      aggregateStats(chunks) {
+        return aggregateStats(chunks, mv.a.state.doc, mv.b.state.doc);
       },
       /** 供 Location Pane 读取双层移动/差异数据 */
       getConnectorLayers: buildConnectorLayers,

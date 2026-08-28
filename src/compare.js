@@ -26,6 +26,7 @@ import './compare.css';
 import { createCompareMergeView } from "./compare-merge.js";
 import { applyCompareLineMarkers } from "./compare-line-markers.js";
 import { bindChunkNavigation, bindChunkNavigationKeys } from "./compare-nav.js";
+import { getChunks } from "@codemirror/merge";
 import { pickSingleFile, readCompareFiles } from "./compare-files.js";
 import { resolvePickTarget, resolveDropTargets } from "./compare/pick-target.js";
 import {
@@ -1461,11 +1462,46 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
   }
 
   // ── 块导航（增量 B）：用当前实例的 navView ──
+  let currentChunkIndex = -1; // B1: 当前导航到的块索引
   function navNext() {
-    if (instance && instance.navView) bindChunkNavigation(instance.navView).next();
+    if (instance && instance.navView) {
+      bindChunkNavigation(instance.navView).next();
+      // B1: 更新当前块索引并刷新徽标
+      // bindChunkNavigation.next() 将光标移到目标块起始位置，head == chunk.start
+      // 需要找 head 所在（或刚经过）的块，而非下一个块
+      try {
+        const res = getChunks(instance.navView.state);
+        if (res?.chunks?.length) {
+          const spans = res.chunks.map((c) =>
+            res.side === "b" ? [c.fromB, c.toB] : [c.fromA, c.toA]
+          );
+          const head = instance.navView.state.selection.main.head;
+          // 找 head 所在的块：start <= head < end
+          const idx = spans.findIndex((s) => s[0] <= head && s[1] > head);
+          currentChunkIndex = idx >= 0 ? idx : 0;
+        }
+      } catch (_) {}
+      updateStatusCount();
+    }
   }
   function navPrev() {
-    if (instance && instance.navView) bindChunkNavigation(instance.navView).prev();
+    if (instance && instance.navView) {
+      bindChunkNavigation(instance.navView).prev();
+      // B1: 更新当前块索引并刷新徽标
+      try {
+        const res = getChunks(instance.navView.state);
+        if (res?.chunks?.length) {
+          const spans = res.chunks.map((c) =>
+            res.side === "b" ? [c.fromB, c.toB] : [c.fromA, c.toA]
+          );
+          const head = instance.navView.state.selection.main.head;
+          // 找 head 所在的块：start <= head < end
+          const idx = spans.findIndex((s) => s[0] <= head && s[1] > head);
+          currentChunkIndex = idx >= 0 ? idx : (spans.length > 0 ? spans.length - 1 : -1);
+        }
+      } catch (_) {}
+      updateStatusCount();
+    }
   }
 
   // ── 记录初始内容快照（D8 脏检查）──
@@ -1664,6 +1700,8 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
     if (!statusCountEl) return;
     let changes = 0;
     let conflicts = 0;
+    let added = 0;
+    let removed = 0;
     try {
       if (instance && typeof instance.getChunks === "function") {
         const chunks = instance.getChunks() || [];
@@ -1675,12 +1713,24 @@ import { OUTLINE_WIDTH_KEY, OUTLINE_WIDTH_DEFAULT, OUTLINE_MIN_WIDTH, OUTLINE_MA
         // 按钮要依据各自的 conflict 决定渲染单按钮还是双按钮（采纳左 / 采纳右）。
         // 两栏模式 conflict 恒为 false（无三方冲突），该式自然归零，不受影响。
         conflicts = chunks.filter((c) => c.conflict && c.layer === "ab").length;
+        // A3: 变更统计概览（+N/-M 行数）
+        try {
+          const stats = instance.aggregateStats?.(chunks);
+          if (stats) {
+            added = stats.added || 0;
+            removed = stats.removed || 0;
+          }
+        } catch (_) {}
       }
     } catch (err) {
       console.error("[compare] 统计差异块失败:", err);
     }
-    statusCountEl.textContent = `${changes} 处变更，${conflicts} 处冲突`;
+    statusCountEl.textContent = `${changes} 处变更，${conflicts} 处冲突 · +${added} / -${removed}`;
     statusCountEl.classList.toggle("has-conflict", conflicts > 0);
+    // B1: 显示当前块位置徽标
+    if (currentChunkIndex >= 0 && changes > 0) {
+      statusCountEl.textContent += ` · 第 ${currentChunkIndex + 1}/${changes} 块`;
+    }
   }
 
   // ── per-pane 标题栏：根据当前模式与文件动态设置标题（§4）──
